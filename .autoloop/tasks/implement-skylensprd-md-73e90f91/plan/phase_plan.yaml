@@ -1,0 +1,332 @@
+version: 1
+task_id: implement-skylensprd-md-73e90f91
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/implement-skylensprd-md-73e90f91/runs/run-20260326T003143Z-89d950dc/request.md
+phases:
+- phase_id: app-shell-and-permissions
+  title: App shell and permissions
+  objective: Create the greenfield Next.js app shell, PWA basics, route skeletons,
+    and the permission/fallback flow required to enter the viewer safely.
+  status: planned
+  in_scope:
+  - Bootstrap Next.js App Router, Tailwind, TypeScript, Vitest, and Playwright.
+  - Implement the landing page, /view shell, manifest, icons, and required package
+    scripts.
+  - Keep the landing and viewer routes code-split and expose Try demo mode from the
+    landing screen.
+  - Implement /api/config with the PRD-defined defaults, satellite groups, and surfaced
+    build version.
+  - Request location, camera, and orientation permissions only from the Start SkyLens
+    action.
+  - Include the required privacy/trust copy in the landing and viewer shell experience.
+  - Route denied permissions into blocking, fallback, or demo-entry states per the
+    PRD.
+  out_of_scope:
+  - Live celestial, satellite, and aircraft rendering.
+  - Final label ranking and collision management.
+  dependencies: []
+  acceptance_criteria:
+  - id: AC-1
+    text: The app boots through / and /view with the required shell UI, mandatory
+      privacy reassurance copy, landing demo entry, and PWA manifest support.
+  - id: AC-2
+    text: The Start flow requests permissions in the required order and denied paths
+      enter the correct fallback states.
+  - id: AC-3
+    text: /api/config returns the PRD-defined defaults, satellite groups, and surfaced
+      build version without changing the locked response shape.
+  - id: AC-4
+    text: Build, unit-test, and Playwright scaffolding run from the required npm scripts.
+  deliverables:
+  - Next.js app shell with landing and viewer routes
+  - app/api/config/route.ts
+  - package.json required scripts
+  - Manifest and icon assets
+  - Landing and viewer privacy reassurance copy
+  - Permission coordinator and fallback shell
+  - Initial Playwright coverage for landing, privacy copy, and denied-permission flow
+  risks:
+  - Mobile browser permission APIs vary across Safari and Chromium.
+  - Greenfield setup drift could break later milestones if route and state boundaries
+    are vague.
+  rollback:
+  - Revert to the landing page and route shell while preserving script, manifest,
+    and app bootstrap changes.
+  - Keep /api/config live with static PRD defaults if dynamic config surfacing becomes
+    unstable.
+  - Disable permission auto-entry logic and keep demo-entry access if fallback routing
+    is unstable.
+- phase_id: sensors-and-projection-foundation
+  title: Sensors and projection foundation
+  objective: Establish the normalized observer and camera pose interfaces, camera
+    stream setup, projection math, and reticle behavior that every overlay layer depends
+    on.
+  status: planned
+  in_scope:
+  - Implement location, orientation, recenter, smoothing, and alignment-health modules.
+  - Implement rear-camera acquisition with facingMode exact-environment first, environment
+    fallback, and no microphone access.
+  - Implement startup location plus watch-position updates gated by the 25-meter or
+    15-second thresholds.
+  - Implement FOV math, quaternion transforms, world-to-screen projection, and center-lock
+    targeting with the locked 4-degree angular radius.
+  - Prove stability with dummy objects, sensor fixtures, and manual-pan fallback instructions.
+  out_of_scope:
+  - Real celestial, satellite, or aircraft data.
+  - Final settings persistence UI.
+  dependencies:
+  - app-shell-and-permissions
+  acceptance_criteria:
+  - id: AC-1
+    text: Dummy objects remain stable relative to simulated camera movement and center-lock
+      selects by angular distance.
+  - id: AC-2
+    text: Alignment health scoring matches the PRD thresholds under steady and noisy
+      fixtures.
+  - id: AC-3
+    text: Manual-pan fallback produces the same normalized camera pose contract as
+      live sensors.
+  - id: AC-4
+    text: Camera and location acquisition follow the PRD fallback order, thresholds,
+      and no-microphone requirement.
+  deliverables:
+  - lib/sensors/orientation.ts
+  - lib/sensors/location.ts
+  - lib/projection/camera.ts
+  - Viewer reticle and dummy overlay harness
+  - Unit tests for projection and sensor math
+  risks:
+  - Orientation drift or incorrect screen-orientation correction can invalidate all
+    overlays.
+  - Projection bugs are easy to miss visually without deterministic fixtures.
+  rollback:
+  - Keep the /view shell and camera preview while disabling live pose consumption.
+  - Revert to manual-pan-only mode if live sensor normalization is unstable.
+- phase_id: celestial-layer
+  title: Celestial layer
+  objective: Add the client-side astronomy, star, and constellation pipelines and
+    connect them to focus-card behavior using the normalized object model.
+  status: planned
+  in_scope:
+  - Bundle star and constellation datasets.
+  - Implement Sun, Moon, planet, star, and constellation normalization.
+  - Apply horizon and likely-visible-only rules for celestial objects.
+  - Populate center-lock and detail-card behavior from live celestial data.
+  - Lock the required Sun, Moon, planet, star, and constellation card field sets
+    in the milestone outputs and tests.
+  - Enter demo mode with a hard error banner if the astronomy pipeline fails critically.
+  out_of_scope:
+  - Satellite and aircraft live data.
+  - Final dense-scene ranking across all object types.
+  dependencies:
+  - sensors-and-projection-foundation
+  acceptance_criteria:
+  - id: AC-1
+    text: Known observer/time fixtures produce expected visible celestial objects
+      and approximate screen positions within the defined tolerances.
+  - id: AC-2
+    text: Bundled stars and constellations load deterministically and constellations
+      reference only known star IDs.
+  - id: AC-3
+    text: The bottom dock reflects center-locked celestial objects and shows the fallback
+      hint when nothing qualifies.
+  - id: AC-4
+    text: Critical astronomy failures do not leave a partial live viewer and instead
+      surface the hard error plus demo fallback.
+  - id: AC-5
+    text: Celestial, star, and constellation detail cards expose the PRD-required
+      field sets rather than generic metadata blobs.
+  deliverables:
+  - public/data/stars_200.json
+  - public/data/constellations.json
+  - lib/astronomy/celestial.ts
+  - lib/astronomy/stars.ts
+  - lib/astronomy/constellations.ts
+  - Celestial, star, and constellation detail-card field contract
+  - Fixture-backed celestial tests
+  risks:
+  - Time/location math errors may look plausible but still be wrong.
+  - Over-eager daylight filtering could suppress required Sun, Moon, or planet behavior.
+  rollback:
+  - Keep the projection foundation and disable the celestial layer behind viewer configuration.
+  - Temporarily ship only Sun and Moon if broader celestial normalization regresses.
+- phase_id: satellite-layer
+  title: Satellite layer
+  objective: Add the TLE backend, client propagation, ISS handling, and stale-cache
+    resilience for the scoped satellite groups.
+  status: planned
+  in_scope:
+  - Introduce lib/cache as the shared in-memory cache interface used first by the
+    TLE backend.
+  - Implement /api/tle with CelesTrak group fetch, validation, deduplication, and
+    cache semantics.
+  - Enforce the 6-hour refresh window, 24-hour stale serving window, and stable
+    NORAD-based payload shape for returned satellites.
+  - Implement client-side TLE fetch, propagation, observer-relative conversion, and
+    normalization.
+  - Preserve overlapping satellite group membership and ISS flags.
+  - Apply satellite visibility rules and stale-data fallback behavior.
+  - Populate the required satellite detail-card fields and ISS badge state.
+  out_of_scope:
+  - Aircraft live data.
+  - Final cross-type collision management.
+  dependencies:
+  - celestial-layer
+  acceptance_criteria:
+  - id: AC-1
+    text: /api/tle returns normalized deduplicated payloads with fetchedAt, expiresAt,
+      optional stale, and stable NORAD-based satellite entries.
+  - id: AC-2
+    text: ISS and sample satellites project correctly from deterministic fixtures.
+  - id: AC-3
+    text: Refresh failure serves stale cache up to the allowed window and hides the
+      layer only when no cache is available.
+  - id: AC-4
+    text: Satellite detail cards expose the PRD-required fields including NORAD ID
+      and ISS badge behavior.
+  deliverables:
+  - lib/cache in-memory cache interface
+  - app/api/tle/route.ts
+  - lib/satellites/client.ts
+  - Satellite detail-card field contract
+  - TLE cache implementation and fixtures
+  - Satellite propagation and normalization tests
+  risks:
+  - Group deduplication can accidentally drop ISS or lose group membership.
+  - Cache freshness mistakes can either over-query or hide useful stale data.
+  rollback:
+  - Disable the satellite layer while leaving the API route and celestial viewer intact.
+  - Revert to cached fixture-backed demo satellites only if live TLE handling regresses.
+- phase_id: aircraft-layer
+  title: Aircraft layer
+  objective: Add the OpenSky proxy/cache pipeline and normalize aircraft overlays
+    without compromising privacy or viewer stability.
+  status: planned
+  in_scope:
+  - Implement /api/aircraft with Zod validation, location-bucket caching, and authenticated/anonymous
+    OpenSky fallback.
+  - Compute backend azimuth, elevation, and range relative to the observer.
+  - Normalize aircraft on the client and integrate aircraft detail-card data.
+  - Populate the required aircraft detail-card fields and Unknown flight fallback.
+  - Return an explicit degraded-availability indicator so the UI can show subtle
+    aircraft outage messaging.
+  - Degrade gracefully to an empty aircraft layer plus availability messaging when
+    upstream access fails.
+  out_of_scope:
+  - Final ranking/settings/trails polish.
+  - Any direct client-side OpenSky access.
+  dependencies:
+  - satellite-layer
+  acceptance_criteria:
+  - id: AC-1
+    text: Invalid /api/aircraft requests return 400 and valid requests return normalized
+      observer-relative aircraft data.
+  - id: AC-2
+    text: Equivalent rounded location buckets reuse the 10-second cache.
+  - id: AC-3
+    text: OpenSky outages do not break the viewer and instead return empty aircraft
+      results plus degraded availability semantics for the UI.
+  - id: AC-4
+    text: Aircraft detail cards expose the PRD-required fields including altitude
+      dual units and Unknown flight fallback behavior.
+  deliverables:
+  - app/api/aircraft/route.ts
+  - lib/aircraft/client.ts
+  - Aircraft detail-card field contract
+  - OpenSky integration and cache modules
+  - Aircraft normalization and outage tests
+  risks:
+  - OpenSky auth and anonymous limitations may change behavior across environments.
+  - Incorrect geodesic calculations can show aircraft in the wrong part of the sky.
+  rollback:
+  - Disable only the aircraft layer and keep the rest of the viewer operational.
+  - Fall back to seeded demo aircraft data in demo mode if live aircraft support is
+    unstable.
+- phase_id: ranking-settings-and-collisions
+  title: Ranking, settings, and collisions
+  objective: Enforce readable overlays with deterministic visibility, ranking, and
+    persisted viewer settings.
+  status: planned
+  in_scope:
+  - Implement visibility filtering, rank scoring, global label budget, and greedy
+    collision handling.
+  - Enforce the PRD per-type candidate budgets, anchor order, and 24-pixel minimum
+    spacing with zero overlap tolerance.
+  - Implement the settings sheet with persisted toggles, likely-visible-only, calibration
+    offsets, FOV adjustment, fix-alignment, recenter, and Enter demo mode.
+  - Route the settings-sheet Enter demo mode action into the same shared demo pipeline
+    used by landing and fallback entry points.
+  - Wire the alignment banner and daylight simplification behavior.
+  - Clamp labels to the viewport while preserving overscan for line continuity.
+  out_of_scope:
+  - Final polish of demo scenarios and trails.
+  - New object classes beyond the locked v1 scope.
+  dependencies:
+  - aircraft-layer
+  acceptance_criteria:
+  - id: AC-1
+    text: Dense-scene fixtures produce no overlapping labels and respect the global
+      label cap, per-type budgets, anchor order, and type-priority ladder.
+  - id: AC-2
+    text: Daylight simplification and likely-visible-only behavior match the PRD exactly.
+  - id: AC-3
+    text: Settings persist across reload without breaking recenter semantics or stored
+      calibration offsets.
+  - id: AC-4
+    text: The settings sheet exposes Enter demo mode from /view and hands off into
+      the shared deterministic demo pipeline.
+  deliverables:
+  - lib/labels/ranking.ts
+  - Settings sheet UI, localStorage persistence, and Enter demo mode action
+  - Dense-scene ranking fixtures and tests
+  - Alignment warning and calibration controls
+  risks:
+  - Collision handling can become unreadable on smaller screens if priority and anchoring
+    rules are not enforced strictly.
+  - Incorrect persistence boundaries could reset offsets or settings unexpectedly.
+  rollback:
+  - Ship with stricter label suppression and a reduced visible-label count if dense
+    scenes regress.
+  - Temporarily disable advanced alignment controls while preserving persisted layer
+    toggles.
+- phase_id: demo-polish-and-verification
+  title: Demo mode, polish, and verification
+  objective: Finish deterministic demo scenarios, trails, accessibility, and the full
+    verification pass needed for a shippable v1.
+  status: planned
+  in_scope:
+  - Implement bundled demo scenarios and offline-safe seeded data for San Francisco
+    evening, New York daylight, and Tokyo ISS demo cases.
+  - Add object trails, reduced-motion handling, desktop keyboard accessibility, double-tap
+    recenter, and focus trapping in settings.
+  - Implement /api/health and final status surfacing for cache health and degraded
+    modes.
+  - Complete unit, integration, and Playwright coverage with the PRD-required named
+    fixtures and run all required scripts successfully.
+  out_of_scope:
+  - Features outside the approved v1 PRD.
+  - Persistent accounts, storage, or additional object catalogs.
+  dependencies:
+  - ranking-settings-and-collisions
+  acceptance_criteria:
+  - id: AC-1
+    text: Demo mode works on desktop without live network dependencies and uses deterministic
+      bundled scenarios.
+  - id: AC-2
+    text: Required accessibility behaviors and reduced-motion fallbacks are implemented.
+  - id: AC-3
+    text: npm run build, npm run lint, npm run test, and npm run test:e2e all pass
+      with the required fixtures present.
+  deliverables:
+  - lib/demo/scenarios.ts
+  - app/api/health/route.ts
+  - Trails and polish pass
+  - Full required test and fixture set
+  risks:
+  - Demo mode may diverge from live mode if it bypasses shared normalization and ranking
+    paths.
+  - Late-stage polish can mask unresolved correctness bugs if verification is deferred.
+  rollback:
+  - Disable nonessential trails and visual polish first while preserving deterministic
+    demo mode.
+  - Keep live and demo viewer functional even if health surfacing or accessibility
+    polish needs to be reduced temporarily.
