@@ -1,0 +1,27 @@
+{
+  "id": "tokyo-iss",
+  "label": "Tokyo - Night with ISS pass",
+  "observer": {
+    "lat": 35.6762,
+    "lon": 139.6503,
+    "altMeters": 40,
+    "accuracyMeters": 1,
+    "timestampMs": 1774498200000,
+    "source": "demo"
+  },
+  "satelliteCatalog": {
+    "fetchedAt": "2026-03-26T00:00:00.000Z",
+    "expiresAt": "2026-03-26T06:00:00.000Z",
+    "satellites": [
+      {
+        "id": "25544",
+        "name": "ISS (ZARYA)",
+        "noradId": 25544,
+        "groups": ["iss", "stations"],
+        "tle1": "1 25544U 98067A   26084.84151545  .00012012  00000+0  22938-3 0  9995",
+        "tle2": "2 25544  51.6341 352.5134 0006235 232.7336 127.3084 15.48540672558833",
+        "isIss": true
+      }
+    ]
+  }
+}

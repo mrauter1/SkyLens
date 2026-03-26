@@ -1,0 +1,38 @@
+version: 1
+task_id: analyze-the-provided-codex-review-comments-for-c-635cab12
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/analyze-the-provided-codex-review-comments-for-c-635cab12/runs/run-20260326T053328Z-d42dedb0/request.md
+phases:
+  - phase_id: harden-opensky-and-orientation
+    title: Harden OpenSky bbox and orientation readiness
+    objective: Fix the applicable review findings in OpenSky longitude query construction and the orientation permission/subscription pipeline without changing public viewer state contracts.
+    status: planned
+    in_scope:
+      - Prevent inverted OpenSky longitude intervals when the query footprint crosses the antimeridian.
+      - Require observed orientation events before returning granted on platforms without explicit permission APIs.
+      - Lock orientation processing to a single selected event stream and prefer absolute samples when available.
+      - Add focused unit coverage for the corrected behaviors.
+    out_of_scope:
+      - Changing aircraft cache keys, API response schemas, or degraded fallback semantics.
+      - Adding new permission states or altering viewer routing/UI copy.
+      - Refactoring unrelated sensor, camera, or viewer modules.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: OpenSky requests generated for buckets near +/-180 no longer emit inverted longitude bounds and still allow aircraft retrieval for those regions.
+      - id: AC-2
+        text: Orientation permission returns granted only after explicit permission success or a successful bounded event probe, while denied still takes precedence.
+      - id: AC-3
+        text: Orientation pose subscription derives samples from only one event stream after selection, with deterministic fallback to deviceorientation when absolute never becomes usable.
+      - id: AC-4
+        text: Unit tests cover the new edge cases without changing unrelated viewer permission behavior.
+    deliverables:
+      - Updated OpenSky query-building logic in lib/aircraft/opensky.ts.
+      - Updated orientation permission and subscription logic in lib/sensors/orientation.ts.
+      - Focused unit tests for aircraft and orientation edge cases.
+    risks:
+      - Antimeridian normalization can still under-fetch if the longitude span handling is only partially corrected.
+      - Event-probe timing may be brittle if listener cleanup and timeout ownership are not explicit.
+      - Stream-selection logic may accidentally lock onto the fallback path before a valid absolute sample is observed.
+    rollback:
+      - Revert the OpenSky bbox change if aircraft retrieval regresses outside the antimeridian cases.
+      - Revert the probe/selection changes if tests or manual verification show false negatives on supported sensor browsers.

@@ -1,0 +1,152 @@
+{
+  "task_id": "implement-skylensprd-md-73e90f91",
+  "created_at": "2026-03-26T00:26:17.510164+00:00",
+  "request_text": "Implement SkyLensPRD.md",
+  "request_updated_at": "2026-03-26T00:31:43.940750+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/implement-skylensprd-md-73e90f91/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260326T020604Z-abe9114e",
+    "mode": "single",
+    "phase_ids": [
+      "app-shell-and-permissions",
+      "sensors-and-projection-foundation",
+      "celestial-layer",
+      "satellite-layer",
+      "aircraft-layer",
+      "ranking-settings-and-collisions",
+      "demo-polish-and-verification"
+    ],
+    "explicit": true,
+    "current_phase_index": 7,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "app-shell-and-permissions": "completed",
+    "sensors-and-projection-foundation": "completed",
+    "celestial-layer": "completed",
+    "satellite-layer": "completed",
+    "aircraft-layer": "completed",
+    "ranking-settings-and-collisions": "completed",
+    "demo-polish-and-verification": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "app-shell-and-permissions",
+      "run_id": "run-20260326T004506Z-29ea09c8",
+      "status": "in_progress",
+      "ts": "2026-03-26T00:45:06.422671+00:00"
+    },
+    {
+      "phase_id": "app-shell-and-permissions",
+      "run_id": "run-20260326T004506Z-29ea09c8",
+      "status": "completed",
+      "ts": "2026-03-26T01:12:39.884306+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "sensors-and-projection-foundation",
+      "run_id": "run-20260326T004506Z-29ea09c8",
+      "status": "in_progress",
+      "ts": "2026-03-26T01:12:39.886040+00:00"
+    },
+    {
+      "phase_id": "sensors-and-projection-foundation",
+      "run_id": "run-20260326T004506Z-29ea09c8",
+      "status": "completed",
+      "ts": "2026-03-26T01:56:49.361648+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "app-shell-and-permissions",
+      "run_id": "run-20260326T020604Z-abe9114e",
+      "status": "in_progress",
+      "ts": "2026-03-26T02:06:05.013289+00:00"
+    },
+    {
+      "phase_id": "app-shell-and-permissions",
+      "run_id": "run-20260326T020604Z-abe9114e",
+      "status": "completed",
+      "ts": "2026-03-26T02:10:22.956025+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "sensors-and-projection-foundation",
+      "run_id": "run-20260326T020604Z-abe9114e",
+      "status": "in_progress",
+      "ts": "2026-03-26T02:10:22.957181+00:00"
+    },
+    {
+      "phase_id": "sensors-and-projection-foundation",
+      "run_id": "run-20260326T020604Z-abe9114e",
+      "status": "completed",
+      "ts": "2026-03-26T02:14:29.224972+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "celestial-layer",
+      "run_id": "run-20260326T020604Z-abe9114e",
+      "status": "in_progress",
+      "ts": "2026-03-26T02:14:29.226206+00:00"
+    },
+    {
+      "phase_id": "celestial-layer",
+      "run_id": "run-20260326T020604Z-abe9114e",
+      "status": "completed",
+      "ts": "2026-03-26T02:38:05.711271+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "satellite-layer",
+      "run_id": "run-20260326T020604Z-abe9114e",
+      "status": "in_progress",
+      "ts": "2026-03-26T02:38:05.713373+00:00"
+    },
+    {
+      "phase_id": "satellite-layer",
+      "run_id": "run-20260326T020604Z-abe9114e",
+      "status": "completed",
+      "ts": "2026-03-26T02:54:09.371354+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "aircraft-layer",
+      "run_id": "run-20260326T020604Z-abe9114e",
+      "status": "in_progress",
+      "ts": "2026-03-26T02:54:09.373042+00:00"
+    },
+    {
+      "phase_id": "aircraft-layer",
+      "run_id": "run-20260326T020604Z-abe9114e",
+      "status": "completed",
+      "ts": "2026-03-26T03:15:53.603910+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "ranking-settings-and-collisions",
+      "run_id": "run-20260326T020604Z-abe9114e",
+      "status": "in_progress",
+      "ts": "2026-03-26T03:15:53.605346+00:00"
+    },
+    {
+      "phase_id": "ranking-settings-and-collisions",
+      "run_id": "run-20260326T020604Z-abe9114e",
+      "status": "completed",
+      "ts": "2026-03-26T03:38:10.229448+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "demo-polish-and-verification",
+      "run_id": "run-20260326T020604Z-abe9114e",
+      "status": "in_progress",
+      "ts": "2026-03-26T03:38:10.230906+00:00"
+    },
+    {
+      "phase_id": "demo-polish-and-verification",
+      "run_id": "run-20260326T020604Z-abe9114e",
+      "status": "completed",
+      "ts": "2026-03-26T04:28:40.488083+00:00",
+      "pair": "test"
+    }
+  ]
+}
