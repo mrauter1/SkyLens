@@ -152,6 +152,62 @@ describe('aircraft layer', () => {
     })
   })
 
+  it('splits wrapped longitude queries near +180 without sending inverted intervals', async () => {
+    const fetchMock = createAntimeridianFetch({
+      icao24: 'wrape1',
+      lat: 0.02,
+      lon: -179.8,
+      callsign: 'WRAP180',
+    })
+
+    const payload = await getAircraftApiResponse(
+      {
+        lat: 0,
+        lon: 179.96,
+        altMeters: 0,
+        radiusKm: 250,
+        limit: 50,
+      },
+      fetchMock,
+      new Date('2026-03-26T00:00:00.000Z'),
+    )
+
+    expect(payload.aircraft).toHaveLength(1)
+    expect(payload.aircraft[0]).toMatchObject({
+      id: 'icao24-wrape1',
+      callsign: 'WRAP180',
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('splits wrapped longitude queries near -180 without sending inverted intervals', async () => {
+    const fetchMock = createAntimeridianFetch({
+      icao24: 'wrapw1',
+      lat: -0.02,
+      lon: 179.8,
+      callsign: 'WRAP-180',
+    })
+
+    const payload = await getAircraftApiResponse(
+      {
+        lat: 0,
+        lon: -179.96,
+        altMeters: 0,
+        radiusKm: 250,
+        limit: 50,
+      },
+      fetchMock,
+      new Date('2026-03-26T00:00:00.000Z'),
+    )
+
+    expect(payload.aircraft).toHaveLength(1)
+    expect(payload.aircraft[0]).toMatchObject({
+      id: 'icao24-wrapw1',
+      callsign: 'WRAP-180',
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('degrades gracefully to empty aircraft data when upstream access fails', async () => {
     const payload = await getAircraftApiResponse(
       {
@@ -480,4 +536,53 @@ function buildOpenSkyResponse({
       ],
     ],
   }
+}
+
+function createAntimeridianFetch({
+  icao24,
+  lat,
+  lon,
+  callsign,
+}: {
+  icao24: string
+  lat: number
+  lon: number
+  callsign: string
+}) {
+  const targetAircraft = buildOpenSkyResponse({
+    icao24,
+    lat,
+    lon,
+    geoAltitudeM: 10668,
+    baroAltitudeM: 10620,
+    callsign,
+  })
+
+  return vi.fn(async (input: RequestInfo | URL) => {
+    const url = new URL(String(input))
+    const lamin = Number(url.searchParams.get('lamin'))
+    const lamax = Number(url.searchParams.get('lamax'))
+    const lomin = Number(url.searchParams.get('lomin'))
+    const lomax = Number(url.searchParams.get('lomax'))
+
+    expect(lomin).toBeLessThanOrEqual(lomax)
+
+    const includesTarget =
+      lat >= lamin &&
+      lat <= lamax &&
+      lon >= lomin &&
+      lon <= lomax
+
+    return new Response(
+      JSON.stringify(
+        includesTarget
+          ? targetAircraft
+          : {
+              time: targetAircraft.time,
+              states: [],
+            },
+      ),
+      { status: 200 },
+    )
+  }) as typeof fetch
 }

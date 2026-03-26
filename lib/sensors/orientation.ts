@@ -60,6 +60,8 @@ export interface ManualPoseDragOptions {
 const DEFAULT_SMOOTHING = 0.2
 const DEFAULT_MANUAL_YAW_PER_PIXEL = 0.12
 const DEFAULT_MANUAL_PITCH_PER_PIXEL = 0.12
+const ORIENTATION_PERMISSION_PROBE_TIMEOUT_MS = 250
+const ORIENTATION_STREAM_SELECTION_TIMEOUT_MS = 150
 
 export function supportsOrientationEvents(currentWindow: {
   ondeviceorientation?: unknown
@@ -69,6 +71,12 @@ export function supportsOrientationEvents(currentWindow: {
     'ondeviceorientationabsolute' in currentWindow ||
     'ondeviceorientation' in currentWindow
   )
+}
+
+function supportsAbsoluteOrientationEvents(currentWindow: {
+  ondeviceorientationabsolute?: unknown
+}) {
+  return 'ondeviceorientationabsolute' in currentWindow
 }
 
 export async function requestOrientationPermission(
@@ -81,25 +89,26 @@ export async function requestOrientationPermission(
   }
 
   const orientationSupported = supportsOrientationEvents(currentWindow)
-  const orientationPermission = await requestEventPermission(
-    currentWindow.DeviceOrientationEvent,
-  )
+  if (!orientationSupported) {
+    return 'unavailable'
+  }
+
+  const orientationPermission = await requestEventPermission(currentWindow.DeviceOrientationEvent)
+  const motionPermission = await requestEventPermission(currentWindow.DeviceMotionEvent)
 
   if (orientationPermission === 'denied') {
     return 'denied'
   }
 
-  if (orientationPermission === 'granted') {
-    return orientationSupported ? 'granted' : 'unavailable'
-  }
-
-  const motionPermission = await requestEventPermission(currentWindow.DeviceMotionEvent)
-
   if (motionPermission === 'denied') {
     return 'denied'
   }
 
-  return orientationSupported ? 'granted' : 'unavailable'
+  if (orientationPermission === 'granted' || motionPermission === 'granted') {
+    return 'granted'
+  }
+
+  return (await probeOrientationAvailability(currentWindow)) ? 'granted' : 'unavailable'
 }
 
 export function getScreenOrientationCorrectionDeg(runtime?: Pick<OrientationRuntime, 'screen' | 'orientation'>) {
@@ -336,45 +345,25 @@ export function subscribeToOrientationPose(
     }
   }
 
-  let preferredEvent: 'deviceorientationabsolute' | 'deviceorientation' | null = null
+  let selectedEvent: 'deviceorientationabsolute' | 'deviceorientation' | null = null
   let smoothedSample: OrientationSample | null = null
   let recenterBaseline: OrientationSample | null = null
   let history: OrientationSample[] = []
+  let pendingRelativeSample: OrientationSample | null = null
+  let relativeSelectionTimeoutId: ReturnType<typeof setTimeout> | null = null
+  const absoluteStreamSupported = supportsAbsoluteOrientationEvents(currentWindow)
 
-  const handleEvent = (event: Event) => {
-    const orientationEvent = event as DeviceOrientationEvent
-    const normalized = normalizeDeviceOrientationReading(
-      {
-        alpha: orientationEvent.alpha,
-        beta: orientationEvent.beta,
-        gamma: orientationEvent.gamma,
-        absolute: orientationEvent.absolute,
-        webkitCompassHeading: (orientationEvent as DeviceOrientationEvent & {
-          webkitCompassHeading?: number
-        }).webkitCompassHeading,
-      },
-      getScreenOrientationCorrectionDeg(currentWindow),
-    )
+  const clearPendingRelativeSelection = () => {
+    pendingRelativeSample = null
 
-    if (!normalized) {
-      return
+    if (relativeSelectionTimeoutId !== null) {
+      clearTimeout(relativeSelectionTimeoutId)
+      relativeSelectionTimeoutId = null
     }
+  }
 
-    const eventType = event.type as 'deviceorientationabsolute' | 'deviceorientation'
-
-    if (!preferredEvent) {
-      preferredEvent =
-        eventType === 'deviceorientationabsolute' ? eventType : preferredEvent ?? eventType
-    }
-
-    if (
-      preferredEvent === 'deviceorientationabsolute' &&
-      eventType === 'deviceorientation'
-    ) {
-      return
-    }
-
-    smoothedSample = smoothOrientationSample(smoothedSample, normalized)
+  const emitSample = (sample: OrientationSample) => {
+    smoothedSample = smoothOrientationSample(smoothedSample, sample)
     history = trimOrientationHistory([...history, smoothedSample])
     const alignmentHealth = computeAlignmentHealth(history)
 
@@ -389,6 +378,57 @@ export function subscribeToOrientationPose(
     })
   }
 
+  const commitRelativeSelection = () => {
+    if (selectedEvent || !pendingRelativeSample) {
+      return
+    }
+
+    selectedEvent = 'deviceorientation'
+    const sample = pendingRelativeSample
+    clearPendingRelativeSelection()
+    emitSample(sample)
+  }
+
+  const handleEvent = (event: Event) => {
+    const eventType = event.type as 'deviceorientationabsolute' | 'deviceorientation'
+    const normalized = getNormalizedOrientationSample(event, currentWindow)
+
+    if (!normalized) {
+      return
+    }
+
+    if (selectedEvent && eventType !== selectedEvent) {
+      return
+    }
+
+    if (selectedEvent) {
+      emitSample(normalized)
+      return
+    }
+
+    if (eventType === 'deviceorientationabsolute') {
+      selectedEvent = eventType
+      clearPendingRelativeSelection()
+      emitSample(normalized)
+      return
+    }
+
+    if (!absoluteStreamSupported) {
+      selectedEvent = eventType
+      emitSample(normalized)
+      return
+    }
+
+    pendingRelativeSample = normalized
+
+    if (relativeSelectionTimeoutId === null) {
+      relativeSelectionTimeoutId = setTimeout(() => {
+        relativeSelectionTimeoutId = null
+        commitRelativeSelection()
+      }, ORIENTATION_STREAM_SELECTION_TIMEOUT_MS)
+    }
+  }
+
   currentWindow.addEventListener('deviceorientationabsolute', handleEvent)
   currentWindow.addEventListener('deviceorientation', handleEvent)
 
@@ -397,6 +437,7 @@ export function subscribeToOrientationPose(
       recenterBaseline = getRecenterBaseline(smoothedSample)
     },
     stop() {
+      clearPendingRelativeSelection()
       currentWindow.removeEventListener('deviceorientationabsolute', handleEvent)
       currentWindow.removeEventListener('deviceorientation', handleEvent)
     },
@@ -415,6 +456,53 @@ function requestEventPermission(
   }
 
   return eventType.requestPermission().catch(() => 'denied')
+}
+
+async function probeOrientationAvailability(runtime: OrientationRuntime) {
+  return new Promise<boolean>((resolve) => {
+    const handleEvent = (event: Event) => {
+      if (!getNormalizedOrientationSample(event, runtime)) {
+        return
+      }
+
+      cleanup()
+      resolve(true)
+    }
+
+    const timeoutId = setTimeout(() => {
+      cleanup()
+      resolve(false)
+    }, ORIENTATION_PERMISSION_PROBE_TIMEOUT_MS)
+
+    const cleanup = () => {
+      clearTimeout(timeoutId)
+      runtime.removeEventListener('deviceorientationabsolute', handleEvent)
+      runtime.removeEventListener('deviceorientation', handleEvent)
+    }
+
+    runtime.addEventListener('deviceorientationabsolute', handleEvent)
+    runtime.addEventListener('deviceorientation', handleEvent)
+  })
+}
+
+function getNormalizedOrientationSample(
+  event: Event,
+  runtime: Pick<OrientationRuntime, 'screen' | 'orientation'>,
+) {
+  const orientationEvent = event as DeviceOrientationEvent
+
+  return normalizeDeviceOrientationReading(
+    {
+      alpha: orientationEvent.alpha,
+      beta: orientationEvent.beta,
+      gamma: orientationEvent.gamma,
+      absolute: orientationEvent.absolute,
+      webkitCompassHeading: (orientationEvent as DeviceOrientationEvent & {
+        webkitCompassHeading?: number
+      }).webkitCompassHeading,
+    },
+    getScreenOrientationCorrectionDeg(runtime),
+  )
 }
 
 function getOrientationWindow() {

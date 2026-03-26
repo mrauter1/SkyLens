@@ -39,6 +39,11 @@ type OpenSkyTokenCache = {
   expiresAtMs: number
 }
 
+type OpenSkyLongitudeRange = {
+  lomin: number
+  lomax: number
+}
+
 const aircraftCache = createMemoryCache<{ states: CachedOpenSkyState[] }>()
 
 let tokenCache: OpenSkyTokenCache | null = null
@@ -173,18 +178,26 @@ async function fetchOpenSkyStates(
   fetchImpl: typeof fetch,
   now: Date,
 ) {
-  const url = buildOpenSkyStatesUrl(bucketLat, bucketLon, radiusKm)
+  const urls = buildOpenSkyStatesUrls(bucketLat, bucketLon, radiusKm)
   const credentials = getOpenSkyCredentials()
 
   if (credentials) {
     try {
-      return await fetchAuthenticatedOpenSkyStates(url, credentials, fetchImpl, now)
+      return mergeOpenSkyStates(
+        await Promise.all(
+          urls.map((url) => fetchAuthenticatedOpenSkyStates(url, credentials, fetchImpl, now)),
+        ),
+      )
     } catch {
-      return fetchAnonymousOpenSkyStates(url, fetchImpl)
+      return mergeOpenSkyStates(
+        await Promise.all(urls.map((url) => fetchAnonymousOpenSkyStates(url, fetchImpl))),
+      )
     }
   }
 
-  return fetchAnonymousOpenSkyStates(url, fetchImpl)
+  return mergeOpenSkyStates(
+    await Promise.all(urls.map((url) => fetchAnonymousOpenSkyStates(url, fetchImpl))),
+  )
 }
 
 async function fetchAuthenticatedOpenSkyStates(
@@ -376,19 +389,24 @@ function normalizeAircraftForObserver(
   }
 }
 
-function buildOpenSkyStatesUrl(lat: number, lon: number, radiusKm: number) {
+function buildOpenSkyStatesUrls(lat: number, lon: number, radiusKm: number) {
   const latDeltaDeg = radiusKm / 111.32 + LOCATION_BUCKET_HALF_STEP_DEG
   const lonDeltaDeg =
     radiusKm / (111.32 * Math.max(Math.cos(degreesToRadians(lat)), 0.01)) +
     LOCATION_BUCKET_HALF_STEP_DEG
-  const url = new URL(OPENSKY_STATES_URL)
+  const lamin = clampLat(lat - latDeltaDeg)
+  const lamax = clampLat(lat + latDeltaDeg)
 
-  url.searchParams.set('lamin', clampLat(lat - latDeltaDeg).toFixed(4))
-  url.searchParams.set('lamax', clampLat(lat + latDeltaDeg).toFixed(4))
-  url.searchParams.set('lomin', clampLon(lon - lonDeltaDeg).toFixed(4))
-  url.searchParams.set('lomax', clampLon(lon + lonDeltaDeg).toFixed(4))
+  return buildOpenSkyLongitudeRanges(lon, lonDeltaDeg).map((range) => {
+    const url = new URL(OPENSKY_STATES_URL)
 
-  return url
+    url.searchParams.set('lamin', lamin.toFixed(4))
+    url.searchParams.set('lamax', lamax.toFixed(4))
+    url.searchParams.set('lomin', range.lomin.toFixed(4))
+    url.searchParams.set('lomax', range.lomax.toFixed(4))
+
+    return url
+  })
 }
 
 function createLocationBucket(query: AircraftQuery) {
@@ -420,6 +438,43 @@ function getOpenSkyCredentials() {
   }
 
   return { clientId, clientSecret }
+}
+
+function mergeOpenSkyStates(groups: CachedOpenSkyState[][]) {
+  const dedupedStates = new Map<string, CachedOpenSkyState>()
+
+  for (const group of groups) {
+    for (const state of group) {
+      dedupedStates.set(state.icao24, state)
+    }
+  }
+
+  return [...dedupedStates.values()]
+}
+
+function buildOpenSkyLongitudeRanges(lon: number, lonDeltaDeg: number): OpenSkyLongitudeRange[] {
+  if (lonDeltaDeg >= 180) {
+    return [{ lomin: -180, lomax: 180 }]
+  }
+
+  const minLon = lon - lonDeltaDeg
+  const maxLon = lon + lonDeltaDeg
+
+  if (minLon < -180) {
+    return [
+      { lomin: clampLon(minLon), lomax: 180 },
+      { lomin: -180, lomax: clampLon(maxLon) },
+    ]
+  }
+
+  if (maxLon > 180) {
+    return [
+      { lomin: clampLon(minLon), lomax: 180 },
+      { lomin: -180, lomax: clampLon(maxLon) },
+    ]
+  }
+
+  return [{ lomin: clampLon(minLon), lomax: clampLon(maxLon) }]
 }
 
 function normalizeOptionalText(value: string | null) {
