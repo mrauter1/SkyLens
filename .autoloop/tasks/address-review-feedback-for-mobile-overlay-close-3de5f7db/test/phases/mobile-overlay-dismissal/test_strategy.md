@@ -1,0 +1,28 @@
+# Test Strategy
+
+- Task ID: address-review-feedback-for-mobile-overlay-close-3de5f7db
+- Pair: test
+- Phase ID: mobile-overlay-dismissal
+- Phase Directory Key: mobile-overlay-dismissal
+- Phase Title: Finalize mobile overlay dismissal and viewport safety
+- Scope: phase-local producer artifact
+- Behavior to test coverage map:
+  - AC-1 trigger-collapsed default/open wiring: `tests/unit/viewer-shell.test.ts` verifies the mobile trigger is present with `aria-controls`, starts collapsed, and opens the sheet; `tests/e2e/demo.spec.ts` verifies the trigger opens the overlay in the mobile harness
+  - AC-2 explicit dismissal and inner-panel isolation: `tests/unit/viewer-shell.test.ts` verifies an inner control click does not dismiss the sheet while the backdrop does; `tests/e2e/demo.spec.ts` verifies the mobile overlay stays open after an in-panel click and closes from the backdrop
+  - AC-3 safe viewport reachability: `tests/unit/viewer-shell.test.ts` verifies the expanded mobile wrapper retains top/bottom safe-area padding and the sheet uses `max-h-full` so the wrapper owns viewport bounding
+  - AC-4 preserved desktop/mobile behavior: `tests/unit/viewer-shell.test.ts` keeps assertions for desktop header/content composition and blocked-state retry/demo actions within the expanded mobile sheet; `tests/e2e/permissions.spec.ts` already covers blocked-state reachability in the mobile flow
+- Preserved invariants checked:
+  - Desktop viewer header/content composition remains available
+  - Mobile overlay still uses the existing trigger-to-sheet/test-id wiring
+  - Blocked-state actions remain reachable inside the expanded sheet
+- Edge cases:
+  - In-panel interactive click should not dismiss the sheet
+  - Overlay remains absent before first trigger activation
+- Failure paths:
+  - Backdrop dismissal regression
+  - Safe-area/top-padding regression that removes the wrapper-owned viewport bounds
+- Flake / environment risks:
+  - Safe-area sizing is asserted at the class-contract level in unit tests because jsdom cannot simulate iOS `dvh`/safe-area layout
+  - Local Playwright execution is environment-blocked by missing Chromium system library `libatk-1.0.so.0`; e2e assertions are present but require a browser-capable environment to execute
+- Validation performed:
+  - `npx vitest run tests/unit/viewer-shell.test.ts` (pass, 12 tests)

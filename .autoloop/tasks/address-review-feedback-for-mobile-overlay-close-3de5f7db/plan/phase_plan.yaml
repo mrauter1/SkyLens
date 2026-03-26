@@ -1,0 +1,128 @@
+version: 1
+task_id: address-review-feedback-for-mobile-overlay-close-3de5f7db
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/address-review-feedback-for-mobile-overlay-close-3de5f7db/runs/run-20260326T184645Z-f36729fc/request.md
+phases:
+  - phase_id: mobile-overlay-dismissal
+    title: Finalize mobile overlay dismissal and viewport safety
+    objective: Ensure the mobile viewer overlay closes from an explicit backdrop/close action, stays open during inner-panel interaction, and remains reachable within iOS-safe viewport bounds without changing desktop behavior.
+    status: planned
+    in_scope:
+      - Update or confirm the mobile-only overlay sheet/backdrop behavior in the viewer shell.
+      - Keep the mobile overlay trigger collapsed by default and preserve the current trigger-to-sheet wiring.
+      - Keep the expanded sheet safe-area aware and bounded with dynamic viewport sizing.
+      - Add or adjust focused unit and mobile e2e coverage for dismissal behavior and blocked-state reachability.
+    out_of_scope:
+      - Redesigning desktop viewer cards or stage interactions.
+      - Adding new routes, settings, or overlay state abstractions.
+      - Refactoring unrelated celestial or permission logic.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: The mobile overlay remains collapsed by default and opens through the existing trigger.
+      - id: AC-2
+        text: Tapping the backdrop closes the expanded mobile overlay, while interacting inside the panel does not.
+      - id: AC-3
+        text: The expanded panel remains reachable on iOS-sized viewports without clipping top controls.
+      - id: AC-4
+        text: Desktop overlay composition and mobile blocked-state actions remain intact under test.
+    deliverables:
+      - Viewer-shell mobile overlay markup/class updates or confirmation-level adjustments
+      - Focused unit coverage for backdrop dismissal and inner-panel click isolation
+      - Any required Playwright assertion updates for the mobile overlay flow
+    risks:
+      - Responsive changes could leak into desktop or obscure stage interactions.
+      - The backdrop could accidentally block interaction when the overlay is collapsed.
+    rollback:
+      - Revert only the mobile overlay sheet/backdrop and sizing changes.
+      - Restore prior tests if they were updated only for the reverted behavior.
+  - phase_id: motion-recovery-ux
+    title: Tighten motion enable guidance and retry flow
+    objective: Make manual-pan fallback states more actionable by keeping Safari-specific guidance and a user-gesture-driven motion retry path without changing permission contracts.
+    status: planned
+    in_scope:
+      - Keep or refine the motion recovery panel shown when orientation access is unavailable outside demo mode.
+      - Ensure the Enable motion action retries orientation permission from a direct user gesture.
+      - Preserve success and error handling inside existing viewer state flows.
+      - Add or adjust focused tests for the retry action and resulting state changes.
+    out_of_scope:
+      - Introducing new permission states, routing changes, or platform-detection services.
+      - Changing blocked preflight copy or the broader permission coordinator contract.
+      - Reworking manual-pan camera math.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: Manual-pan fallback surfaces actionable motion-recovery copy and an Enable motion control.
+      - id: AC-2
+        text: The Enable motion control calls the existing orientation permission request path from user interaction.
+      - id: AC-3
+        text: Successful retry clears the recovery prompt, and failed retry keeps the user in a recoverable fallback state with error feedback.
+    deliverables:
+      - Viewer-shell motion recovery UX updates
+      - Focused unit coverage for motion retry success/failure behavior
+    risks:
+      - Shared pending state could produce the wrong button disabled/loading state.
+      - Retry handling could accidentally bypass existing fallback protections.
+    rollback:
+      - Revert the motion recovery UI/handler changes while keeping the manual-pan fallback itself intact.
+  - phase_id: likely-visible-defaults-and-diagnostics
+    title: Lock likelyVisibleOnly defaults and zero-label guidance
+    objective: Make fresh sessions default to broader visibility while keeping persisted preferences compatible and improving diagnostics when no labels are currently eligible.
+    status: planned
+    in_scope:
+      - Keep the public config and fresh viewer-settings default for likelyVisibleOnly at false.
+      - Preserve persisted viewer-setting hydration semantics.
+      - Update or confirm zero-label diagnostics copy for likelyVisibleOnly-enabled versus general empty-scene cases.
+      - Update focused config/settings/viewer tests to match the intended behavior.
+    out_of_scope:
+      - Changing storage keys or migrating persisted settings.
+      - Altering the astronomical filtering algorithms beyond what current likelyVisibleOnly behavior already requires.
+      - Broad redesign of viewer diagnostics or onboarding copy.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: Fresh config/bootstrap and default viewer settings expose likelyVisibleOnly as false.
+      - id: AC-2
+        text: Persisted viewer settings still override the bootstrap default without schema changes.
+      - id: AC-3
+        text: Zero-label diagnostics distinguish between likelyVisibleOnly daylight filtering and general no-label guidance.
+    deliverables:
+      - Any needed config or viewer-shell copy/default updates
+      - Updated config/settings/viewer tests for default and diagnostics behavior
+    risks:
+      - Tests may pass against persisted fixtures while still masking incorrect fresh defaults.
+      - Diagnostics copy may drift from the actual daylight-filtering behavior.
+    rollback:
+      - Revert the default/copy changes while preserving unrelated viewer settings behavior.
+  - phase_id: verifier-closeout
+    title: Complete verifier-required validation and closeout
+    objective: Prove the three review-fix slices hold together by running the required validation steps and capturing any final cleanup needed before handoff.
+    status: planned
+    in_scope:
+      - Run the focused tests needed to debug individual slices as implementation proceeds.
+      - Run the verifier-required full test and lint commands against the final state.
+      - Record concise results and any remaining follow-up only if validation exposes blockers.
+    out_of_scope:
+      - Adding speculative refactors after validation is green.
+      - Expanding scope beyond the three requested review items unless failures force a directly related fix.
+    dependencies:
+      - mobile-overlay-dismissal
+      - motion-recovery-ux
+      - likely-visible-defaults-and-diagnostics
+    acceptance_criteria:
+      - id: AC-1
+        text: Targeted unit/e2e coverage for the touched behaviors passes.
+      - id: AC-2
+        text: npm run test passes on the final implementation.
+      - id: AC-3
+        text: npm run lint passes on the final implementation.
+      - id: AC-4
+        text: Final notes capture the implemented behavior and any residual risk discovered during verification.
+    deliverables:
+      - Passing verifier-required command results
+      - Concise final validation summary for later phases
+    risks:
+      - Full-suite failures may expose hidden dependencies outside the touched files.
+      - Responsive or permission-state assertions may be brittle if selectors drift.
+    rollback:
+      - Revert only the specific slice that causes validation failure.
+      - Leave passing independent slices in place if the failing issue is isolated.

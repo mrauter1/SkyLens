@@ -1,0 +1,8 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260326T184645Z-f36729fc" ts="2026-03-26T18:46:46.074131+00:00" />
+Keep the mobile overlay collapsed behind the existing trigger; this task only adjusts expanded-sheet dismissal, reachability, and coverage, not the overall mobile/desktop overlay split.
+The manual-pan motion recovery action must stay a direct user-gesture retry of the existing orientation-permission request path and must not introduce new permission states or routes.
+The likelyVisibleOnly change applies to fresh bootstrap/default settings only; persisted viewer settings must continue to override that default without any storage migration.
+<autoloop-decisions-header version="1" block_seq="2" owner="implementer" phase_id="mobile-overlay-dismissal" pair="implement" turn_seq="1" run_id="run-20260326T184645Z-f36729fc" ts="2026-03-26T18:50:08.943225+00:00" />
+Keep the mobile sheet within the safe viewport by letting the fixed overlay wrapper own top/bottom safe-area padding and capping the sheet at the wrapper's full available height, rather than duplicating viewport math inside the panel.
+<autoloop-decisions-header version="1" block_seq="3" owner="test_author" phase_id="mobile-overlay-dismissal" pair="test" turn_seq="1" run_id="run-20260326T184645Z-f36729fc" ts="2026-03-26T18:55:40.538097+00:00" />
+Cover the iOS-safe reachability contract with class-level unit assertions on the mobile overlay wrapper/panel because jsdom cannot validate `dvh` or safe-area layout behavior directly, and the local Playwright environment is missing Chromium system libraries.

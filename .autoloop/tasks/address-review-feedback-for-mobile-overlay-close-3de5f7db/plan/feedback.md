@@ -1,0 +1,4 @@
+# Plan ↔ Plan Verifier Feedback
+- 2026-03-26: Replaced the placeholder plan with a four-phase implementation-ready plan covering mobile overlay dismissal, motion recovery UX, `likelyVisibleOnly` defaults/diagnostics, and final verifier-required validation.
+- 2026-03-26: Anchored the plan to the current viewer-shell/config/tests baseline because the repo already contains parts of the requested behavior, so later phases should preserve those contracts and close any remaining gaps rather than redesign the flow.
+- PLAN-001 non-blocking: No blocking verification findings. The plan and phase contract cover the requested overlay-close, motion-recovery, and `likelyVisibleOnly` work, keep the changes local to the current viewer/config/test surfaces, preserve persisted-settings compatibility, and include verifier-required full test/lint closeout.
