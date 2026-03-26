@@ -45,7 +45,7 @@ describe('label ranking', () => {
     expect(venusPlacement?.rect.left).toBe(0)
   })
 
-  it('uses the PRD anchor order when collisions force a fallback anchor', () => {
+  it('suppresses colliding labels instead of hopping them to a remote anchor', () => {
     const placements = layoutLabels(
       DENSE_SCENE_FIXTURE.filter((candidate) =>
         candidate.object.id === 'icao24-alpha' || candidate.object.id === 'icao24-bravo',
@@ -55,9 +55,30 @@ describe('label ranking', () => {
       },
     )
 
-    expect(placements).toHaveLength(2)
+    expect(placements).toHaveLength(1)
     expect(placements[0].anchor).toBe('above')
-    expect(placements[1].anchor).toBe('below')
+  })
+
+  it('uses a stable below-anchor only when the preferred above-anchor would leave the viewport', () => {
+    const placements = layoutLabels(
+      [
+        createCandidate({
+          id: 'top-edge',
+          type: 'planet',
+          label: 'Mercury',
+          importance: 60,
+          x: 180,
+          y: 14,
+          magnitude: -1.2,
+        }),
+      ],
+      {
+        viewport: VIEWPORT,
+      },
+    )
+
+    expect(placements).toHaveLength(1)
+    expect(placements[0].anchor).toBe('below')
   })
 
   it('applies the type-priority ladder and center-lock override deterministically', () => {

@@ -47,6 +47,7 @@ import {
 } from '../../lib/satellites/client'
 import type { TleApiResponse } from '../../lib/satellites/contracts'
 import {
+  compareLabelCandidates,
   getLabelRankScore,
   layoutLabels,
   type LabelCandidate,
@@ -97,7 +98,7 @@ type ProjectedSkyObject = SkyObject & {
   projection: ReturnType<typeof projectWorldPointToScreen>
 }
 
-type DisplayedSkyObject = RankedLabelPlacement<ProjectedSkyObject>
+type OnObjectLabel = RankedLabelPlacement<ProjectedSkyObject>
 type TrailSample = {
   id: string
   x: number
@@ -273,25 +274,36 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   )
   const centerLockedObject =
     projectedObjects.find((object) => object.id === centerLockedCandidate?.id) ?? null
-  const displayedObjects: DisplayedSkyObject[] = layoutLabels(
-    projectedObjects
-      .filter(
-        (object) =>
-          !isCelestialDaylightLabelSuppressed(object) ||
-          object.id === centerLockedObject?.id ||
-          object.id === selectedObjectId,
-      )
-      .map((object) => ({
-        object,
-        projection: object.projection,
-        secondaryLabel: formatSkyObjectSublabel(object),
-      })) satisfies LabelCandidate<ProjectedSkyObject>[],
-    {
-      viewport,
-      maxLabels: PUBLIC_CONFIG.defaults.maxLabels,
-      centerLockedObjectId: centerLockedObject?.id ?? null,
-    },
+  const markerObjects = projectedObjects.filter(
+    (object) =>
+      object.projection.visible &&
+      (!isCelestialDaylightLabelSuppressed(object) ||
+        object.id === centerLockedObject?.id ||
+        object.id === selectedObjectId),
   )
+  const markerLabelCandidates = markerObjects.map((object) => ({
+    object,
+    projection: object.projection,
+    secondaryLabel: formatSkyObjectSublabel(object),
+  })) satisfies LabelCandidate<ProjectedSkyObject>[]
+  const onObjectLabels: OnObjectLabel[] =
+    viewerSettings.labelDisplayMode === 'on_objects'
+      ? layoutLabels(markerLabelCandidates, {
+          viewport,
+          maxLabels: PUBLIC_CONFIG.defaults.maxLabels,
+          centerLockedObjectId: centerLockedObject?.id ?? null,
+        })
+      : []
+  const topListObjects =
+    viewerSettings.labelDisplayMode === 'top_list'
+      ? [...markerLabelCandidates]
+          .sort((left, right) =>
+            compareLabelCandidates(left, right, {
+              centerLockedObjectId: centerLockedObject?.id ?? null,
+            }),
+          )
+          .map((candidate) => candidate.object)
+      : []
   const selectedObject =
     projectedObjects.find((object) => object.id === selectedObjectId) ?? null
   const selectedDetailObject = selectedObject
@@ -308,16 +320,18 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       ? trailSamples.filter((sample) => sample.id === activeSummaryObject.id)
       : []
   const renderedLineSegments = hasMounted ? scene.lineSegments : []
-  const renderedDisplayedObjects = hasMounted ? displayedObjects : []
+  const renderedMarkerObjects = hasMounted ? markerObjects : []
+  const renderedOnObjectLabels = hasMounted ? onObjectLabels : []
+  const renderedTopListObjects = hasMounted ? topListObjects : []
   const renderedCenterLockedObject = hasMounted ? centerLockedObject : null
   const renderedSelectedDetailObject = hasMounted ? selectedDetailObject : null
   const renderedActiveSummaryObject = hasMounted ? activeSummaryObject : null
   const visibilityDiagnosticsNote =
-    renderedDisplayedObjects.length === 0
+    renderedMarkerObjects.length === 0
       ? likelyVisibleOnly
-        ? 'No labels are currently eligible. Likely visible only may hide stars, constellations, and satellites in daylight.'
-        : 'No labels are currently eligible. Check location accuracy, tilt the phone above the horizon, and confirm layer toggles in Settings.'
-      : `${renderedDisplayedObjects.length} labels are currently eligible on screen.`
+        ? 'No objects are currently visible. Likely visible only may hide stars, constellations, and satellites in daylight.'
+        : 'No objects are currently visible. Check location accuracy, tilt the phone above the horizon, and confirm layer toggles in Settings.'
+      : `${renderedMarkerObjects.length} objects are currently visible on screen.`
 
   const handleRetryPermissions = () => {
     setRetryError(null)
@@ -857,6 +871,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       satellites: getSatelliteLayerStatusLabel(healthStatus),
     },
     likelyVisibleOnly,
+    labelDisplayMode: viewerSettings.labelDisplayMode,
     demoScenarioId: state.entry === 'demo' ? demoScenario.id : undefined,
     demoScenarioOptions: state.entry === 'demo' ? demoScenarioOptions : [],
     onLayerToggle: (layer: EnabledLayer, enabled: boolean) => {
@@ -872,6 +887,12 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       setViewerSettings((current) => ({
         ...current,
         likelyVisibleOnly: enabled,
+      }))
+    },
+    onLabelDisplayModeChange: (labelDisplayMode: 'center_only' | 'on_objects' | 'top_list') => {
+      setViewerSettings((current) => ({
+        ...current,
+        labelDisplayMode,
       }))
     },
     onHeadingOffsetChange: (value: number) => {
@@ -1089,23 +1110,71 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             />
           ))}
         </svg>
-        {renderedDisplayedObjects.map((object) => (
+        {viewerSettings.labelDisplayMode === 'top_list' && renderedTopListObjects.length > 0 ? (
+          <div className="pointer-events-none absolute inset-x-4 top-24 z-20 flex justify-center px-2">
+            <div
+              className="flex max-w-4xl flex-wrap justify-center gap-2 rounded-[1.5rem] border border-sky-100/10 bg-slate-950/58 px-3 py-3 shadow-[0_16px_36px_rgba(3,7,13,0.24)] backdrop-blur"
+              data-testid="sky-object-top-list"
+            >
+              {renderedTopListObjects.map((object) => (
+                <div
+                  key={object.id}
+                  data-testid="sky-object-top-list-item"
+                  className={`rounded-full border px-3 py-1 text-xs ${
+                    object.id === selectedObject?.id || object.id === centerLockedObject?.id
+                      ? 'border-amber-200/60 bg-amber-200/16 text-amber-50'
+                      : 'border-sky-100/10 bg-white/5 text-sky-50'
+                  }`}
+                >
+                  {object.label}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+        {renderedMarkerObjects.map((object) => (
           <button
-            key={object.object.id}
+            key={object.id}
             type="button"
             onClick={() =>
-              setSelectedObjectId((current) =>
-                current === object.object.id ? null : object.object.id,
-              )
+              setSelectedObjectId((current) => (current === object.id ? null : object.id))
             }
-            aria-pressed={selectedObject?.id === object.object.id}
-            className={`absolute min-h-11 min-w-[44px] rounded-2xl border px-3 py-2 text-left text-xs shadow-[0_12px_30px_rgba(3,7,13,0.22)] ${
+            aria-label={`${object.label} ${formatSkyObjectSublabel(object)}`}
+            aria-pressed={selectedObject?.id === object.id}
+            data-testid="sky-object-marker"
+            data-object-id={object.id}
+            className={`absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full ${
               prefersReducedMotion ? '' : 'transition'
-            } ${
-              centerLockedObject?.id === object.object.id ||
-              selectedObject?.id === object.object.id
-                ? 'border-amber-200/70 bg-amber-200/18 text-amber-50'
-                : 'border-sky-100/18 bg-slate-950/65 text-sky-50'
+            }`}
+            style={{
+              left: `${object.projection.x}px`,
+              top: `${object.projection.y}px`,
+            }}
+          >
+            <span className="sr-only">
+              {object.label} {formatSkyObjectSublabel(object)}
+            </span>
+            <span
+              className={`block ${getMarkerVisualClassName(object, {
+                centerLockedObjectId: centerLockedObject?.id ?? null,
+                selectedObjectId,
+              })}`}
+              style={{
+                width: `${getMarkerSizePx(object, viewerSettings.verticalFovAdjustmentDeg)}px`,
+                height: `${getMarkerSizePx(object, viewerSettings.verticalFovAdjustmentDeg)}px`,
+              }}
+            />
+          </button>
+        ))}
+        {renderedOnObjectLabels.map((object) => (
+          <div
+            key={object.object.id}
+            data-testid="sky-object-label"
+            data-object-id={object.object.id}
+            className={`pointer-events-none absolute rounded-2xl border px-3 py-2 text-left text-xs shadow-[0_12px_30px_rgba(3,7,13,0.22)] ${
+              object.object.id === selectedObject?.id || object.object.id === centerLockedObject?.id
+                ? 'border-amber-200/70 bg-slate-950/82 text-amber-50'
+                : 'border-sky-100/18 bg-slate-950/72 text-sky-50'
             }`}
             style={{
               left: `${object.rect.left}px`,
@@ -1118,7 +1187,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             <span className="block truncate text-[11px] text-sky-100/75">
               {formatSkyObjectSublabel(object.object)}
             </span>
-          </button>
+          </div>
         ))}
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <div className="relative h-16 w-16 rounded-full border border-sky-100/40">
@@ -1126,6 +1195,21 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             <div className="absolute inset-y-1/2 left-2 h-px w-12 -translate-y-1/2 bg-sky-50/80" />
           </div>
         </div>
+        {viewerSettings.labelDisplayMode === 'center_only' && renderedCenterLockedObject ? (
+          <div className="pointer-events-none absolute inset-x-4 inset-y-1/2 z-20 flex -translate-y-[calc(50%_-_4.5rem)] justify-center">
+            <div
+              data-testid="center-lock-chip"
+              className="rounded-full border border-amber-200/55 bg-slate-950/78 px-4 py-2 text-center shadow-[0_12px_30px_rgba(3,7,13,0.24)]"
+            >
+              <p className="text-sm font-semibold text-amber-50">
+                {renderedCenterLockedObject.label}
+              </p>
+              <p className="text-[11px] uppercase tracking-[0.16em] text-amber-100/75">
+                {formatSkyObjectSublabel(renderedCenterLockedObject)}
+              </p>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <div className="pointer-events-none relative z-10 flex min-h-screen flex-col justify-between px-4 pb-5 pt-4 sm:px-6 sm:pb-6">
@@ -1270,7 +1354,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                       FOV {getEffectiveVerticalFovDeg(viewerSettings.verticalFovAdjustmentDeg)}°
                       {' '}vertical
                     </p>
-                    <p>Visible labels {renderedDisplayedObjects.length}</p>
+                    <p>Visible markers {renderedMarkerObjects.length}</p>
                   </div>
                 </div>
               </section>
@@ -1526,7 +1610,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                           FOV {getEffectiveVerticalFovDeg(viewerSettings.verticalFovAdjustmentDeg)}
                           ° vertical
                         </p>
-                        <p>Visible labels {renderedDisplayedObjects.length}</p>
+                        <p>Visible markers {renderedMarkerObjects.length}</p>
                       </div>
                     </div>
                   </section>
@@ -1654,6 +1738,101 @@ function isTrailEligible(
   return object.metadata.isIss === true || selectedObjectId === object.id
 }
 
+function getMarkerVisualClassName(
+  object: SkyObject,
+  {
+    centerLockedObjectId,
+    selectedObjectId,
+  }: {
+    centerLockedObjectId: string | null
+    selectedObjectId: string | null
+  },
+) {
+  const isFocused = object.id === centerLockedObjectId || object.id === selectedObjectId
+
+  if (isFocused) {
+    return 'rounded-full border border-amber-100/80 bg-amber-200/35 shadow-[0_0_0_4px_rgba(251,191,36,0.14),0_0_18px_rgba(251,191,36,0.4)]'
+  }
+
+  switch (object.type) {
+    case 'sun':
+      return 'rounded-full border border-amber-100/75 bg-amber-200/55 shadow-[0_0_16px_rgba(251,191,36,0.42)]'
+    case 'moon':
+      return 'rounded-full border border-slate-100/70 bg-slate-100/65 shadow-[0_0_14px_rgba(226,232,240,0.24)]'
+    case 'planet':
+      return 'rounded-full border border-emerald-100/65 bg-emerald-200/45 shadow-[0_0_14px_rgba(110,231,183,0.24)]'
+    case 'star':
+      return 'rotate-45 border border-sky-100/80 bg-sky-50/80 shadow-[0_0_12px_rgba(186,230,253,0.22)]'
+    case 'constellation':
+      return 'rounded-sm border border-sky-100/65 bg-sky-100/18 shadow-[0_0_10px_rgba(186,230,253,0.16)]'
+    case 'satellite':
+      return object.metadata.isIss === true
+        ? 'rounded-[0.4rem] border border-violet-100/70 bg-violet-200/42 shadow-[0_0_14px_rgba(196,181,253,0.28)]'
+        : 'rounded-[0.35rem] border border-sky-100/70 bg-sky-200/38 shadow-[0_0_12px_rgba(125,211,252,0.2)]'
+    case 'aircraft':
+      return 'rounded-[0.35rem] border border-cyan-100/70 bg-cyan-200/38 shadow-[0_0_12px_rgba(103,232,249,0.22)]'
+    default:
+      return 'rounded-full border border-sky-100/70 bg-sky-100/30'
+  }
+}
+
+function getMarkerSizePx(
+  object: SkyObject,
+  verticalFovAdjustmentDeg: number,
+) {
+  const effectiveFovDeg = getEffectiveVerticalFovDeg(verticalFovAdjustmentDeg)
+  const fovScale = clampNumber(50 / effectiveFovDeg, 0.82, 1.24)
+  let sizePx = 0
+
+  switch (object.type) {
+    case 'sun':
+      sizePx = 18
+      break
+    case 'moon':
+      sizePx = 16
+      break
+    case 'planet':
+      sizePx = 8 + getMagnitudeBoost(object.magnitude)
+      break
+    case 'star':
+      sizePx = 6 + getMagnitudeBoost(object.magnitude) * 0.75
+      break
+    case 'satellite':
+      sizePx = 6 + getRangeBoost(object.rangeKm)
+      if (object.metadata.isIss === true) {
+        sizePx += 2
+      }
+      break
+    case 'aircraft':
+      sizePx = 7 + getRangeBoost(object.rangeKm)
+      break
+    case 'constellation':
+      sizePx = 9
+      break
+    default:
+      sizePx = 7
+      break
+  }
+
+  return Math.max(6, Math.round(sizePx * fovScale))
+}
+
+function getMagnitudeBoost(magnitude?: number) {
+  if (typeof magnitude !== 'number' || !Number.isFinite(magnitude)) {
+    return 0
+  }
+
+  return clampNumber((4 - magnitude) * 0.8, 0, 4)
+}
+
+function getRangeBoost(rangeKm?: number) {
+  if (typeof rangeKm !== 'number' || !Number.isFinite(rangeKm)) {
+    return 0
+  }
+
+  return clampNumber((120 - Math.min(rangeKm, 120)) / 24, 0, 4)
+}
+
 function getSatelliteLayerStatusLabel(healthStatus: HealthApiResponse | null) {
   switch (healthStatus?.tleCache.status) {
     case 'stale':
@@ -1683,6 +1862,10 @@ function getHydratedSnapshot() {
 
 function getServerHydrationSnapshot() {
   return false
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max)
 }
 
 function StatusBadge({ label, value }: { label: string; value: string }) {

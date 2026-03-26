@@ -108,6 +108,72 @@ describe('projection camera foundation', () => {
     expect(southProjection.visible).toBe(false)
   })
 
+  it('keeps projection stable through zenith without flipping the right axis', () => {
+    const viewport = { width: 400, height: 800 }
+
+    for (const pitchDeg of [89, 90, 91]) {
+      const quaternion = createCameraQuaternion(0, pitchDeg, 0)
+      const centeredProjection = projectWorldPointToScreen(
+        { quaternion },
+        { azimuthDeg: 0, elevationDeg: pitchDeg },
+        viewport,
+      )
+      const eastProjection = projectWorldPointToScreen(
+        { quaternion },
+        { azimuthDeg: 10, elevationDeg: 89 },
+        viewport,
+      )
+      const westProjection = projectWorldPointToScreen(
+        { quaternion },
+        { azimuthDeg: 350, elevationDeg: 89 },
+        viewport,
+      )
+
+      expect(centeredProjection.visible).toBe(true)
+      expect(centeredProjection.x).toBeCloseTo(200, 3)
+      expect(centeredProjection.y).toBeCloseTo(400, 3)
+      expect(eastProjection.visible).toBe(true)
+      expect(westProjection.visible).toBe(true)
+      expect(Number.isFinite(eastProjection.x)).toBe(true)
+      expect(Number.isFinite(westProjection.x)).toBe(true)
+      expect(eastProjection.x).toBeGreaterThan(200)
+      expect(westProjection.x).toBeLessThan(200)
+    }
+  })
+
+  it('keeps projection stable through nadir without flipping the right axis', () => {
+    const viewport = { width: 400, height: 800 }
+
+    for (const pitchDeg of [-89, -90, -91]) {
+      const quaternion = createCameraQuaternion(0, pitchDeg, 0)
+      const centeredProjection = projectWorldPointToScreen(
+        { quaternion },
+        { azimuthDeg: 0, elevationDeg: pitchDeg },
+        viewport,
+      )
+      const eastProjection = projectWorldPointToScreen(
+        { quaternion },
+        { azimuthDeg: 10, elevationDeg: -89 },
+        viewport,
+      )
+      const westProjection = projectWorldPointToScreen(
+        { quaternion },
+        { azimuthDeg: 350, elevationDeg: -89 },
+        viewport,
+      )
+
+      expect(centeredProjection.visible).toBe(true)
+      expect(centeredProjection.x).toBeCloseTo(200, 3)
+      expect(centeredProjection.y).toBeCloseTo(400, 3)
+      expect(eastProjection.visible).toBe(true)
+      expect(westProjection.visible).toBe(true)
+      expect(Number.isFinite(eastProjection.x)).toBe(true)
+      expect(Number.isFinite(westProjection.x)).toBe(true)
+      expect(eastProjection.x).toBeGreaterThan(200)
+      expect(westProjection.x).toBeLessThan(200)
+    }
+  })
+
   it('center-locks by angular distance within the fixed 4-degree radius', () => {
     const centered = pickCenterLockedCandidate([
       { id: 'closer-lower-rank', rankScore: 60, angularDistanceDeg: 1.2 },

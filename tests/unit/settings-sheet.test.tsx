@@ -29,6 +29,7 @@ describe('SettingsSheet', () => {
   it('renders subtle aircraft availability messaging inside the sheet', async () => {
     const onFixAlignment = vi.fn()
     const onHeadingOffsetChange = vi.fn()
+    const onLabelDisplayModeChange = vi.fn()
 
     await act(async () => {
       root.render(
@@ -50,8 +51,10 @@ describe('SettingsSheet', () => {
             aircraft: 'Live aircraft temporarily unavailable',
           },
           likelyVisibleOnly: true,
+          labelDisplayMode: 'center_only',
           onLayerToggle: vi.fn(),
           onLikelyVisibleOnlyChange: vi.fn(),
+          onLabelDisplayModeChange,
           onHeadingOffsetChange,
         }),
       )
@@ -86,12 +89,26 @@ describe('SettingsSheet', () => {
 
     expect(onFixAlignment).toHaveBeenCalledTimes(1)
     expect(headingSlider?.value).toBe('4')
+    expect(
+      (container.querySelector('input[aria-label="Center only"]') as HTMLInputElement | null)
+        ?.checked,
+    ).toBe(true)
 
     await act(async () => {
       setInputValue(headingSlider!, '6')
     })
 
     expect(onHeadingOffsetChange).toHaveBeenCalledWith(6)
+
+    const topListRadio = container.querySelector(
+      'input[aria-label="Top list"]',
+    ) as HTMLInputElement | null
+
+    await act(async () => {
+      topListRadio?.click()
+    })
+
+    expect(onLabelDisplayModeChange).toHaveBeenCalledWith('top_list')
   })
 
   it('traps focus and exposes demo scenario switching controls when open', async () => {
@@ -114,6 +131,7 @@ describe('SettingsSheet', () => {
             constellations: true,
           },
           likelyVisibleOnly: true,
+          labelDisplayMode: 'center_only',
           demoScenarioId: 'sf-evening',
           demoScenarioOptions: [
             { id: 'sf-evening', label: 'San Francisco - Clear evening' },
@@ -122,6 +140,7 @@ describe('SettingsSheet', () => {
           ],
           onLayerToggle: vi.fn(),
           onLikelyVisibleOnlyChange: vi.fn(),
+          onLabelDisplayModeChange: vi.fn(),
         }),
       )
     })
@@ -185,8 +204,10 @@ describe('SettingsSheet', () => {
             constellations: true,
           },
           likelyVisibleOnly: true,
+          labelDisplayMode: 'center_only',
           onLayerToggle: vi.fn(),
           onLikelyVisibleOnlyChange: vi.fn(),
+          onLabelDisplayModeChange: vi.fn(),
         }),
       )
     })
