@@ -141,21 +141,34 @@ export function createCameraQuaternion(
   pitchDeg: number,
   rollDeg: number,
 ): Quaternion {
-  const forward = horizontalToWorldVector(yawDeg, pitchDeg)
   const worldUp: Vec3 = [0, 0, 1]
-  let right = normalizeVec3(cross(forward, worldUp))
+  const yawRad = -degreesToRadians(yawDeg)
+  const pitchRad = degreesToRadians(pitchDeg)
+  const rollRad = degreesToRadians(rollDeg)
 
-  if (magnitudeVec3(right) < 1e-6) {
-    right = [1, 0, 0]
+  let right: Vec3 = [1, 0, 0]
+  let down: Vec3 = [0, 0, -1]
+  let forward: Vec3 = [0, 1, 0]
+
+  if (Math.abs(yawRad) > 1e-6) {
+    right = rotateAroundAxis(right, worldUp, yawRad)
+    down = rotateAroundAxis(down, worldUp, yawRad)
+    forward = rotateAroundAxis(forward, worldUp, yawRad)
   }
 
-  let down = normalizeVec3(cross(forward, right))
-  const rollRad = degreesToRadians(rollDeg)
+  if (Math.abs(pitchRad) > 1e-6) {
+    down = rotateAroundAxis(down, right, pitchRad)
+    forward = rotateAroundAxis(forward, right, pitchRad)
+  }
 
   if (Math.abs(rollRad) > 1e-6) {
     right = rotateAroundAxis(right, forward, rollRad)
     down = rotateAroundAxis(down, forward, rollRad)
   }
+
+  right = normalizeVec3(right)
+  down = normalizeVec3(down)
+  forward = normalizeVec3(forward)
 
   return normalizeQuaternion(
     quaternionFromRotationMatrix([
@@ -279,14 +292,6 @@ export function radiansToDegrees(value: number) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max)
-}
-
-function cross(left: Vec3, right: Vec3): [number, number, number] {
-  return [
-    left[1] * right[2] - left[2] * right[1],
-    left[2] * right[0] - left[0] * right[2],
-    left[0] * right[1] - left[1] * right[0],
-  ]
 }
 
 function magnitudeVec3(vector: Vec3) {

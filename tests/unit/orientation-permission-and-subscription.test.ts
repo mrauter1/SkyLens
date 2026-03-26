@@ -207,16 +207,141 @@ describe('orientation permission and subscription', () => {
     expect(poses).toHaveLength(1)
     expect(poses[0].headingDeg).toBe(25)
   })
+
+  it('keeps emitted samples continuous through zenith before smoothing and recenter are applied', () => {
+    const { runtime, emit } = createOrientationRuntime({
+      supportsAbsolute: false,
+      screenAngle: 90,
+    })
+    const poses: Array<{ headingDeg: number; pitchDeg: number; rollDeg: number }> = []
+
+    const subscription = subscribeToOrientationPose(
+      ({ sample }) => {
+        poses.push({
+          headingDeg: sample.headingDeg,
+          pitchDeg: sample.pitchDeg,
+          rollDeg: sample.rollDeg,
+        })
+      },
+      { runtime },
+    )
+
+    emit('deviceorientation', {
+      alpha: 0,
+      beta: 0,
+      gamma: 89,
+    })
+    emit('deviceorientation', {
+      alpha: 180,
+      beta: 180,
+      gamma: 80,
+    })
+
+    subscription.stop()
+
+    expect(poses).toHaveLength(2)
+    expect(poses[0].headingDeg).toBe(90)
+    expect(poses[0].pitchDeg).toBe(89)
+    expect(poses[0].rollDeg).toBeCloseTo(0, 4)
+    expect(poses[1].headingDeg).toBeCloseTo(90, 4)
+    expect(poses[1].pitchDeg).toBeGreaterThan(90)
+    expect(poses[1].rollDeg).toBeCloseTo(0, 4)
+  })
+
+  it('keeps emitted samples continuous through nadir before smoothing and recenter are applied', () => {
+    const { runtime, emit } = createOrientationRuntime({
+      supportsAbsolute: false,
+      screenAngle: 90,
+    })
+    const poses: Array<{ headingDeg: number; pitchDeg: number; rollDeg: number }> = []
+
+    const subscription = subscribeToOrientationPose(
+      ({ sample }) => {
+        poses.push({
+          headingDeg: sample.headingDeg,
+          pitchDeg: sample.pitchDeg,
+          rollDeg: sample.rollDeg,
+        })
+      },
+      { runtime },
+    )
+
+    emit('deviceorientation', {
+      alpha: 0,
+      beta: 0,
+      gamma: -89,
+    })
+    emit('deviceorientation', {
+      alpha: 180,
+      beta: -180,
+      gamma: -80,
+    })
+
+    subscription.stop()
+
+    expect(poses).toHaveLength(2)
+    expect(poses[0].headingDeg).toBe(90)
+    expect(poses[0].pitchDeg).toBe(-89)
+    expect(poses[0].rollDeg).toBeCloseTo(0, 4)
+    expect(poses[1].headingDeg).toBeCloseTo(90, 4)
+    expect(poses[1].pitchDeg).toBeLessThan(-90)
+    expect(poses[1].rollDeg).toBeCloseTo(0, 4)
+  })
+
+  it('keeps recenter stable when the baseline is captured near zenith', () => {
+    const { runtime, emit } = createOrientationRuntime({
+      supportsAbsolute: false,
+      screenAngle: 90,
+    })
+    const poses: Array<{ yawDeg: number; pitchDeg: number; rollDeg: number }> = []
+
+    const subscription = subscribeToOrientationPose(
+      ({ pose }) => {
+        poses.push({
+          yawDeg: pose.yawDeg,
+          pitchDeg: pose.pitchDeg,
+          rollDeg: pose.rollDeg,
+        })
+      },
+      { runtime },
+    )
+
+    emit('deviceorientation', {
+      alpha: 0,
+      beta: 0,
+      gamma: 89,
+    })
+
+    subscription.recenter()
+
+    emit('deviceorientation', {
+      alpha: 180,
+      beta: 180,
+      gamma: 80,
+    })
+
+    subscription.stop()
+
+    expect(poses).toHaveLength(2)
+    expect(poses[0].yawDeg).toBe(90)
+    expect(poses[0].pitchDeg).toBe(89)
+    expect(poses[1].yawDeg).toBeCloseTo(0, 4)
+    expect(poses[1].pitchDeg).toBeGreaterThan(0)
+    expect(poses[1].pitchDeg).toBeLessThan(5)
+    expect(poses[1].rollDeg).toBeCloseTo(0, 4)
+  })
 })
 
 function createOrientationRuntime({
   orientationPermission,
   motionPermission,
   supportsAbsolute = true,
+  screenAngle = 0,
 }: {
   orientationPermission?: () => Promise<'granted' | 'denied'>
   motionPermission?: () => Promise<'granted' | 'denied'>
   supportsAbsolute?: boolean
+  screenAngle?: number
 } = {}) {
   const listeners = {
     deviceorientationabsolute: new Set<EventListenerOrEventListenerObject>(),
@@ -234,7 +359,7 @@ function createOrientationRuntime({
     ...(supportsAbsolute ? { ondeviceorientationabsolute: null } : {}),
     screen: {
       orientation: {
-        angle: 0,
+        angle: screenAngle,
       },
     },
     ...(orientationPermission

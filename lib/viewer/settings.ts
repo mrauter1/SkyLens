@@ -4,9 +4,12 @@ import { getPublicConfig, type EnabledLayer } from '../config'
 
 export const VIEWER_SETTINGS_STORAGE_KEY = 'skylens.viewer-settings.v1'
 
+export type LabelDisplayMode = 'center_only' | 'on_objects' | 'top_list'
+
 export interface ViewerSettings {
   enabledLayers: Record<EnabledLayer, boolean>
   likelyVisibleOnly: boolean
+  labelDisplayMode: LabelDisplayMode
   headingOffsetDeg: number
   pitchOffsetDeg: number
   verticalFovAdjustmentDeg: number
@@ -27,6 +30,7 @@ const SettingsSchema = z.object({
     constellations: z.boolean(),
   }),
   likelyVisibleOnly: z.boolean(),
+  labelDisplayMode: z.enum(['center_only', 'on_objects', 'top_list']),
   headingOffsetDeg: z.number(),
   pitchOffsetDeg: z.number(),
   verticalFovAdjustmentDeg: z.number(),
@@ -45,6 +49,7 @@ export function getDefaultViewerSettings(): ViewerSettings {
       constellations: config.defaults.enabledLayers.includes('constellations'),
     },
     likelyVisibleOnly: config.defaults.likelyVisibleOnly,
+    labelDisplayMode: 'center_only',
     headingOffsetDeg: 0,
     pitchOffsetDeg: 0,
     verticalFovAdjustmentDeg: 0,
@@ -121,6 +126,7 @@ export function normalizeViewerSettings(settings: ViewerSettings): ViewerSetting
       constellations: settings.enabledLayers.constellations,
     },
     likelyVisibleOnly: settings.likelyVisibleOnly,
+    labelDisplayMode: settings.labelDisplayMode,
     headingOffsetDeg: clamp(settings.headingOffsetDeg, -20, 20),
     pitchOffsetDeg: clamp(settings.pitchOffsetDeg, -10, 10),
     verticalFovAdjustmentDeg: clamp(settings.verticalFovAdjustmentDeg, -10, 10),

@@ -40,8 +40,6 @@ export interface RankedLabelPlacement<T extends SkyObject = SkyObject>
 const DEFAULT_GLOBAL_LABEL_CAP = 18
 const MIN_LABEL_SPACING_PX = 24
 const LABEL_GAP_PX = 12
-const LABEL_ANCHOR_ORDER: LabelAnchor[] = ['above', 'below', 'right', 'left']
-
 const PER_TYPE_BUDGET: Partial<Record<SkyObject['type'], number>> = {
   aircraft: 12,
   satellite: 8,
@@ -135,34 +133,31 @@ export function layoutLabels<T extends SkyObject>(
     )
     const baseX = clamp(candidate.projection.x, 0, viewport.width)
     const baseY = clamp(candidate.projection.y, 0, viewport.height)
-
-    for (const anchor of LABEL_ANCHOR_ORDER) {
-      const rect = buildLabelRect(anchor, baseX, baseY, labelSize, viewport)
-      const anchorPoint = {
-        x: rect.left + rect.width / 2,
-        y: rect.top + rect.height / 2,
-      }
-
-      const collides = placements.some((placement) => {
-        return (
-          doLabelRectsOverlap(placement.rect, rect) ||
-          !hasMinimumAnchorSpacing(placement.anchorPoint, anchorPoint)
-        )
-      })
-
-      if (collides) {
-        continue
-      }
-
-      placements.push({
-        ...candidate,
-        anchor,
-        anchorPoint,
-        rect,
-        rankScore: getLabelRankScore(candidate, { centerLockedObjectId }),
-      })
-      break
+    const anchor = getPreferredLabelAnchor(baseX, baseY, labelSize, viewport)
+    const rect = buildLabelRect(anchor, baseX, baseY, labelSize, viewport)
+    const anchorPoint = {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
     }
+
+    const collides = placements.some((placement) => {
+      return (
+        doLabelRectsOverlap(placement.rect, rect) ||
+        !hasMinimumAnchorSpacing(placement.anchorPoint, anchorPoint)
+      )
+    })
+
+    if (collides) {
+      continue
+    }
+
+    placements.push({
+      ...candidate,
+      anchor,
+      anchorPoint,
+      rect,
+      rankScore: getLabelRankScore(candidate, { centerLockedObjectId }),
+    })
   }
 
   return placements
@@ -359,6 +354,36 @@ function buildLabelRect(
     width,
     height,
   }
+}
+
+function getPreferredLabelAnchor(
+  x: number,
+  y: number,
+  size: {
+    width: number
+    height: number
+  },
+  viewport: LabelViewport,
+): LabelAnchor {
+  const hasRoomAbove = y - LABEL_GAP_PX - size.height >= 0
+  const hasRoomBelow = y + LABEL_GAP_PX + size.height <= viewport.height
+
+  if (hasRoomAbove) {
+    return 'above'
+  }
+
+  if (hasRoomBelow) {
+    return 'below'
+  }
+
+  const hasRoomRight = x + LABEL_GAP_PX + size.width <= viewport.width
+  const hasRoomLeft = x - LABEL_GAP_PX - size.width >= 0
+
+  if (hasRoomRight || !hasRoomLeft) {
+    return 'right'
+  }
+
+  return 'left'
 }
 
 function clamp(value: number, min: number, max: number) {

@@ -101,6 +101,7 @@ vi.mock('../../lib/satellites/client', () => ({
 }))
 
 import { ViewerShell } from '../../components/viewer/viewer-shell'
+import { VIEWER_SETTINGS_STORAGE_KEY } from '../../lib/viewer/settings'
 
 const LIVE_OBSERVER_FIXTURE = {
   lat: 37.7749,
@@ -182,6 +183,7 @@ describe('ViewerShell celestial behavior', () => {
       satellites: [],
     })
     mockNormalizeSatelliteObjects.mockReturnValue([])
+    window.localStorage.clear()
   })
 
   afterEach(async () => {
@@ -216,6 +218,7 @@ describe('ViewerShell celestial behavior', () => {
       root.unmount()
     })
     container.remove()
+    window.localStorage.clear()
   })
 
   it('shows the bottom dock from the centered celestial object metadata', async () => {
@@ -269,6 +272,248 @@ describe('ViewerShell celestial behavior', () => {
 
     expect(container.textContent).toContain('Bottom dock')
     expect(container.textContent).toContain('Move until an object snaps here.')
+  })
+
+  it('defaults to center-only overlay copy for the center-locked object', async () => {
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -12,
+      objects: [
+        {
+          id: 'sun',
+          type: 'sun',
+          label: 'Sun',
+          azimuthDeg: 0,
+          elevationDeg: 16,
+          importance: 90,
+          metadata: {
+            detail: {
+              typeLabel: 'Sun',
+              elevationDeg: 16,
+              azimuthDeg: 0,
+            },
+          },
+        },
+        {
+          id: 'planet-venus',
+          type: 'planet',
+          label: 'Venus',
+          azimuthDeg: 4,
+          elevationDeg: 16,
+          importance: 82,
+          metadata: {
+            detail: {
+              typeLabel: 'Planet',
+              elevationDeg: 16,
+              azimuthDeg: 18,
+              magnitude: -4.3,
+            },
+          },
+        },
+      ],
+    })
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
+
+    expect(container.querySelectorAll('[data-testid="sky-object-marker"]')).toHaveLength(2)
+    expect(container.querySelector('[data-testid="center-lock-chip"]')?.textContent).toContain(
+      'Sun',
+    )
+    expect(container.querySelectorAll('[data-testid="sky-object-label"]')).toHaveLength(0)
+    expect(container.querySelector('[data-testid="sky-object-top-list"]')).toBeNull()
+  })
+
+  it('scales marker visuals by object prominence and preserves the minimum size floor', async () => {
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -12,
+      objects: [
+        {
+          id: 'sun',
+          type: 'sun',
+          label: 'Sun',
+          azimuthDeg: 0,
+          elevationDeg: 16,
+          importance: 90,
+          metadata: {
+            detail: {
+              typeLabel: 'Sun',
+              elevationDeg: 16,
+              azimuthDeg: 0,
+            },
+          },
+        },
+        {
+          id: 'star-dim',
+          type: 'star',
+          label: 'Dim Star',
+          azimuthDeg: 4,
+          elevationDeg: 16,
+          magnitude: 18,
+          importance: 24,
+          metadata: {
+            detail: {
+              typeLabel: 'Star',
+              magnitude: 18,
+              elevationDeg: 16,
+            },
+          },
+        },
+      ],
+    })
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
+
+    const sunMarker = container.querySelector(
+      '[data-testid="sky-object-marker"][data-object-id="sun"]',
+    ) as HTMLButtonElement | null
+    const dimStarMarker = container.querySelector(
+      '[data-testid="sky-object-marker"][data-object-id="star-dim"]',
+    ) as HTMLButtonElement | null
+
+    expect(sunMarker).not.toBeNull()
+    expect(dimStarMarker).not.toBeNull()
+    expect(getMarkerVisualSizePx(sunMarker!)).toBeGreaterThan(getMarkerVisualSizePx(dimStarMarker!))
+    expect(getMarkerVisualSizePx(dimStarMarker!)).toBe(6)
+  })
+
+  it('renders stable nearby labels when on-object mode is enabled', async () => {
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabledLayers: {
+          aircraft: true,
+          satellites: true,
+          planets: true,
+          stars: true,
+          constellations: true,
+        },
+        likelyVisibleOnly: false,
+        labelDisplayMode: 'on_objects',
+        headingOffsetDeg: 0,
+        pitchOffsetDeg: 0,
+        verticalFovAdjustmentDeg: 0,
+        onboardingCompleted: false,
+      }),
+    )
+
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -12,
+      objects: [
+        {
+          id: 'sun',
+          type: 'sun',
+          label: 'Sun',
+          azimuthDeg: 0,
+          elevationDeg: 16,
+          importance: 90,
+          metadata: {
+            detail: {
+              typeLabel: 'Sun',
+              elevationDeg: 16,
+              azimuthDeg: 0,
+            },
+          },
+        },
+        {
+          id: 'planet-venus',
+          type: 'planet',
+          label: 'Venus',
+          azimuthDeg: 4,
+          elevationDeg: 16,
+          importance: 82,
+          metadata: {
+            detail: {
+              typeLabel: 'Planet',
+              elevationDeg: 16,
+              azimuthDeg: 18,
+              magnitude: -4.3,
+            },
+          },
+        },
+      ],
+    })
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
+
+    const labels = Array.from(container.querySelectorAll('[data-testid="sky-object-label"]'))
+
+    expect(labels.length).toBeGreaterThan(0)
+    expect(labels.some((label) => label.textContent?.includes('Sun'))).toBe(true)
+    expect(container.querySelector('[data-testid="center-lock-chip"]')).toBeNull()
+  })
+
+  it('builds top-list mode from the full marker set instead of the suppressed on-object label set', async () => {
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabledLayers: {
+          aircraft: true,
+          satellites: true,
+          planets: true,
+          stars: true,
+          constellations: true,
+        },
+        likelyVisibleOnly: false,
+        labelDisplayMode: 'top_list',
+        headingOffsetDeg: 0,
+        pitchOffsetDeg: 0,
+        verticalFovAdjustmentDeg: 0,
+        onboardingCompleted: false,
+      }),
+    )
+
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -12,
+      objects: Array.from({ length: 20 }, (_, index) => ({
+        id: `aircraft-${index}`,
+        type: 'aircraft' as const,
+        label: `Flight ${index}`,
+        sublabel: 'Aircraft',
+        azimuthDeg: normalizeTestAzimuth(-3.8 + index * 0.4),
+        elevationDeg: 16,
+        rangeKm: 20 + index,
+        importance: 90 - index,
+        metadata: {
+          detail: {
+            typeLabel: 'Aircraft',
+            altitudeFeet: 35000,
+            altitudeMeters: 10668,
+            rangeKm: 20 + index,
+          },
+        },
+      })),
+    })
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
+
+    expect(container.querySelectorAll('[data-testid="sky-object-marker"]')).toHaveLength(20)
+    expect(container.querySelectorAll('[data-testid="sky-object-top-list-item"]')).toHaveLength(20)
+    expect(container.querySelectorAll('[data-testid="sky-object-label"]')).toHaveLength(0)
+    expect(container.querySelector('[data-testid="sky-object-top-list"]')?.textContent).toContain(
+      'Flight 0',
+    )
+    expect(container.querySelector('[data-testid="sky-object-top-list"]')?.textContent).toContain(
+      'Flight 19',
+    )
   })
 
   it('keeps the bottom dock on the centered object after another label is tapped', async () => {
@@ -858,6 +1103,17 @@ function dispatchPointerEvent(
   }
 
   target.dispatchEvent(event)
+}
+
+function normalizeTestAzimuth(value: number) {
+  const normalized = value % 360
+  return normalized < 0 ? normalized + 360 : normalized
+}
+
+function getMarkerVisualSizePx(markerButton: HTMLButtonElement) {
+  const markerVisual = markerButton.lastElementChild as HTMLElement | null
+
+  return Number.parseInt(markerVisual?.style.width ?? '0', 10)
 }
 
 function setMatchMediaMatches(matches: boolean) {

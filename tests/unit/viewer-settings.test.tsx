@@ -88,6 +88,7 @@ describe('ViewerShell settings integration', () => {
           constellations: true,
         },
         likelyVisibleOnly: false,
+        labelDisplayMode: 'on_objects',
         headingOffsetDeg: 7,
         pitchOffsetDeg: -3,
         verticalFovAdjustmentDeg: 6,
@@ -171,12 +172,17 @@ describe('ViewerShell settings integration', () => {
     expect(headingSlider?.value).toBe('7')
     expect(pitchSlider?.value).toBe('-3')
     expect(fovSlider?.value).toBe('6')
+    expect(
+      (container.querySelector('input[aria-label="On objects"]') as HTMLInputElement | null)
+        ?.checked,
+    ).toBe(true)
 
     await act(async () => {
       recenterButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
     expect(readViewerSettings()).toMatchObject({
+      labelDisplayMode: 'on_objects',
       headingOffsetDeg: 7,
       pitchOffsetDeg: -3,
       verticalFovAdjustmentDeg: 6,
@@ -242,6 +248,9 @@ describe('ViewerShell settings integration', () => {
     const fovSlider = container.querySelector(
       'input[aria-label="Field of view"]',
     ) as HTMLInputElement | null
+    const topListRadio = container.querySelector(
+      'input[aria-label="Top list"]',
+    ) as HTMLInputElement | null
 
     expect(planesToggle.checked).toBe(false)
     expect(satellitesToggle.checked).toBe(true)
@@ -254,6 +263,7 @@ describe('ViewerShell settings integration', () => {
       planesToggle.click()
       satellitesToggle.click()
       likelyVisibleToggle.click()
+      topListRadio?.click()
       setInputValue(headingSlider!, '-8')
       setInputValue(pitchSlider!, '5')
       setInputValue(fovSlider!, '-4')
@@ -268,6 +278,7 @@ describe('ViewerShell settings integration', () => {
         constellations: true,
       },
       likelyVisibleOnly: true,
+      labelDisplayMode: 'top_list',
       headingOffsetDeg: -8,
       pitchOffsetDeg: 5,
       verticalFovAdjustmentDeg: -4,
@@ -335,6 +346,10 @@ describe('ViewerShell settings integration', () => {
     expect(reloadedHeadingSlider?.value).toBe('-8')
     expect(reloadedPitchSlider?.value).toBe('5')
     expect(reloadedFovSlider?.value).toBe('-4')
+    expect(
+      (container.querySelector('input[aria-label="Top list"]') as HTMLInputElement | null)
+        ?.checked,
+    ).toBe(true)
   })
 
   it.each([

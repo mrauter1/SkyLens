@@ -124,6 +124,7 @@ export function getScreenOrientationCorrectionDeg(runtime?: Pick<OrientationRunt
 export function normalizeDeviceOrientationReading(
   reading: DeviceOrientationReading,
   screenOrientationDeg = 0,
+  previousSample: OrientationSample | null = null,
 ): OrientationSample | null {
   const rawHeading =
     typeof reading.webkitCompassHeading === 'number'
@@ -149,23 +150,85 @@ export function normalizeDeviceOrientationReading(
     rollDeg = clamp(-reading.beta, -180, 180)
   } else if (normalizedScreenAngle === 180) {
     headingDeg = normalizeDegrees(headingDeg + 180)
-    pitchDeg = clamp(-reading.beta, -90, 90)
+    pitchDeg = clamp(-reading.beta, -180, 180)
     rollDeg = clamp(-reading.gamma, -180, 180)
   } else if (normalizedScreenAngle === 270) {
     headingDeg = normalizeDegrees(headingDeg - 90)
     pitchDeg = clamp(-reading.gamma, -90, 90)
     rollDeg = clamp(reading.beta, -180, 180)
   } else {
-    pitchDeg = clamp(reading.beta, -90, 90)
+    pitchDeg = clamp(reading.beta, -180, 180)
     rollDeg = clamp(reading.gamma, -180, 180)
   }
 
-  return {
-    headingDeg,
-    pitchDeg,
-    rollDeg,
-    timestampMs: Date.now(),
+  return resolveContinuousOrientationSample(
+    {
+      headingDeg,
+      pitchDeg,
+      rollDeg,
+      timestampMs: Date.now(),
+    },
+    previousSample,
+  )
+}
+
+function resolveContinuousOrientationSample(
+  sample: OrientationSample,
+  previousSample: OrientationSample | null,
+) {
+  if (!previousSample) {
+    return sample
   }
+
+  const candidates = createOrientationContinuityCandidates(sample).map((candidate) => {
+    return {
+      headingDeg:
+        previousSample.headingDeg +
+        shortestAngleDeltaDeg(previousSample.headingDeg, candidate.headingDeg),
+      pitchDeg: candidate.pitchDeg,
+      rollDeg:
+        previousSample.rollDeg +
+        shortestAngleDeltaDeg(previousSample.rollDeg, candidate.rollDeg),
+      timestampMs: candidate.timestampMs,
+    }
+  })
+
+  return candidates.reduce((best, candidate) => {
+    const bestScore = scoreOrientationSampleDelta(best, previousSample)
+    const candidateScore = scoreOrientationSampleDelta(candidate, previousSample)
+
+    return candidateScore < bestScore ? candidate : best
+  })
+}
+
+function createOrientationContinuityCandidates(sample: OrientationSample) {
+  const mirroredPitchDeg =
+    sample.pitchDeg >= 0 ? 180 - sample.pitchDeg : -180 - sample.pitchDeg
+
+  return [
+    sample,
+    {
+      headingDeg: normalizeDegrees(sample.headingDeg + 180),
+      pitchDeg: mirroredPitchDeg,
+      rollDeg: normalizeSignedDegrees(sample.rollDeg + 180),
+      timestampMs: sample.timestampMs,
+    },
+  ]
+}
+
+function scoreOrientationSampleDelta(
+  sample: OrientationSample,
+  previousSample: OrientationSample,
+) {
+  const headingDeltaDeg = shortestAngleDeltaDeg(previousSample.headingDeg, sample.headingDeg)
+  const pitchDeltaDeg = sample.pitchDeg - previousSample.pitchDeg
+  const rollDeltaDeg = shortestAngleDeltaDeg(previousSample.rollDeg, sample.rollDeg)
+
+  return (
+    headingDeltaDeg * headingDeltaDeg +
+    pitchDeltaDeg * pitchDeltaDeg +
+    rollDeltaDeg * rollDeltaDeg
+  )
 }
 
 export function smoothOrientationSample(
@@ -252,11 +315,7 @@ export function createSensorCameraPose(
   const yawDeg = normalizeDegrees(
     sample.headingDeg - (baseline?.headingDeg ?? 0) + offsets.headingDeg,
   )
-  const pitchDeg = clamp(
-    sample.pitchDeg - (baseline?.pitchDeg ?? 0) + offsets.pitchDeg,
-    -90,
-    90,
-  )
+  const pitchDeg = sample.pitchDeg - (baseline?.pitchDeg ?? 0) + offsets.pitchDeg
   const rollDeg = normalizeSignedDegrees(sample.rollDeg - (baseline?.rollDeg ?? 0))
 
   return {
@@ -282,7 +341,7 @@ export function createManualPoseState(
 ): ManualPoseState {
   return {
     yawDeg: normalizeDegrees(initialState.yawDeg ?? 0),
-    pitchDeg: clamp(initialState.pitchDeg ?? 0, -85, 85),
+    pitchDeg: initialState.pitchDeg ?? 0,
     rollDeg: normalizeSignedDegrees(initialState.rollDeg ?? 0),
   }
 }
@@ -298,7 +357,7 @@ export function applyManualPoseDrag(
 ): ManualPoseState {
   return {
     yawDeg: normalizeDegrees(poseState.yawDeg + deltaX * yawDegPerPixel),
-    pitchDeg: clamp(poseState.pitchDeg - deltaY * pitchDegPerPixel, -85, 85),
+    pitchDeg: poseState.pitchDeg - deltaY * pitchDegPerPixel,
     rollDeg: poseState.rollDeg,
   }
 }
@@ -350,6 +409,8 @@ export function subscribeToOrientationPose(
   let recenterBaseline: OrientationSample | null = null
   let history: OrientationSample[] = []
   let pendingRelativeSample: OrientationSample | null = null
+  let lastAbsoluteSample: OrientationSample | null = null
+  let lastRelativeSample: OrientationSample | null = null
   let relativeSelectionTimeoutId: ReturnType<typeof setTimeout> | null = null
   const absoluteStreamSupported = supportsAbsoluteOrientationEvents(currentWindow)
 
@@ -391,10 +452,22 @@ export function subscribeToOrientationPose(
 
   const handleEvent = (event: Event) => {
     const eventType = event.type as 'deviceorientationabsolute' | 'deviceorientation'
-    const normalized = getNormalizedOrientationSample(event, currentWindow)
+    const normalized = getNormalizedOrientationSample(
+      event,
+      currentWindow,
+      eventType === 'deviceorientationabsolute'
+        ? lastAbsoluteSample
+        : pendingRelativeSample ?? lastRelativeSample,
+    )
 
     if (!normalized) {
       return
+    }
+
+    if (eventType === 'deviceorientationabsolute') {
+      lastAbsoluteSample = normalized
+    } else {
+      lastRelativeSample = normalized
     }
 
     if (selectedEvent && eventType !== selectedEvent) {
@@ -488,6 +561,7 @@ async function probeOrientationAvailability(runtime: OrientationRuntime) {
 function getNormalizedOrientationSample(
   event: Event,
   runtime: Pick<OrientationRuntime, 'screen' | 'orientation'>,
+  previousSample: OrientationSample | null = null,
 ) {
   const orientationEvent = event as DeviceOrientationEvent
 
@@ -502,6 +576,7 @@ function getNormalizedOrientationSample(
       }).webkitCompassHeading,
     },
     getScreenOrientationCorrectionDeg(runtime),
+    previousSample,
   )
 }
 
