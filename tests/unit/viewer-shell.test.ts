@@ -2,7 +2,7 @@ import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { ViewerRouteState } from '../../lib/permissions/coordinator'
+import { buildViewerHref, type ViewerRouteState } from '../../lib/permissions/coordinator'
 
 const {
   mockRouterReplace,
@@ -537,6 +537,7 @@ describe('ViewerShell startup gating', () => {
     expect(mobileOverlayWrapper?.className).toContain(
       'pb-[calc(1rem+env(safe-area-inset-bottom))]',
     )
+    expect(mobileOverlayWrapper?.className).not.toContain('sm:hidden')
     expect(mobileOverlay?.className).toContain('max-h-full')
   })
 
@@ -560,9 +561,56 @@ describe('ViewerShell startup gating', () => {
     await act(async () => {
       enableMotionButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
+    await flushEffects()
 
     expect(mockRequestOrientationPermission).toHaveBeenCalledTimes(1)
+    expect(mockRouterReplace).toHaveBeenCalledTimes(1)
+    expect(mockRouterReplace).toHaveBeenCalledWith(
+      buildViewerHref({
+        entry: 'live',
+        location: 'granted',
+        camera: 'granted',
+        orientation: 'granted',
+      }),
+    )
     expect(container.textContent).not.toContain('Motion recovery')
+  })
+
+  it('keeps motion recovery visible and syncs denied retry state to the route', async () => {
+    mockRequestOrientationPermission.mockResolvedValueOnce('denied')
+
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'denied',
+    })
+
+    const enableMotionButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Enable motion'),
+    )
+
+    expect(enableMotionButton).toBeDefined()
+
+    await act(async () => {
+      enableMotionButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(mockRequestOrientationPermission).toHaveBeenCalledTimes(1)
+    expect(mockRouterReplace).toHaveBeenCalledTimes(1)
+    expect(mockRouterReplace).toHaveBeenCalledWith(
+      buildViewerHref({
+        entry: 'live',
+        location: 'granted',
+        camera: 'granted',
+        orientation: 'denied',
+      }),
+    )
+    expect(container.textContent).toContain('Motion recovery')
+    expect(container.textContent).toContain(
+      'Motion access is still denied. Check iOS Settings → Safari → Motion & Orientation Access, then retry.',
+    )
   })
 
   it('preserves the desktop viewer header and desktop content composition', async () => {

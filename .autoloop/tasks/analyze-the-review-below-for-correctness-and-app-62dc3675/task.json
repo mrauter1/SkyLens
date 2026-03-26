@@ -1,0 +1,36 @@
+{
+  "task_id": "analyze-the-review-below-for-correctness-and-app-62dc3675",
+  "created_at": "2026-03-26T19:19:02.142039+00:00",
+  "request_text": "Analyze the review below for correctness and applicability. Apply the correct and applicable fixes: Code Review: remove redundant sm:hidden class duplication in components/viewer/viewer-shell.tsx mobile overlay wrapper if redundant; and ensure handleRetryMotionPermission updates the /view route (router.replace(buildViewerHref(...))) when orientation state changes so URL query params stay in sync with permission state after retry.",
+  "request_updated_at": "2026-03-26T19:19:02.142263+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/analyze-the-review-below-for-correctness-and-app-62dc3675/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260326T191902Z-6ef5c5cd",
+    "mode": "single",
+    "phase_ids": [
+      "viewer-shell-review-fixes"
+    ],
+    "explicit": true,
+    "current_phase_index": 1,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "viewer-shell-review-fixes": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "viewer-shell-review-fixes",
+      "run_id": "run-20260326T191902Z-6ef5c5cd",
+      "status": "in_progress",
+      "ts": "2026-03-26T19:21:16.571327+00:00"
+    },
+    {
+      "phase_id": "viewer-shell-review-fixes",
+      "run_id": "run-20260326T191902Z-6ef5c5cd",
+      "status": "completed",
+      "ts": "2026-03-26T19:27:10.716714+00:00",
+      "pair": "test"
+    }
+  ]
+}

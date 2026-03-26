@@ -343,15 +343,15 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     startTransition(async () => {
       try {
         const orientation = await requestOrientationPermission()
+        if (state.entry === 'live') {
+          const nextState: ViewerRouteState = {
+            ...state,
+            orientation,
+          }
 
-        setState((current) =>
-          current.entry === 'live'
-            ? {
-                ...current,
-                orientation,
-              }
-            : current,
-        )
+          setState(nextState)
+          router.replace(buildViewerHref(nextState))
+        }
 
         if (orientation !== 'granted') {
           setMotionRetryError(
@@ -1377,7 +1377,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       </div>
       <div className="pointer-events-none fixed inset-x-0 bottom-0 z-20 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:hidden">
         {isMobileOverlayOpen ? (
-          <div className="pointer-events-auto fixed inset-0 z-30 flex items-end px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-[calc(1rem+env(safe-area-inset-top))] sm:hidden">
+          <div className="pointer-events-auto fixed inset-0 z-30 flex items-end px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-[calc(1rem+env(safe-area-inset-top))]">
             <button
               type="button"
               aria-label="Close viewer overlay"

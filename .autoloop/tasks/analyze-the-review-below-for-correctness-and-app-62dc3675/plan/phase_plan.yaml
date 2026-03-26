@@ -1,0 +1,33 @@
+version: 1
+task_id: analyze-the-review-below-for-correctness-and-app-62dc3675
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/analyze-the-review-below-for-correctness-and-app-62dc3675/runs/run-20260326T191902Z-6ef5c5cd/request.md
+phases:
+  - phase_id: viewer-shell-review-fixes
+    title: Apply the applicable viewer-shell review fixes
+    objective: Remove the redundant mobile overlay responsive class and keep the live viewer route query params synchronized when motion permission is retried.
+    status: planned
+    in_scope:
+      - Confirm whether the nested mobile overlay `sm:hidden` class is actually redundant and remove it only if redundant.
+      - Update `handleRetryMotionPermission` so live-state orientation retry results also update the `/view` route via `router.replace(buildViewerHref(...))`.
+      - Extend existing viewer-shell unit coverage for the motion retry path and route synchronization.
+    out_of_scope:
+      - Changing the `ViewerRouteState` schema or `/view` query parameter names.
+      - Refactoring the broader permission coordinator or overlay layout structure.
+      - Altering demo-mode routing or unrelated fallback copy.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: The expanded mobile overlay no longer carries a duplicate `sm:hidden` class when the parent mobile-only wrapper already enforces that breakpoint behavior.
+      - id: AC-2
+        text: Retrying motion permission in a live viewer state updates both local state and the `/view` URL so the `orientation` query reflects the resolved permission state.
+      - id: AC-3
+        text: Existing viewer-shell tests cover the motion retry route-sync behavior without widening scope to unrelated features.
+    deliverables:
+      - Viewer-shell implementation updates for the applicable review fixes
+      - Focused viewer-shell unit test updates for motion retry URL synchronization
+    risks:
+      - Route replacement could be wired from stale state if the retry path does not derive one shared next state object.
+      - Responsive class cleanup could accidentally target the outer mobile-only wrapper instead of the redundant inner class.
+    rollback:
+      - Revert the motion retry route-sync change if navigation side effects regress.
+      - Reapply the removed inner class only if responsive verification shows an actual breakpoint regression.
