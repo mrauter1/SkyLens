@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   createCameraQuaternion,
+  getCameraBasisVectors,
   getEffectiveVerticalFovDeg,
   getHorizontalFovDeg,
   getRearCameraConstraintCandidates,
@@ -87,6 +88,29 @@ describe('projection camera foundation', () => {
     expect(projection.x).toBeCloseTo(200, 3)
     expect(projection.y).toBeCloseTo(400, 3)
     expect(projection.angularDistanceDeg).toBeCloseTo(0, 4)
+  })
+
+  it('exposes an orthonormal camera basis from the quaternion helpers', () => {
+    const basis = getCameraBasisVectors(createCameraQuaternion(32, 18, -12))
+
+    expect(Math.hypot(...basis.right)).toBeCloseTo(1, 6)
+    expect(Math.hypot(...basis.down)).toBeCloseTo(1, 6)
+    expect(Math.hypot(...basis.forward)).toBeCloseTo(1, 6)
+    expect(
+      basis.right[0] * basis.down[0] +
+        basis.right[1] * basis.down[1] +
+        basis.right[2] * basis.down[2],
+    ).toBeCloseTo(0, 6)
+    expect(
+      basis.right[0] * basis.forward[0] +
+        basis.right[1] * basis.forward[1] +
+        basis.right[2] * basis.forward[2],
+    ).toBeCloseTo(0, 6)
+    expect(
+      basis.down[0] * basis.forward[0] +
+        basis.down[1] * basis.forward[1] +
+        basis.down[2] * basis.forward[2],
+    ).toBeCloseTo(0, 6)
   })
 
   it('moves eastward objects to the right and hides objects behind the camera', () => {

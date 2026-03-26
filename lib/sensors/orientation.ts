@@ -1,4 +1,12 @@
-import { createCameraQuaternion } from '../projection/camera'
+import {
+  createAxisAngleQuaternion,
+  createCameraQuaternion,
+  getCameraBasisVectors,
+  multiplyQuaternions,
+  radiansToDegrees,
+  type Quaternion,
+  type Vec3,
+} from '../projection/camera'
 import type { CameraPose } from '../viewer/contracts'
 
 export interface DeviceOrientationReading {
@@ -14,6 +22,7 @@ export interface OrientationSample {
   pitchDeg: number
   rollDeg: number
   timestampMs: number
+  quaternion?: Quaternion
 }
 
 export interface OrientationOffsets {
@@ -62,6 +71,9 @@ const DEFAULT_MANUAL_YAW_PER_PIXEL = 0.12
 const DEFAULT_MANUAL_PITCH_PER_PIXEL = 0.12
 const ORIENTATION_PERMISSION_PROBE_TIMEOUT_MS = 250
 const ORIENTATION_STREAM_SELECTION_TIMEOUT_MS = 150
+const SCREEN_CORRECTION_AXIS: Vec3 = [0, 1, 0]
+const WORLD_UP: Vec3 = [0, 0, 1]
+const BASIS_EPSILON = 1e-6
 
 export function supportsOrientationEvents(currentWindow: {
   ondeviceorientation?: unknown
@@ -139,37 +151,23 @@ export function normalizeDeviceOrientationReading(
     return null
   }
 
-  const normalizedScreenAngle = normalizeDegrees(screenOrientationDeg)
-  let pitchDeg = clamp(reading.beta, -180, 180)
-  let rollDeg = clamp(reading.gamma, -180, 180)
-  let headingDeg = normalizeDegrees(rawHeading)
-
-  if (normalizedScreenAngle === 90) {
-    headingDeg = normalizeDegrees(headingDeg + 90)
-    pitchDeg = clamp(reading.gamma, -90, 90)
-    rollDeg = clamp(-reading.beta, -180, 180)
-  } else if (normalizedScreenAngle === 180) {
-    headingDeg = normalizeDegrees(headingDeg + 180)
-    pitchDeg = clamp(-reading.beta, -180, 180)
-    rollDeg = clamp(-reading.gamma, -180, 180)
-  } else if (normalizedScreenAngle === 270) {
-    headingDeg = normalizeDegrees(headingDeg - 90)
-    pitchDeg = clamp(-reading.gamma, -90, 90)
-    rollDeg = clamp(reading.beta, -180, 180)
-  } else {
-    pitchDeg = clamp(reading.beta, -180, 180)
-    rollDeg = clamp(reading.gamma, -180, 180)
-  }
-
-  return resolveContinuousOrientationSample(
-    {
-      headingDeg,
-      pitchDeg,
-      rollDeg,
-      timestampMs: Date.now(),
-    },
-    previousSample,
+  const correctedQuaternion = applyScreenOrientationCorrection(
+    createCameraQuaternion(
+      normalizeDegrees(rawHeading),
+      clamp(reading.beta, -180, 180),
+      clamp(reading.gamma, -180, 180),
+    ),
+    screenOrientationDeg,
   )
+
+  const sample = createOrientationSampleFromQuaternion(
+    correctedQuaternion,
+    Date.now(),
+    previousSample,
+    screenOrientationDeg,
+  )
+
+  return sample
 }
 
 function resolveContinuousOrientationSample(
@@ -190,6 +188,7 @@ function resolveContinuousOrientationSample(
         previousSample.rollDeg +
         shortestAngleDeltaDeg(previousSample.rollDeg, candidate.rollDeg),
       timestampMs: candidate.timestampMs,
+      quaternion: candidate.quaternion,
     }
   })
 
@@ -212,6 +211,7 @@ function createOrientationContinuityCandidates(sample: OrientationSample) {
       pitchDeg: mirroredPitchDeg,
       rollDeg: normalizeSignedDegrees(sample.rollDeg + 180),
       timestampMs: sample.timestampMs,
+      quaternion: sample.quaternion,
     },
   ]
 }
@@ -240,12 +240,22 @@ export function smoothOrientationSample(
     return next
   }
 
-  return {
+  const smoothedSample: OrientationSample = {
     headingDeg: interpolateAngle(previous.headingDeg, next.headingDeg, smoothingFactor),
     pitchDeg: interpolateNumber(previous.pitchDeg, next.pitchDeg, smoothingFactor),
     rollDeg: interpolateAngle(previous.rollDeg, next.rollDeg, smoothingFactor),
     timestampMs: next.timestampMs,
   }
+
+  if (previous.quaternion || next.quaternion) {
+    smoothedSample.quaternion = createCameraQuaternion(
+      smoothedSample.headingDeg,
+      smoothedSample.pitchDeg,
+      smoothedSample.rollDeg,
+    )
+  }
+
+  return smoothedSample
 }
 
 export function computeAlignmentHealth(samples: readonly OrientationSample[]) {
@@ -580,6 +590,117 @@ function getNormalizedOrientationSample(
   )
 }
 
+function applyScreenOrientationCorrection(
+  quaternion: Quaternion,
+  screenOrientationDeg: number,
+) {
+  const screenCorrectionDeg = normalizeSignedDegrees(
+    normalizeDegrees(screenOrientationDeg),
+  )
+
+  if (screenCorrectionDeg === 0) {
+    return quaternion
+  }
+
+  return multiplyQuaternions(
+    quaternion,
+    createAxisAngleQuaternion(SCREEN_CORRECTION_AXIS, screenCorrectionDeg),
+  )
+}
+
+function createOrientationSampleFromQuaternion(
+  quaternion: Quaternion,
+  timestampMs: number,
+  previousSample: OrientationSample | null,
+  screenOrientationDeg: number,
+): OrientationSample {
+  const basis = getCameraBasisVectors(quaternion)
+  const headingDeg = getQuaternionHeadingDeg(basis, previousSample)
+  const extractedSample = {
+    headingDeg,
+    pitchDeg: radiansToDegrees(Math.asin(clamp(basis.forward[2], -1, 1))),
+    rollDeg: getQuaternionRollDeg(basis, headingDeg),
+    timestampMs,
+    quaternion,
+  }
+  const sample = resolveContinuousOrientationSample(
+    extractedSample,
+    previousSample,
+  )
+
+  return orientLandscapeSampleForPoseContract(sample, screenOrientationDeg)
+}
+
+function orientLandscapeSampleForPoseContract(
+  sample: OrientationSample,
+  screenOrientationDeg: number,
+) {
+  const normalizedScreenDeg = Math.abs(
+    normalizeSignedDegrees(normalizeDegrees(screenOrientationDeg)),
+  )
+
+  if (normalizedScreenDeg !== 90 || Math.abs(sample.pitchDeg) > 90) {
+    return sample
+  }
+
+  return {
+    ...sample,
+    pitchDeg: -sample.pitchDeg,
+    rollDeg: normalizeSignedDegrees(-sample.rollDeg),
+  }
+}
+
+function getQuaternionHeadingDeg(
+  basis: ReturnType<typeof getCameraBasisVectors>,
+  previousSample: OrientationSample | null,
+) {
+  const horizontalMagnitude = Math.hypot(basis.forward[0], basis.forward[1])
+
+  if (horizontalMagnitude > BASIS_EPSILON) {
+    return normalizeDegrees(
+      radiansToDegrees(Math.atan2(basis.forward[0], basis.forward[1])),
+    )
+  }
+
+  if (previousSample) {
+    return previousSample.headingDeg
+  }
+
+  if (basis.forward[2] >= 0) {
+    return normalizeDegrees(
+      radiansToDegrees(Math.atan2(-basis.down[0], basis.down[1])),
+    )
+  }
+
+  return normalizeDegrees(
+    radiansToDegrees(Math.atan2(basis.down[0], -basis.down[1])),
+  )
+}
+
+function getQuaternionRollDeg(
+  basis: ReturnType<typeof getCameraBasisVectors>,
+  headingDeg: number,
+) {
+  const horizontalMagnitude = Math.hypot(basis.forward[0], basis.forward[1])
+  const referenceRight =
+    horizontalMagnitude > BASIS_EPSILON
+      ? normalizeVec3(crossVec3(basis.forward, WORLD_UP))
+      : ([
+          Math.cos((headingDeg * Math.PI) / 180),
+          Math.sin((headingDeg * Math.PI) / 180),
+          0,
+        ] as Vec3)
+
+  return normalizeSignedDegrees(
+    radiansToDegrees(
+      Math.atan2(
+        dotVec3(crossVec3(referenceRight, basis.right), basis.forward),
+        dotVec3(referenceRight, basis.right),
+      ),
+    ),
+  )
+}
+
 function getOrientationWindow() {
   if (typeof window === 'undefined') {
     return null
@@ -627,4 +748,26 @@ function normalizeSignedDegrees(value: number) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max)
+}
+
+function normalizeVec3(vector: Vec3): [number, number, number] {
+  const magnitude = Math.hypot(vector[0], vector[1], vector[2])
+
+  if (magnitude === 0) {
+    return [0, 0, 0]
+  }
+
+  return [vector[0] / magnitude, vector[1] / magnitude, vector[2] / magnitude]
+}
+
+function crossVec3(left: Vec3, right: Vec3): [number, number, number] {
+  return [
+    left[1] * right[2] - left[2] * right[1],
+    left[2] * right[0] - left[0] * right[2],
+    left[0] * right[1] - left[1] * right[0],
+  ]
+}
+
+function dotVec3(left: Vec3, right: Vec3) {
+  return left[0] * right[0] + left[1] * right[1] + left[2] * right[2]
 }
