@@ -56,7 +56,7 @@ const OpenSkyTokenResponseSchema = z.object({
 
 const OpenSkyStateVectorSchema = z
   .tuple([
-    z.string().regex(/^[0-9a-f]{6}$/i),
+    z.string().regex(/^[0-9a-z]{6}$/i),
     z.string().nullable(),
     z.string().nullable(),
     z.number().int().nullable(),

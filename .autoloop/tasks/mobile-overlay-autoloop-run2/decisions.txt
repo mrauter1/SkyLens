@@ -1,0 +1,15 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="runtime" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260326T140727Z-122bda3c" ts="2026-03-26T14:09:09.821288+00:00" entry="questions" qa_seq="1" />
+1. On mobile iOS, should the current top viewer chrome that stays visible today (the SkyLens header/alignment badge area and the Settings entry point) also be collapsed into the small bottom button flow, or should only the lower details stack collapse while that top chrome remains visible? Answer with one of: ALL COLLAPSE or TOP CHROME STAYS.
+Best supposition: ALL COLLAPSE, with settings and viewer actions still available after expanding the bottom sheet.
+<autoloop-decisions-header version="1" block_seq="2" owner="runtime" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260326T140727Z-122bda3c" ts="2026-03-26T14:09:09.821665+00:00" entry="answers" qa_seq="1" source="auto" />
+I’m checking the request snapshot and the raw phase log to see whether the mobile iOS requirement explicitly keeps the top viewer chrome visible or collapses it with the rest.
+
+ALL COLLAPSE
+<autoloop-decisions-header version="1" block_seq="3" owner="planner" phase_id="task-global" pair="plan" turn_seq="2" run_id="run-20260326T140727Z-122bda3c" ts="2026-03-26T14:09:09.887433+00:00" />
+Mobile clarification confirmed ALL COLLAPSE: the current top mobile viewer chrome and Settings entry point move behind the bottom overlay instead of remaining always visible.
+Responsive viewer tests for this task must use control-level assertions or stable selectors because jsdom keeps both breakpoint branches mounted in the DOM.
+<autoloop-decisions-header version="1" block_seq="4" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260326T153009Z-80a886f5" ts="2026-03-26T15:30:09.368258+00:00" />
+Keep the implementation localized to ViewerShell's existing mobile fixed-bottom overlay branch; do not introduce a second mobile overlay system or JS viewport-detection layer for this task.
+Use the existing mobile overlay and desktop test ids in viewer-shell tests for regression coverage before adding any new selector hooks.
+<autoloop-decisions-header version="1" block_seq="5" owner="implementer" phase_id="collapse-all-mobile-viewer-chrome" pair="implement" turn_seq="1" run_id="run-20260326T153009Z-80a886f5" ts="2026-03-26T15:32:03.910155+00:00" />
+No application-source edits were made in this turn because the checked-in ViewerShell mobile overlay branch and viewer-shell unit tests already satisfy the approved collapse-all-mobile phase contract; validation focused on confirming that behavior and running the full test suite.

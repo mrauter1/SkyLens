@@ -1,0 +1,7 @@
+{
+  "task_id": "mobile-overlay-autoloop",
+  "created_at": "2026-03-26T14:04:12.969343+00:00",
+  "request_text": "Improve mobile iOS viewer UI so overlays are collapsed into a small bottom button and expand on tap; preserve desktop behavior; ensure tests pass.",
+  "request_updated_at": "2026-03-26T14:04:12.969405+00:00",
+  "phase_plan_path": ".autoloop/tasks/mobile-overlay-autoloop/plan/phase_plan.yaml"
+}

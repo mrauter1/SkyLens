@@ -1,0 +1,40 @@
+version: 1
+task_id: mobile-overlay-autoloop
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/mobile-overlay-autoloop/runs/run-20260326T140412Z-18126618/request.md
+phases:
+  - phase_id: mobile-overlay-collapse
+    title: Collapse mobile viewer overlays behind a bottom trigger
+    objective: Adjust the viewer shell so mobile informational overlays are collapsed into a compact bottom button that expands on tap, without changing desktop behavior or viewer state contracts.
+    status: planned
+    in_scope:
+      - Update the mobile-only informational overlay presentation in the viewer shell.
+      - Keep the mobile trigger compact, bottom-anchored, and safe-area aware for iOS.
+      - Preserve the expanded mobile sheet content for status, fallback actions, and centered-object summary details.
+      - Keep desktop overlay rendering and behavior unchanged.
+      - Add or update focused unit coverage and run the full test suite.
+    out_of_scope:
+      - Redesigning desktop viewer cards or settings behavior.
+      - Adding new persisted viewer preferences, route params, or API changes.
+      - Refactoring unrelated scene, projection, or object-detail logic.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: On mobile, the informational overlay UI is collapsed by default into a compact bottom trigger and expands only after user tap.
+      - id: AC-2
+        text: The expanded mobile sheet still exposes blocked-state actions and the current center-object summary or empty-state hint.
+      - id: AC-3
+        text: Desktop viewer overlays keep their current layout and behavior.
+      - id: AC-4
+        text: Viewer unit coverage exercises the collapsed and expanded mobile flow, and the full test suite passes.
+    deliverables:
+      - Updated mobile overlay presentation in components/viewer/viewer-shell.tsx
+      - Any minimal supporting style adjustment required for compact iOS-safe presentation
+      - Focused viewer unit test updates for mobile overlay behavior
+      - Passing npm run test execution
+    risks:
+      - Responsive class changes could leak mobile adjustments into desktop layouts.
+      - The compact trigger or sheet could interfere with stage interactions near the bottom edge.
+      - Mobile sheet simplification could omit blocked-state or centered-object information.
+    rollback:
+      - Revert the mobile overlay presentation changes and restore the previous viewer-shell mobile sheet behavior.
+      - Keep any unrelated test or viewer-data logic untouched during rollback.

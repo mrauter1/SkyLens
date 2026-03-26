@@ -1,0 +1,36 @@
+{
+  "task_id": "mobile-overlay-e2e-fix",
+  "created_at": "2026-03-26T16:17:40.447544+00:00",
+  "request_text": "Implement MOBILE_OVERLAY_E2E_INVESTIGATION_PLAN.md: investigate Playwright failures caused by collapsed mobile overlay, update e2e specs to open overlay before asserting hidden chrome, and get full playwright suite passing.",
+  "request_updated_at": "2026-03-26T16:17:40.447627+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/mobile-overlay-e2e-fix/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260326T161740Z-6e1093b2",
+    "mode": "single",
+    "phase_ids": [
+      "align-mobile-playwright-overlay-state"
+    ],
+    "explicit": true,
+    "current_phase_index": 1,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "align-mobile-playwright-overlay-state": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "align-mobile-playwright-overlay-state",
+      "run_id": "run-20260326T161740Z-6e1093b2",
+      "status": "in_progress",
+      "ts": "2026-03-26T16:20:18.923732+00:00"
+    },
+    {
+      "phase_id": "align-mobile-playwright-overlay-state",
+      "run_id": "run-20260326T161740Z-6e1093b2",
+      "status": "completed",
+      "ts": "2026-03-26T16:30:57.550667+00:00",
+      "pair": "test"
+    }
+  ]
+}

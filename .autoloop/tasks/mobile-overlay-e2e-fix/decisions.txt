@@ -1,0 +1,8 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260326T161740Z-6e1093b2" ts="2026-03-26T16:17:40.543712+00:00" />
+Treat the collapsed mobile overlay as the intended product behavior; update Playwright to open it before asserting hidden chrome instead of changing viewer UX to satisfy stale tests.
+Use the existing mobile overlay test ids as the automation contract for overlay state setup, with semantic role and text assertions only after the overlay is open.
+<autoloop-decisions-header version="1" block_seq="2" owner="implementer" phase_id="align-mobile-playwright-overlay-state" pair="implement" turn_seq="1" run_id="run-20260326T161740Z-6e1093b2" ts="2026-03-26T16:20:18.977931+00:00" />
+After opening the mobile overlay in Playwright, scope hidden-chrome assertions to `mobile-viewer-overlay` because the desktop shell remains mounted and duplicates the same headings, banners, and controls in the DOM.
+For the demo settings persistence flow, toggle the `Planes` checkbox via keyboard on the focused settings dialog control because Playwright pointer hit-testing is intercepted by the viewer stage even though the correct dialog checkbox is focused and enabled.
+<autoloop-decisions-header version="1" block_seq="3" owner="test_author" phase_id="align-mobile-playwright-overlay-state" pair="test" turn_seq="1" run_id="run-20260326T161740Z-6e1093b2" ts="2026-03-26T16:29:13.701149+00:00" />
+Keep Playwright coverage at the existing 8 tests and refine those flows in place; rely on `viewer-shell` unit coverage for the collapsed-by-default mobile invariant and on mobile e2e specs for overlay-opening setup before hidden-chrome assertions.

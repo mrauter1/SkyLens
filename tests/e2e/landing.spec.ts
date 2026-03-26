@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test'
 
+import { ensureMobileViewerOverlayOpen } from './mobile-overlay'
+
 test('landing page shows shell copy and demo entry', async ({ page }) => {
   await page.goto('/')
 
@@ -20,7 +22,9 @@ test('landing page shows shell copy and demo entry', async ({ page }) => {
 
   expect(demoHref).toMatch(/\/view\?entry=demo/)
   await page.goto(demoHref!)
+  await ensureMobileViewerOverlayOpen(page)
+  const mobileOverlay = page.getByTestId('mobile-viewer-overlay')
 
   await expect(page).toHaveURL(/\/view\?entry=demo/)
-  await expect(page.getByText('Demo mode is active.')).toBeVisible()
+  await expect(mobileOverlay.getByText('Demo mode is active.')).toBeVisible()
 })
