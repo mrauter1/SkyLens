@@ -1,0 +1,34 @@
+# Implementation Notes
+
+- Task ID: mobile-overlay-autoloop-run2
+- Pair: implement
+- Phase ID: collapse-all-mobile-viewer-chrome
+- Phase Directory Key: collapse-all-mobile-viewer-chrome
+- Phase Title: Collapse all mobile viewer chrome behind a bottom trigger
+- Scope: phase-local producer artifact
+- Files changed: [implementation_notes.md](/workspace/SkyLens/.autoloop/tasks/mobile-overlay-autoloop-run2/implement/phases/collapse-all-mobile-viewer-chrome/implementation_notes.md), [decisions.txt](/workspace/SkyLens/.autoloop/tasks/mobile-overlay-autoloop-run2/decisions.txt)
+- Symbols touched: none in application source; validated existing `ViewerShell` mobile overlay/test selectors as-shipped
+- Checklist mapping:
+  - Mobile collapsed-by-default trigger: satisfied by existing `isMobileOverlayOpen` branch in `components/viewer/viewer-shell.tsx`
+  - Expanded mobile overlay exposes header/settings/status/details/blocked actions: satisfied by existing mobile overlay composition in `components/viewer/viewer-shell.tsx`
+  - Desktop composition preserved: satisfied by existing `desktop-viewer-header` and `desktop-viewer-content` branch in `components/viewer/viewer-shell.tsx`
+  - Focused mobile/desktop regression tests: satisfied by existing assertions in `tests/unit/viewer-shell.test.ts`
+  - Full unit suite passing: validated this turn with `npm test`
+- Assumptions: current checked-in viewer shell and unit tests are the intended implementation baseline for this phase
+- Preserved invariants:
+  - Desktop viewer composition remains unchanged
+  - Mobile non-stage chrome stays behind the bottom trigger by default
+  - Mobile expanded content continues to read from the same viewer-derived state as desktop
+  - `SettingsSheet` remains the single settings surface
+- Intended behavior changes: none added in this turn; existing checked-in behavior already matches the approved phase scope
+- Known non-changes:
+  - No edits to `components/viewer/viewer-shell.tsx`
+  - No edits to `tests/unit/viewer-shell.test.ts`
+  - No edits to `components/settings/settings-sheet.tsx`
+- Expected side effects:
+  - Local `npm install` was required before validation because `node_modules` was absent in the workspace
+  - No repo-tracked dependency manifest changes were required
+- Validation performed:
+  - `npm test -- --run tests/unit/viewer-shell.test.ts`
+  - `npm test`
+- Deduplication / centralization decisions: kept the existing single mobile overlay path and existing test selectors; avoided duplicating settings UI or adding a second mobile composition path

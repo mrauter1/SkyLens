@@ -1,0 +1,57 @@
+version: 1
+task_id: mobile-overlay-autoloop-run2
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/mobile-overlay-autoloop-run2/runs/run-20260326T153009Z-80a886f5/request.md
+phases:
+- phase_id: collapse-all-mobile-viewer-chrome
+  title: Collapse all mobile viewer chrome behind a bottom trigger
+  objective: Update the viewer shell so mobile iOS collapses all non-stage viewer
+    chrome, including the current top header/settings area, behind a compact bottom
+    button that expands on tap, while desktop behavior stays unchanged.
+  status: planned
+  in_scope:
+  - Recompose the mobile-only viewer shell so the collapsed state exposes only the
+    stage and compact bottom trigger.
+  - Move the current top mobile header/alignment badge area into the expanded mobile
+    overlay.
+  - Keep settings access, blocked-state actions, and object-detail/status content
+    reachable inside the expanded mobile overlay.
+  - Preserve existing desktop viewer layout and behavior.
+  - Add or update focused tests and run the full unit test suite.
+  out_of_scope:
+  - Redesigning desktop cards, settings behavior, or viewer copy outside the mobile-collapse
+    requirement.
+  - Adding new viewer settings, route params, API changes, or shared viewport infrastructure.
+  - Refactoring unrelated sky-scene, projection, or object-detail logic.
+  dependencies: []
+  acceptance_criteria:
+  - id: AC-1
+    text: On mobile, all non-stage viewer chrome is collapsed by default behind a
+      compact bottom trigger, including the current top header/settings area.
+  - id: AC-2
+    text: Expanding the mobile trigger reveals settings access, blocked-state actions
+      when applicable, and the current status/detail content without creating a separate
+      data path.
+  - id: AC-3
+    text: Desktop viewer overlays keep their current composition and behavior.
+  - id: AC-4
+    text: Focused viewer tests cover the mobile collapsed and expanded flow with selector-level
+      assertions, and npm run test passes.
+  deliverables:
+  - Updated mobile overlay composition in components/viewer/viewer-shell.tsx using
+    the existing isMobileOverlayOpen branch and fixed-bottom mobile container
+  - Any minimal supporting accessibility or selector hook needed to validate mobile
+    open-close behavior safely without duplicating the settings UI
+  - Focused updates in tests/unit/viewer-shell.test.ts for mobile collapse-all behavior
+    and desktop preservation
+  - Passing npm run test execution
+  risks:
+  - Responsive composition changes could unintentionally alter desktop layout.
+  - Moving the mobile settings entry point could break access or focus flow.
+  - The bottom trigger or sheet could interfere with stage interactions or iOS safe-area
+    spacing.
+  - Hidden responsive branches in jsdom could make tests pass without proving the
+    intended behavior.
+  rollback:
+  - Revert the mobile viewer-shell composition changes and restore the current always-visible
+    top mobile chrome.
+  - Keep desktop behavior, settings logic, and unrelated tests untouched during rollback.

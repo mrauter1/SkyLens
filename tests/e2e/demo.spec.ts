@@ -1,12 +1,16 @@
 import { expect, test } from '@playwright/test'
 
+import { ensureMobileViewerOverlayOpen } from './mobile-overlay'
+
 const SF_DEMO_ROUTE =
   '/view?entry=demo&location=unavailable&camera=unavailable&orientation=unavailable&demoScenario=sf-evening'
 
 test('demo mode renders deterministic labels and opens a detail card', async ({ page }) => {
   await page.goto(SF_DEMO_ROUTE)
+  await ensureMobileViewerOverlayOpen(page)
+  const mobileOverlay = page.getByTestId('mobile-viewer-overlay')
 
-  await expect(page.getByText('Demo mode is active.')).toBeVisible()
+  await expect(mobileOverlay.getByText('Demo mode is active.')).toBeVisible()
 
   const aircraftLabel = page.getByRole('button', { name: /UAL123/i }).first()
   const stage = page.getByLabel('Sky viewer stage')
@@ -18,22 +22,29 @@ test('demo mode renders deterministic labels and opens a detail card', async ({ 
   await expect(aircraftLabel).toBeVisible()
   await aircraftLabel.click()
 
-  await expect(page.getByText('Selected object')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Close' })).toBeVisible()
-  await expect(page.getByText('Altitude')).toBeVisible()
-  await expect(page.getByText('Range')).toBeVisible()
+  await expect(mobileOverlay.getByText('Selected object')).toBeVisible()
+  await expect(mobileOverlay.getByText('Altitude')).toBeVisible()
+  await expect(mobileOverlay.getByText('Range')).toBeVisible()
 })
 
 test('settings persist layer toggles in demo mode', async ({ page }) => {
   await page.goto(SF_DEMO_ROUTE)
 
-  await page.getByRole('button', { name: 'Settings' }).click()
-  const planesToggle = page.getByRole('checkbox', { name: 'Planes' })
+  await ensureMobileViewerOverlayOpen(page)
+  const mobileOverlay = page.getByTestId('mobile-viewer-overlay')
+
+  await mobileOverlay.getByRole('button', { name: 'Settings' }).click()
+
+  const settingsDialog = page.getByRole('dialog', { name: 'Settings' })
+  const planesToggle = settingsDialog.getByRole('checkbox', { name: 'Planes' })
 
   await expect(planesToggle).toBeChecked()
-  await planesToggle.uncheck()
+  await planesToggle.focus()
+  await page.keyboard.press('Space')
+  await expect(planesToggle).not.toBeChecked()
   await page.reload()
-  await page.getByRole('button', { name: 'Settings' }).click()
+  await ensureMobileViewerOverlayOpen(page)
+  await page.getByTestId('mobile-viewer-overlay').getByRole('button', { name: 'Settings' }).click()
 
-  await expect(page.getByRole('checkbox', { name: 'Planes' })).not.toBeChecked()
+  await expect(page.getByRole('dialog', { name: 'Settings' }).getByRole('checkbox', { name: 'Planes' })).not.toBeChecked()
 })

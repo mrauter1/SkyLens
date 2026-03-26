@@ -46,7 +46,15 @@ vi.mock('next/link', () => ({
 }))
 
 vi.mock('../../components/settings/settings-sheet', () => ({
-  SettingsSheet: () => React.createElement('div', { 'data-testid': 'settings-sheet' }),
+  SettingsSheet: () =>
+    React.createElement(
+      'button',
+      {
+        type: 'button',
+        'data-testid': 'settings-sheet',
+      },
+      'Settings',
+    ),
 }))
 
 vi.mock('../../lib/sensors/location', async () => {
@@ -357,6 +365,113 @@ describe('ViewerShell startup gating', () => {
     })
 
     expect(container.textContent).toContain('Yaw 0°')
+  })
+
+  it('collapses mobile chrome behind the bottom trigger and restores it when opened', async () => {
+    await renderViewer({
+      entry: 'demo',
+      location: 'unavailable',
+      camera: 'unavailable',
+      orientation: 'unavailable',
+      demoScenarioId: 'sf-evening',
+    })
+
+    const mobileTrigger = container.querySelector(
+      '[data-testid="mobile-viewer-overlay-trigger"]',
+    ) as HTMLButtonElement | null
+
+    expect(mobileTrigger).not.toBeNull()
+    expect(mobileTrigger?.getAttribute('aria-controls')).toBe('mobile-viewer-overlay')
+    expect(mobileTrigger?.getAttribute('aria-expanded')).toBe('false')
+    expect(container.querySelector('[data-testid="mobile-viewer-overlay"]')).toBeNull()
+    expect(container.querySelector('[data-testid="mobile-viewer-header"]')).toBeNull()
+
+    await act(async () => {
+      mobileTrigger!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const mobileOverlay = container.querySelector(
+      '[data-testid="mobile-viewer-overlay"]',
+    ) as HTMLElement | null
+    const mobileHeader = container.querySelector(
+      '[data-testid="mobile-viewer-header"]',
+    ) as HTMLElement | null
+
+    expect(mobileOverlay).not.toBeNull()
+    expect(mobileHeader).not.toBeNull()
+    expect(mobileHeader?.textContent).toContain('SkyLens')
+    expect(mobileHeader?.textContent).toContain('Demo viewer')
+    expect(mobileOverlay?.querySelector('[data-testid="settings-sheet"]')).not.toBeNull()
+    expect(mobileOverlay?.textContent).toContain('Location')
+    expect(mobileOverlay?.textContent).toContain('Camera')
+    expect(mobileOverlay?.textContent).toContain('Motion')
+    expect(mobileOverlay?.textContent).toContain('Celestial layer')
+    expect(mobileOverlay?.textContent).toContain('Privacy reassurance')
+
+    const closeButton = Array.from(mobileOverlay!.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Close'),
+    )
+
+    expect(closeButton).toBeDefined()
+
+    await act(async () => {
+      closeButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(container.querySelector('[data-testid="mobile-viewer-overlay"]')).toBeNull()
+    expect(container.querySelector('[data-testid="mobile-viewer-header"]')).toBeNull()
+  })
+
+  it('keeps blocked-state actions reachable inside the expanded mobile overlay', async () => {
+    await renderViewer({
+      entry: 'live',
+      location: 'unknown',
+      camera: 'unknown',
+      orientation: 'unknown',
+    })
+
+    const mobileTrigger = container.querySelector(
+      '[data-testid="mobile-viewer-overlay-trigger"]',
+    ) as HTMLButtonElement | null
+
+    expect(mobileTrigger).not.toBeNull()
+
+    await act(async () => {
+      mobileTrigger!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const mobileOverlay = container.querySelector(
+      '[data-testid="mobile-viewer-overlay"]',
+    ) as HTMLElement | null
+
+    expect(mobileOverlay).not.toBeNull()
+    expect(mobileOverlay?.querySelector('[data-testid="settings-sheet"]')).not.toBeNull()
+    expect(mobileOverlay?.textContent).toContain('Retry permissions')
+    expect(mobileOverlay?.textContent).toContain('Try demo mode')
+  })
+
+  it('preserves the desktop viewer header and desktop content composition', async () => {
+    await renderViewer({
+      entry: 'demo',
+      location: 'unavailable',
+      camera: 'unavailable',
+      orientation: 'unavailable',
+      demoScenarioId: 'sf-evening',
+    })
+
+    const desktopHeader = container.querySelector(
+      '[data-testid="desktop-viewer-header"]',
+    ) as HTMLElement | null
+    const desktopContent = container.querySelector(
+      '[data-testid="desktop-viewer-content"]',
+    ) as HTMLElement | null
+
+    expect(desktopHeader).not.toBeNull()
+    expect(desktopHeader?.textContent).toContain('SkyLens')
+    expect(desktopHeader?.querySelector('[data-testid="settings-sheet"]')).not.toBeNull()
+    expect(desktopContent).not.toBeNull()
+    expect(desktopContent?.textContent).toContain('Bottom dock')
+    expect(desktopContent?.textContent).toContain('Privacy reassurance')
   })
 
   async function renderViewer(initialState: ViewerRouteState) {

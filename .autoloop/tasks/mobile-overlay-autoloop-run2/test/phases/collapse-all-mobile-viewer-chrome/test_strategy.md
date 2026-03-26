@@ -1,0 +1,30 @@
+# Test Strategy
+
+- Task ID: mobile-overlay-autoloop-run2
+- Pair: test
+- Phase ID: collapse-all-mobile-viewer-chrome
+- Phase Directory Key: collapse-all-mobile-viewer-chrome
+- Phase Title: Collapse all mobile viewer chrome behind a bottom trigger
+- Scope: phase-local producer artifact
+- Behavior-to-coverage map:
+  - Mobile collapsed default state:
+    - `tests/unit/viewer-shell.test.ts` asserts `mobile-viewer-overlay-trigger` exists, `aria-controls` points at `mobile-viewer-overlay`, `aria-expanded` is `false`, and the mobile overlay/header selectors are absent before interaction.
+  - Mobile expanded overlay content:
+    - `tests/unit/viewer-shell.test.ts` opens the mobile trigger and asserts the expanded overlay contains the moved header, `SettingsSheet`, status labels (`Location`, `Camera`, `Motion`), detail content (`Celestial layer`), and privacy content, then closes back to the collapsed state.
+  - Blocked-state action reachability:
+    - `tests/unit/viewer-shell.test.ts` opens the mobile overlay for a blocked live route and asserts `Retry permissions` and `Try demo mode` remain reachable inside the expanded overlay.
+  - Desktop preservation:
+    - `tests/unit/viewer-shell.test.ts` asserts `desktop-viewer-header` and `desktop-viewer-content` still contain the existing header/settings and detail/privacy composition.
+- Preserved invariants checked:
+  - Mobile assertions are scoped through mobile overlay selectors instead of global text because jsdom mounts both responsive branches.
+  - Desktop and mobile continue to use the same viewer-derived content path; tests validate composition rather than duplicating settings behavior.
+- Edge cases:
+  - Blocked live preflight state is covered to ensure the mobile collapse does not hide recovery actions.
+  - Expanded mobile test covers reopen/close flow to catch regressions in overlay state restoration.
+- Failure paths:
+  - The blocked-state test exercises the failure/recovery branch where permissions are not yet granted.
+- Flake risks and stabilization:
+  - Tests stay deterministic by using mocked dependencies and selector-level assertions instead of viewport emulation.
+  - Existing `flushEffects`/`act` sequencing is reused so overlay interaction assertions settle before checks.
+- Known gaps:
+  - No browser-level viewport or touch layout assertions; this phase stays at unit-level composition and regression coverage per scope.

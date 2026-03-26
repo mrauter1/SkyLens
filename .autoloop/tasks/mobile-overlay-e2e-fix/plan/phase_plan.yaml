@@ -1,0 +1,38 @@
+version: 1
+task_id: mobile-overlay-e2e-fix
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/mobile-overlay-e2e-fix/runs/run-20260326T161740Z-6e1093b2/request.md
+phases:
+  - phase_id: align-mobile-playwright-overlay-state
+    title: Align mobile Playwright specs with collapsed overlay behavior
+    objective: Update the mobile Playwright suite to explicitly open the viewer overlay before asserting hidden viewer chrome, while preserving the collapsed-by-default mobile UX and confirming the full suite passes.
+    status: planned
+    in_scope:
+      - Investigate the current Playwright failures against the existing mobile overlay implementation and unit coverage.
+      - Add a small reusable Playwright helper for ensuring the mobile viewer overlay is open when a spec needs hidden chrome.
+      - Update demo, landing, and permissions e2e specs to use the helper before asserting banner text, settings access, or blocked-state actions.
+      - Validate the intended mobile contract with focused unit coverage and the full Playwright suite.
+    out_of_scope:
+      - Redesigning the mobile overlay UX or changing its collapsed-by-default behavior.
+      - Expanding Playwright coverage to desktop layouts.
+      - Refactoring unrelated viewer-shell rendering or permission-state logic.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: Mobile Playwright specs no longer assert viewer chrome that is intentionally hidden while the overlay is collapsed.
+      - id: AC-2
+        text: A shared, idempotent test helper or equivalent consistent setup opens the mobile overlay before affected assertions in demo, landing, and permissions flows.
+      - id: AC-3
+        text: The collapsed-by-default mobile viewer UX remains unchanged unless investigation finds and fixes a real runtime defect.
+      - id: AC-4
+        text: Focused viewer-shell unit coverage still passes and npm run test:e2e passes all 8 tests.
+    deliverables:
+      - Updated mobile Playwright specs for demo, landing, and permissions flows
+      - A minimal shared e2e helper or equivalent consistent overlay-opening setup
+      - Validation evidence from focused unit coverage and the full Playwright suite
+    risks:
+      - Tests may remain brittle if they continue to depend on trigger copy instead of stable selectors.
+      - Fixing only selectors could hide a real failure if overlay content is missing after expansion.
+      - Touching runtime code unnecessarily would risk changing intentional mobile behavior.
+    rollback:
+      - Revert the Playwright helper and spec edits if they introduce flaky setup behavior.
+      - Separate any runtime rollback from test-only cleanup so the intended mobile contract remains clear.

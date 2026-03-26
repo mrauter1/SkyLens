@@ -1,0 +1,7 @@
+# Plan ↔ Plan Verifier Feedback
+- Replaced the empty plan with a single-phase implementation plan because this task is one coherent viewer-shell slice, not a multi-milestone feature.
+- Incorporated the authoritative `ALL COLLAPSE` clarification so the plan now covers collapsing the current top mobile header/settings chrome into the bottom overlay instead of silently narrowing scope.
+- Added the jsdom responsive-branch testing constraint and required selector-level assertions so later implementation does not claim mobile/desktop coverage from hidden DOM text alone.
+- PLAN-001 [non-blocking]: No blocking findings. The plan now matches the clarified `ALL COLLAPSE` intent, keeps the change local to `ViewerShell`/settings integration, preserves desktop compatibility explicitly, and includes concrete regression controls for responsive DOM testing, settings reachability, validation, and rollback.
+- Revalidated the plan against the current codebase: the authoritative edit surface is the existing `isMobileOverlayOpen` branch in `components/viewer/viewer-shell.tsx` plus `tests/unit/viewer-shell.test.ts`, so the plan now narrows implementation away from unnecessary `SettingsSheet` or viewport-service refactors.
+- PLAN-002 [non-blocking]: Verification complete. No additional findings beyond PLAN-001; the plan, phase contract, criteria state, and shared decisions are consistent with the request, the confirmed `ALL COLLAPSE` clarification, and the current `ViewerShell`/viewer-test implementation boundaries.

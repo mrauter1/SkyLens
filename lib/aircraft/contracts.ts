@@ -19,7 +19,7 @@ export const AircraftObserverSchema = z.object({
 })
 
 export const AircraftApiAircraftSchema = z.object({
-  id: z.string().regex(/^icao24-[0-9a-f]{6}$/),
+  id: z.string().regex(/^icao24-[0-9a-z]{6}$/i),
   callsign: z.string().min(1).optional(),
   originCountry: z.string().min(1).optional(),
   lat: z.number().finite().min(-90).max(90),
