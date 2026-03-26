@@ -14,7 +14,7 @@ describe('GET /api/config', () => {
         maxLabels: 18,
         radiusKm: 250,
         verticalFovDeg: 50,
-        likelyVisibleOnly: true,
+        likelyVisibleOnly: false,
         enabledLayers: [
           'aircraft',
           'satellites',

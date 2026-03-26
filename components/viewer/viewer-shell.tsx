@@ -78,6 +78,7 @@ import {
   createManualCameraPose,
   createManualPoseState,
   recenterManualPose,
+  requestOrientationPermission,
   subscribeToOrientationPose,
 } from '../../lib/sensors/orientation'
 import type { CameraPose, ObserverState, SkyObject } from '../../lib/viewer/contracts'
@@ -153,6 +154,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false)
   const [trailSamples, setTrailSamples] = useState<TrailSample[]>([])
   const [isMobileOverlayOpen, setIsMobileOverlayOpen] = useState(false)
+  const [motionRetryError, setMotionRetryError] = useState<string | null>(null)
   const orientationControllerRef = useRef<ReturnType<typeof subscribeToOrientationPose> | null>(
     null,
   )
@@ -310,6 +312,12 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const renderedCenterLockedObject = hasMounted ? centerLockedObject : null
   const renderedSelectedDetailObject = hasMounted ? selectedDetailObject : null
   const renderedActiveSummaryObject = hasMounted ? activeSummaryObject : null
+  const visibilityDiagnosticsNote =
+    renderedDisplayedObjects.length === 0
+      ? likelyVisibleOnly
+        ? 'No labels are currently eligible. Likely visible only may hide stars, constellations, and satellites in daylight.'
+        : 'No labels are currently eligible. Check location accuracy, tilt the phone above the horizon, and confirm layer toggles in Settings.'
+      : `${renderedDisplayedObjects.length} labels are currently eligible on screen.`
 
   const handleRetryPermissions = () => {
     setRetryError(null)
@@ -325,6 +333,35 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         router.replace(buildViewerHref(nextState))
       } catch {
         setRetryError('Permission retry failed. Use demo mode if you want to continue now.')
+      }
+    })
+  }
+
+  const handleRetryMotionPermission = () => {
+    setMotionRetryError(null)
+
+    startTransition(async () => {
+      try {
+        const orientation = await requestOrientationPermission()
+        if (state.entry === 'live') {
+          const nextState: ViewerRouteState = {
+            ...state,
+            orientation,
+          }
+
+          setState(nextState)
+          router.replace(buildViewerHref(nextState))
+        }
+
+        if (orientation !== 'granted') {
+          setMotionRetryError(
+            orientation === 'denied'
+              ? 'Motion access is still denied. Check iOS Settings → Safari → Motion & Orientation Access, then retry.'
+              : 'Motion sensors are unavailable on this device/browser right now.',
+          )
+        }
+      } catch {
+        setMotionRetryError('Unable to retry motion permission right now.')
       }
     })
   }
@@ -856,6 +893,29 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       }))
     },
   }
+  const motionRecoveryPanel =
+    state.entry !== 'demo' && state.orientation !== 'granted' ? (
+      <section className="rounded-[1.25rem] border border-sky-100/10 bg-white/5 p-4">
+        <p className="text-xs uppercase tracking-[0.2em] text-amber-200/70">Motion recovery</p>
+        <p className="mt-2 text-sm leading-6 text-sky-100/80">
+          On iPhone Safari, enable motion in iOS Settings → Safari → Motion & Orientation
+          Access, then return and retry.
+        </p>
+        <button
+          type="button"
+          onClick={handleRetryMotionPermission}
+          disabled={isPending}
+          className="mt-3 rounded-full border border-sky-100/20 px-4 py-2 text-sm font-semibold text-sky-50 disabled:cursor-wait disabled:opacity-70"
+        >
+          {isPending ? 'Retrying motion...' : 'Enable motion'}
+        </button>
+        {motionRetryError ? (
+          <p className="mt-3 text-sm text-amber-200" role="alert">
+            {motionRetryError}
+          </p>
+        ) : null}
+      </section>
+    ) : null
 
   const handleStagePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!manualMode) {
@@ -1164,6 +1224,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                   body="Drag horizontally to pan, drag vertically to tilt, and double tap to recenter. Manual pan feeds the same normalized camera pose contract as live sensors."
                 />
               ) : null}
+              {motionRecoveryPanel}
               {locationError ? (
                 <FallbackBanner
                   title="Live location is temporarily unavailable."
@@ -1199,7 +1260,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                     <p className="mt-3 max-w-2xl text-sm leading-7 text-sky-100/80">
                       {renderedActiveSummaryObject
                         ? `${renderedActiveSummaryObject.label} is flowing through the normalized ${renderedActiveSummaryObject.type} object contract. Center-lock still uses angular distance from the reticle, not pixel distance.`
-                        : `${experience.body} ${renderedDisplayedObjects.length} labels are currently eligible on screen.`}
+                        : `${experience.body} ${visibilityDiagnosticsNote}`}
                     </p>
                   </div>
                   <div className="rounded-[1.25rem] border border-sky-100/10 bg-white/5 px-4 py-3 text-sm text-sky-100/75">
@@ -1316,12 +1377,21 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       </div>
       <div className="pointer-events-none fixed inset-x-0 bottom-0 z-20 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:hidden">
         {isMobileOverlayOpen ? (
-          <section
-            id="mobile-viewer-overlay"
-            data-testid="mobile-viewer-overlay"
-            className="pointer-events-auto shell-panel mx-auto max-h-[min(72vh,38rem)] w-full max-w-xl overflow-y-auto rounded-[1.5rem] p-4"
-          >
-            <div className="mb-3 flex items-start justify-between gap-3">
+          <div className="pointer-events-auto fixed inset-0 z-30 flex items-end px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-[calc(1rem+env(safe-area-inset-top))]">
+            <button
+              type="button"
+              aria-label="Close viewer overlay"
+              data-testid="mobile-viewer-overlay-backdrop"
+              onClick={() => setIsMobileOverlayOpen(false)}
+              className="absolute inset-0 bg-slate-950/45"
+            />
+            <section
+              id="mobile-viewer-overlay"
+              data-testid="mobile-viewer-overlay"
+              onClick={(event) => event.stopPropagation()}
+              className="shell-panel relative mx-auto max-h-full w-full max-w-xl overflow-y-auto rounded-[1.5rem] p-4"
+            >
+              <div className="mb-3 flex items-start justify-between gap-3">
               <div
                 className="min-w-0 rounded-[1.25rem] border border-sky-100/10 bg-white/5 px-4 py-3"
                 data-testid="mobile-viewer-header"
@@ -1350,8 +1420,8 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                   Close
                 </button>
               </div>
-            </div>
-            <div className="grid gap-3">
+              </div>
+              <div className="grid gap-3">
               <div className="flex flex-wrap gap-2">
                 <StatusBadge label="Location" value={locationStatusValue} />
                 <StatusBadge label="Camera" value={cameraStatusValue} />
@@ -1413,6 +1483,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                       body="Drag horizontally to pan, drag vertically to tilt, and double tap to recenter. Manual pan feeds the same normalized camera pose contract as live sensors."
                     />
                   ) : null}
+                  {motionRecoveryPanel}
                   {locationError ? (
                     <FallbackBanner
                       title="Live location is temporarily unavailable."
@@ -1445,7 +1516,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                         <p className="mt-2 text-sm leading-6 text-sky-100/80">
                           {renderedActiveSummaryObject
                             ? `${renderedActiveSummaryObject.label} is flowing through the normalized ${renderedActiveSummaryObject.type} object contract. Center-lock still uses angular distance from the reticle, not pixel distance.`
-                            : `${experience.body} ${renderedDisplayedObjects.length} labels are currently eligible on screen.`}
+                            : `${experience.body} ${visibilityDiagnosticsNote}`}
                         </p>
                       </div>
                       <div className="rounded-[1rem] border border-sky-100/10 bg-slate-950/35 px-4 py-3 text-sm text-sky-100/75">
@@ -1542,15 +1613,16 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                   ))}
                 </div>
               </section>
-            </div>
-          </section>
+              </div>
+            </section>
+          </div>
         ) : (
           <div className="flex justify-center">
             <button
               type="button"
               onClick={() => setIsMobileOverlayOpen(true)}
               aria-controls="mobile-viewer-overlay"
-              aria-expanded="false"
+              aria-expanded={isMobileOverlayOpen}
               data-testid="mobile-viewer-overlay-trigger"
               className="pointer-events-auto min-h-11 rounded-full border border-sky-100/15 bg-slate-950/70 px-5 py-3 text-sm font-semibold text-sky-50 shadow-[0_12px_30px_rgba(3,7,13,0.32)]"
             >

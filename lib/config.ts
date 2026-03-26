@@ -11,7 +11,7 @@ const ConfigSchema = z.object({
     maxLabels: z.literal(18),
     radiusKm: z.literal(250),
     verticalFovDeg: z.literal(50),
-    likelyVisibleOnly: z.literal(true),
+    likelyVisibleOnly: z.literal(false),
     enabledLayers: z.tuple([
       z.literal('aircraft'),
       z.literal('satellites'),
@@ -50,7 +50,7 @@ export function getPublicConfig(): PublicConfig {
       maxLabels: 18,
       radiusKm: 250,
       verticalFovDeg: 50,
-      likelyVisibleOnly: true,
+      likelyVisibleOnly: false,
       enabledLayers: [
         'aircraft',
         'satellites',

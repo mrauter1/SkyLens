@@ -2,7 +2,7 @@ import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { ViewerRouteState } from '../../lib/permissions/coordinator'
+import { buildViewerHref, type ViewerRouteState } from '../../lib/permissions/coordinator'
 
 const {
   mockRouterReplace,
@@ -11,6 +11,7 @@ const {
   mockSubscribeToOrientationPose,
   mockRequestRearCameraStream,
   mockStopMediaStream,
+  mockRequestOrientationPermission,
   mockFetchAircraftSnapshot,
   mockNormalizeAircraftObjects,
   mockGetAircraftAvailabilityMessage,
@@ -23,6 +24,7 @@ const {
   mockSubscribeToOrientationPose: vi.fn(),
   mockRequestRearCameraStream: vi.fn(),
   mockStopMediaStream: vi.fn(),
+  mockRequestOrientationPermission: vi.fn(),
   mockFetchAircraftSnapshot: vi.fn(),
   mockNormalizeAircraftObjects: vi.fn(),
   mockGetAircraftAvailabilityMessage: vi.fn(),
@@ -77,6 +79,7 @@ vi.mock('../../lib/sensors/orientation', async () => {
   return {
     ...actual,
     subscribeToOrientationPose: mockSubscribeToOrientationPose,
+    requestOrientationPermission: mockRequestOrientationPermission,
   }
 })
 
@@ -160,6 +163,7 @@ describe('ViewerShell startup gating', () => {
     mockRequestRearCameraStream.mockReset()
     mockStopMediaStream.mockReset()
     mockFetchAircraftSnapshot.mockReset()
+    mockRequestOrientationPermission.mockReset()
     mockNormalizeAircraftObjects.mockReset()
     mockGetAircraftAvailabilityMessage.mockReset()
     mockFetchSatelliteCatalog.mockReset()
@@ -190,6 +194,7 @@ describe('ViewerShell startup gating', () => {
       satellites: [],
     })
     mockNormalizeSatelliteObjects.mockReturnValue([])
+    mockRequestOrientationPermission.mockResolvedValue('granted')
   })
 
   afterEach(async () => {
@@ -393,11 +398,15 @@ describe('ViewerShell startup gating', () => {
     const mobileOverlay = container.querySelector(
       '[data-testid="mobile-viewer-overlay"]',
     ) as HTMLElement | null
+    const mobileOverlayBackdrop = container.querySelector(
+      '[data-testid="mobile-viewer-overlay-backdrop"]',
+    ) as HTMLButtonElement | null
     const mobileHeader = container.querySelector(
       '[data-testid="mobile-viewer-header"]',
     ) as HTMLElement | null
 
     expect(mobileOverlay).not.toBeNull()
+    expect(mobileOverlayBackdrop).not.toBeNull()
     expect(mobileHeader).not.toBeNull()
     expect(mobileHeader?.textContent).toContain('SkyLens')
     expect(mobileHeader?.textContent).toContain('Demo viewer')
@@ -420,6 +429,52 @@ describe('ViewerShell startup gating', () => {
 
     expect(container.querySelector('[data-testid="mobile-viewer-overlay"]')).toBeNull()
     expect(container.querySelector('[data-testid="mobile-viewer-header"]')).toBeNull()
+  })
+
+  it('closes mobile overlay on backdrop click without closing from inner panel clicks', async () => {
+    await renderViewer({
+      entry: 'demo',
+      location: 'unavailable',
+      camera: 'unavailable',
+      orientation: 'unavailable',
+      demoScenarioId: 'sf-evening',
+    })
+
+    const mobileTrigger = container.querySelector(
+      '[data-testid="mobile-viewer-overlay-trigger"]',
+    ) as HTMLButtonElement | null
+
+    expect(mobileTrigger).not.toBeNull()
+
+    await act(async () => {
+      mobileTrigger!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const mobileOverlay = container.querySelector(
+      '[data-testid="mobile-viewer-overlay"]',
+    ) as HTMLElement | null
+    const backdrop = container.querySelector(
+      '[data-testid="mobile-viewer-overlay-backdrop"]',
+    ) as HTMLButtonElement | null
+    const settingsButton = mobileOverlay?.querySelector(
+      '[data-testid="settings-sheet"]',
+    ) as HTMLButtonElement | null
+
+    expect(mobileOverlay).not.toBeNull()
+    expect(backdrop).not.toBeNull()
+    expect(settingsButton).not.toBeNull()
+
+    await act(async () => {
+      settingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(container.querySelector('[data-testid="mobile-viewer-overlay"]')).not.toBeNull()
+
+    await act(async () => {
+      backdrop!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(container.querySelector('[data-testid="mobile-viewer-overlay"]')).toBeNull()
   })
 
   it('keeps blocked-state actions reachable inside the expanded mobile overlay', async () => {
@@ -448,6 +503,114 @@ describe('ViewerShell startup gating', () => {
     expect(mobileOverlay?.querySelector('[data-testid="settings-sheet"]')).not.toBeNull()
     expect(mobileOverlay?.textContent).toContain('Retry permissions')
     expect(mobileOverlay?.textContent).toContain('Try demo mode')
+  })
+
+  it('keeps the expanded mobile overlay inside the safe viewport bounds', async () => {
+    await renderViewer({
+      entry: 'demo',
+      location: 'unavailable',
+      camera: 'unavailable',
+      orientation: 'unavailable',
+      demoScenarioId: 'sf-evening',
+    })
+
+    const mobileTrigger = container.querySelector(
+      '[data-testid="mobile-viewer-overlay-trigger"]',
+    ) as HTMLButtonElement | null
+
+    expect(mobileTrigger).not.toBeNull()
+
+    await act(async () => {
+      mobileTrigger!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const mobileOverlay = container.querySelector(
+      '[data-testid="mobile-viewer-overlay"]',
+    ) as HTMLElement | null
+    const mobileOverlayWrapper = mobileOverlay?.parentElement as HTMLElement | null
+
+    expect(mobileOverlay).not.toBeNull()
+    expect(mobileOverlayWrapper).not.toBeNull()
+    expect(mobileOverlayWrapper?.className).toContain(
+      'pt-[calc(1rem+env(safe-area-inset-top))]',
+    )
+    expect(mobileOverlayWrapper?.className).toContain(
+      'pb-[calc(1rem+env(safe-area-inset-bottom))]',
+    )
+    expect(mobileOverlayWrapper?.className).not.toContain('sm:hidden')
+    expect(mobileOverlay?.className).toContain('max-h-full')
+  })
+
+  it('surfaces motion recovery guidance and retries orientation permission', async () => {
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'denied',
+    })
+
+    expect(container.textContent).toContain('Motion recovery')
+    expect(container.textContent).toContain('iOS Settings → Safari → Motion & Orientation Access')
+
+    const enableMotionButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Enable motion'),
+    )
+
+    expect(enableMotionButton).toBeDefined()
+
+    await act(async () => {
+      enableMotionButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(mockRequestOrientationPermission).toHaveBeenCalledTimes(1)
+    expect(mockRouterReplace).toHaveBeenCalledTimes(1)
+    expect(mockRouterReplace).toHaveBeenCalledWith(
+      buildViewerHref({
+        entry: 'live',
+        location: 'granted',
+        camera: 'granted',
+        orientation: 'granted',
+      }),
+    )
+    expect(container.textContent).not.toContain('Motion recovery')
+  })
+
+  it('keeps motion recovery visible and syncs denied retry state to the route', async () => {
+    mockRequestOrientationPermission.mockResolvedValueOnce('denied')
+
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'denied',
+    })
+
+    const enableMotionButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Enable motion'),
+    )
+
+    expect(enableMotionButton).toBeDefined()
+
+    await act(async () => {
+      enableMotionButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(mockRequestOrientationPermission).toHaveBeenCalledTimes(1)
+    expect(mockRouterReplace).toHaveBeenCalledTimes(1)
+    expect(mockRouterReplace).toHaveBeenCalledWith(
+      buildViewerHref({
+        entry: 'live',
+        location: 'granted',
+        camera: 'granted',
+        orientation: 'denied',
+      }),
+    )
+    expect(container.textContent).toContain('Motion recovery')
+    expect(container.textContent).toContain(
+      'Motion access is still denied. Check iOS Settings → Safari → Motion & Orientation Access, then retry.',
+    )
   })
 
   it('preserves the desktop viewer header and desktop content composition', async () => {

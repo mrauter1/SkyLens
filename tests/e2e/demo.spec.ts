@@ -48,3 +48,25 @@ test('settings persist layer toggles in demo mode', async ({ page }) => {
 
   await expect(page.getByRole('dialog', { name: 'Settings' }).getByRole('checkbox', { name: 'Planes' })).not.toBeChecked()
 })
+
+test('mobile overlay opens from the trigger and closes from the backdrop only', async ({
+  page,
+}) => {
+  await page.goto(SF_DEMO_ROUTE)
+
+  const trigger = page.getByTestId('mobile-viewer-overlay-trigger')
+  const mobileOverlay = page.getByTestId('mobile-viewer-overlay')
+
+  await expect(trigger).toBeVisible()
+  await expect(mobileOverlay).toHaveCount(0)
+
+  await trigger.click()
+  await expect(mobileOverlay).toBeVisible()
+
+  await mobileOverlay.getByText('Privacy reassurance').click()
+  await expect(mobileOverlay).toBeVisible()
+
+  await page.getByTestId('mobile-viewer-overlay-backdrop').click()
+  await expect(page.getByTestId('mobile-viewer-overlay')).toHaveCount(0)
+  await expect(trigger).toBeVisible()
+})

@@ -1,0 +1,5 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260326T191902Z-6ef5c5cd" ts="2026-03-26T19:19:02.293330+00:00" />
+Treat motion retry as a route-state synchronization fix inside ViewerShell: use the existing ViewerRouteState and buildViewerHref contract rather than adding new routing helpers or query parameters.
+Only the inner expanded mobile overlay wrapper's sm:hidden is in scope for removal; the outer mobile-only container remains the breakpoint gate for the entire overlay tree.
+<autoloop-decisions-header version="1" block_seq="2" owner="implementer" phase_id="viewer-shell-review-fixes" pair="implement" turn_seq="1" run_id="run-20260326T191902Z-6ef5c5cd" ts="2026-03-26T19:21:16.669827+00:00" />
+ViewerShell now reads the latest viewer route state from a local ref before applying async motion-retry results so `setState` and `router.replace(buildViewerHref(...))` use the same live-state snapshot.
