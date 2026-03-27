@@ -3286,6 +3286,39 @@ function FallbackBanner({
   )
 }
 
+function getInitialReducedMotionPreference() {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return false
+  }
+
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+function resolveSceneClock({
+  prefersReducedMotion,
+  motionQuality,
+}: {
+  prefersReducedMotion: boolean
+  motionQuality: MotionQuality
+}) {
+  if (
+    prefersReducedMotion ||
+    motionQuality === 'low' ||
+    typeof window === 'undefined' ||
+    typeof window.requestAnimationFrame !== 'function'
+  ) {
+    return {
+      mode: 'coarse' as const,
+      intervalMs: SCENE_CLOCK_COARSE_INTERVAL_MS,
+    }
+  }
+
+  return {
+    mode: 'animated' as const,
+    intervalMs: SCENE_CLOCK_FRAME_INTERVAL_MS[motionQuality],
+  }
+}
+
 function AlignmentInstructionsPanel({
   targetLabel,
   instructions,
