@@ -629,7 +629,6 @@ function AlignmentTargetButton({
   label,
   target,
   selected,
-  available,
   onSelect,
 }: {
   label: 'Sun' | 'Moon'
@@ -642,14 +641,13 @@ function AlignmentTargetButton({
     <button
       type="button"
       onClick={() => onSelect?.(target)}
-      disabled={!available}
       aria-pressed={selected}
       aria-label={`Use ${label} for alignment`}
       className={`flex min-h-11 items-center justify-center gap-2 rounded-2xl border px-3 py-3 text-sm ${
         selected
           ? 'border-amber-200/45 bg-amber-200/12 text-amber-50'
           : 'border-sky-100/10 bg-white/5 text-sky-50'
-      } disabled:cursor-not-allowed disabled:border-sky-100/5 disabled:text-sky-100/40`}
+      }`}
     >
       <AlignmentTargetIcon target={target} />
       <span>{label}</span>

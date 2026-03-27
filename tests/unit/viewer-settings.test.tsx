@@ -190,8 +190,10 @@ describe('ViewerShell settings integration', () => {
     expect(container.textContent).toContain('North marker')
     expect(container.textContent).toContain('Alignment steps')
     expect(container.textContent).toContain('Choose the Sun or Moon target for this alignment pass.')
-    expect(sunTargetButton?.disabled).toBe(true)
-    expect(moonTargetButton?.disabled).toBe(true)
+    expect(sunTargetButton?.disabled).toBe(false)
+    expect(moonTargetButton?.disabled).toBe(false)
+    expect(sunTargetButton?.getAttribute('aria-pressed')).toBe('false')
+    expect(moonTargetButton?.getAttribute('aria-pressed')).toBe('true')
     expect(
       (container.querySelector('input[aria-label="On objects"]') as HTMLInputElement | null)
         ?.checked,

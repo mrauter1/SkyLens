@@ -1,0 +1,42 @@
+version: 1
+task_id: implement-alignment-target-diagnosis-and-fix-pla-29e6230a
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/implement-alignment-target-diagnosis-and-fix-pla-29e6230a/runs/run-20260327T211249Z-40fb6f11/request.md
+phases:
+  - phase_id: align-target-default-and-override-fix
+    title: Fix alignment target selection defaults and override behavior
+    objective: Keep Sun and Moon always selectable while switching the initial selected target to a visibility-aware heuristic that never overwrites a manual user choice.
+    status: planned
+    in_scope:
+      - Remove unavailable-state disabling from the Sun/Moon alignment buttons in the live panel and settings sheet.
+      - Add a visibility-aware default-target resolver in ViewerShell using visible Sun/Moon candidates and sun altitude.
+      - Track manual override state so automatic target selection stops after the first explicit user choice.
+      - Preserve existing calibration fallback metadata and resolution order when the preferred target is unavailable.
+      - Update existing unit tests for settings, viewer settings, and viewer-shell alignment behavior.
+    out_of_scope:
+      - Changing the calibration fallback order beyond the existing preferred-target-unavailable handling.
+      - Introducing new persisted settings fields, routes, or public API contracts.
+      - Refactoring alignment logic into a new shared module.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: Sun and Moon alignment buttons remain enabled and selectable in both alignment UIs even when availability flags are false.
+      - id: AC-2
+        text: The initial selected alignment target follows the requested visibility heuristic, including elevation tie-breaks and day/night fallback when neither body is visible.
+      - id: AC-3
+        text: After the user manually picks Sun or Moon, subsequent renders and scene changes do not overwrite that selection during the same mounted viewer session.
+      - id: AC-4
+        text: Calibration fallback messaging and actual fallback target resolution still work when the selected target is currently unavailable.
+      - id: AC-5
+        text: Updated unit tests cover always-selectable buttons, heuristic defaults, and sticky manual overrides.
+    deliverables:
+      - Updated alignment target state logic in components/viewer/viewer-shell.tsx.
+      - Updated alignment target button rendering in components/viewer/viewer-shell.tsx and components/settings/settings-sheet.tsx.
+      - Revised alignment-related unit tests in tests/unit/viewer-shell-celestial.test.ts, tests/unit/settings-sheet.test.tsx, and tests/unit/viewer-settings.test.tsx.
+    risks:
+      - Heuristic defaulting could drift from the actual fallback target resolver if it uses different visibility inputs.
+      - Automatic reselection could override a manual target choice if the override boundary is not tracked separately.
+      - Removing disabled buttons could hide unavailable-state feedback if fallback copy is not preserved.
+    rollback:
+      - Revert heuristic defaulting if it causes target oscillation or manual-choice regressions.
+      - Revert button interactivity changes independently if availability messaging regresses.
+      - Revert only the affected test updates if broader suite failures come from unrelated fixture assumptions.
