@@ -3,7 +3,11 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { buildViewerHref, type ViewerRouteState } from '../../lib/permissions/coordinator'
-import { VIEWER_SETTINGS_STORAGE_KEY, readViewerSettings } from '../../lib/viewer/settings'
+import {
+  VIEWER_SETTINGS_STORAGE_KEY,
+  readViewerSettings,
+  writeViewerSettings,
+} from '../../lib/viewer/settings'
 
 const {
   mockRouterReplace,
@@ -15,10 +19,10 @@ const {
   mockStopMediaStream,
   mockRequestOrientationPermission,
   mockFetchAircraftSnapshot,
-  mockNormalizeAircraftObjects,
   mockGetAircraftAvailabilityMessage,
   mockFetchSatelliteCatalog,
-  mockNormalizeSatelliteObjects,
+  mockResolveAircraftMotionObjects,
+  mockResolveSatelliteMotionObjects,
 } = vi.hoisted(() => ({
   mockRouterReplace: vi.fn(),
   mockSettingsSheetProps: vi.fn(),
@@ -29,10 +33,10 @@ const {
   mockStopMediaStream: vi.fn(),
   mockRequestOrientationPermission: vi.fn(),
   mockFetchAircraftSnapshot: vi.fn(),
-  mockNormalizeAircraftObjects: vi.fn(),
   mockGetAircraftAvailabilityMessage: vi.fn(),
   mockFetchSatelliteCatalog: vi.fn(),
-  mockNormalizeSatelliteObjects: vi.fn(),
+  mockResolveAircraftMotionObjects: vi.fn(),
+  mockResolveSatelliteMotionObjects: vi.fn(),
 }))
 
 vi.mock('next/navigation', () => ({
@@ -103,14 +107,24 @@ vi.mock('../../lib/projection/camera', async () => {
 
 vi.mock('../../lib/satellites/client', () => ({
   fetchSatelliteCatalog: mockFetchSatelliteCatalog,
-  normalizeSatelliteObjects: mockNormalizeSatelliteObjects,
 }))
 
 vi.mock('../../lib/aircraft/client', () => ({
   fetchAircraftSnapshot: mockFetchAircraftSnapshot,
-  normalizeAircraftObjects: mockNormalizeAircraftObjects,
   getAircraftAvailabilityMessage: mockGetAircraftAvailabilityMessage,
 }))
+
+vi.mock('../../lib/viewer/motion', async () => {
+  const actual = await vi.importActual<typeof import('../../lib/viewer/motion')>(
+    '../../lib/viewer/motion',
+  )
+
+  return {
+    ...actual,
+    resolveAircraftMotionObjects: mockResolveAircraftMotionObjects,
+    resolveSatelliteMotionObjects: mockResolveSatelliteMotionObjects,
+  }
+})
 
 import { ViewerShell } from '../../components/viewer/viewer-shell'
 
@@ -184,6 +198,11 @@ describe('ViewerShell startup gating', () => {
         enumerateDevices: vi.fn(async () => []),
       },
     })
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      writable: true,
+      value: createMatchMediaStub(false),
+    })
     window.localStorage.clear()
 
     mockRouterReplace.mockReset()
@@ -195,10 +214,10 @@ describe('ViewerShell startup gating', () => {
     mockStopMediaStream.mockReset()
     mockFetchAircraftSnapshot.mockReset()
     mockRequestOrientationPermission.mockReset()
-    mockNormalizeAircraftObjects.mockReset()
     mockGetAircraftAvailabilityMessage.mockReset()
     mockFetchSatelliteCatalog.mockReset()
-    mockNormalizeSatelliteObjects.mockReset()
+    mockResolveAircraftMotionObjects.mockReset()
+    mockResolveSatelliteMotionObjects.mockReset()
     SENSOR_CONTROLLER.stop.mockReset()
     SENSOR_CONTROLLER.recenter.mockReset()
     SENSOR_CONTROLLER.setCalibration.mockReset()
@@ -218,14 +237,14 @@ describe('ViewerShell startup gating', () => {
       availability: 'available',
       aircraft: [],
     })
-    mockNormalizeAircraftObjects.mockReturnValue([])
     mockGetAircraftAvailabilityMessage.mockReturnValue(null)
     mockFetchSatelliteCatalog.mockResolvedValue({
       fetchedAt: '2026-03-26T00:00:00.000Z',
       expiresAt: '2026-03-26T06:00:00.000Z',
       satellites: [],
     })
-    mockNormalizeSatelliteObjects.mockReturnValue([])
+    mockResolveAircraftMotionObjects.mockReturnValue([])
+    mockResolveSatelliteMotionObjects.mockReturnValue([])
     mockRequestOrientationPermission.mockResolvedValue('granted')
   })
 
@@ -1196,6 +1215,516 @@ describe('ViewerShell startup gating', () => {
     expect(container.textContent).not.toContain('Relative sensor mode needs alignment.')
   })
 
+  it('advances demo scene time continuously with the animation-driven cadence', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-03-26T00:00:00.000Z'))
+
+    const restoreAnimationFrame = installAnimationFrameClock()
+
+    try {
+      await renderViewer({
+        entry: 'demo',
+        location: 'unavailable',
+        camera: 'unavailable',
+        orientation: 'unavailable',
+        demoScenarioId: 'sf-evening',
+      })
+      await flushEffects()
+
+      const initialSceneTimeMs = getLatestSceneTimeMs()
+
+      await act(async () => {
+        vi.advanceTimersByTime(250)
+      })
+      await flushEffects()
+
+      expect(getLatestSceneTimeMs()).toBeGreaterThan(initialSceneTimeMs + 150)
+    } finally {
+      restoreAnimationFrame()
+    }
+  })
+
+  it('keeps live scene time synced to wall clock under the animation cadence', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-03-26T00:00:00.000Z'))
+
+    const restoreAnimationFrame = installAnimationFrameClock()
+
+    try {
+      await renderViewer({
+        entry: 'live',
+        location: 'granted',
+        camera: 'denied',
+        orientation: 'denied',
+      })
+      await flushEffects()
+
+      const initialSceneTimeMs = getLatestSceneTimeMs()
+
+      await act(async () => {
+        vi.advanceTimersByTime(250)
+      })
+      await flushEffects()
+
+      expect(getLatestSceneTimeMs()).toBeGreaterThan(initialSceneTimeMs + 150)
+    } finally {
+      restoreAnimationFrame()
+    }
+  })
+
+  it('falls back to the coarse scene cadence when reduced motion is preferred', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-03-26T00:00:00.000Z'))
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      writable: true,
+      value: createMatchMediaStub(true),
+    })
+
+    const restoreAnimationFrame = installAnimationFrameClock()
+
+    try {
+      await renderViewer({
+        entry: 'demo',
+        location: 'unavailable',
+        camera: 'unavailable',
+        orientation: 'unavailable',
+        demoScenarioId: 'sf-evening',
+      })
+      await flushEffects()
+
+      const initialSceneTimeMs = getLatestSceneTimeMs()
+
+      await act(async () => {
+        vi.advanceTimersByTime(900)
+      })
+      await flushEffects()
+
+      expect(getLatestSceneTimeMs()).toBe(initialSceneTimeMs)
+
+      await act(async () => {
+        vi.advanceTimersByTime(200)
+      })
+      await flushEffects()
+
+      expect(getLatestSceneTimeMs()).toBeGreaterThanOrEqual(initialSceneTimeMs + 1_000)
+    } finally {
+      restoreAnimationFrame()
+    }
+  })
+
+  it('keeps demo scene time monotonic when reduced motion turns on mid-session', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-03-26T00:00:00.000Z'))
+    const motionPreference = createMatchMediaController(false)
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      writable: true,
+      value: motionPreference.matchMedia,
+    })
+
+    const restoreAnimationFrame = installAnimationFrameClock()
+
+    try {
+      await renderViewer({
+        entry: 'demo',
+        location: 'unavailable',
+        camera: 'unavailable',
+        orientation: 'unavailable',
+        demoScenarioId: 'sf-evening',
+      })
+      await flushEffects()
+
+      await act(async () => {
+        vi.advanceTimersByTime(250)
+      })
+      await flushEffects()
+
+      const sceneTimeBeforePreferenceChange = getLatestSceneTimeMs()
+
+      await act(async () => {
+        motionPreference.setMatches(true)
+      })
+      await flushEffects()
+
+      expect(getLatestSceneTimeMs()).toBeGreaterThanOrEqual(sceneTimeBeforePreferenceChange)
+    } finally {
+      restoreAnimationFrame()
+    }
+  })
+
+  it('falls back to the coarse scene cadence when animation frames are unavailable', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-03-26T00:00:00.000Z'))
+    const originalRequestAnimationFrame = window.requestAnimationFrame
+    const originalCancelAnimationFrame = window.cancelAnimationFrame
+
+    Object.defineProperty(window, 'requestAnimationFrame', {
+      configurable: true,
+      writable: true,
+      value: undefined,
+    })
+    Object.defineProperty(window, 'cancelAnimationFrame', {
+      configurable: true,
+      writable: true,
+      value: undefined,
+    })
+
+    try {
+      await renderViewer({
+        entry: 'demo',
+        location: 'unavailable',
+        camera: 'unavailable',
+        orientation: 'unavailable',
+        demoScenarioId: 'sf-evening',
+      })
+      await flushEffects()
+
+      const initialSceneTimeMs = getLatestSceneTimeMs()
+
+      await act(async () => {
+        vi.advanceTimersByTime(900)
+      })
+      await flushEffects()
+
+      expect(getLatestSceneTimeMs()).toBe(initialSceneTimeMs)
+
+      await act(async () => {
+        vi.advanceTimersByTime(200)
+      })
+      await flushEffects()
+
+      expect(getLatestSceneTimeMs()).toBeGreaterThanOrEqual(initialSceneTimeMs + 1_000)
+    } finally {
+      Object.defineProperty(window, 'requestAnimationFrame', {
+        configurable: true,
+        writable: true,
+        value: originalRequestAnimationFrame,
+      })
+      Object.defineProperty(window, 'cancelAnimationFrame', {
+        configurable: true,
+        writable: true,
+        value: originalCancelAnimationFrame,
+      })
+    }
+  })
+
+  it('uses the same coarse battery-conscious cadence when motion quality is low', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-03-26T00:00:00.000Z'))
+    writeViewerSettings({
+      ...readViewerSettings(),
+      motionQuality: 'low',
+    })
+
+    const restoreAnimationFrame = installAnimationFrameClock()
+
+    try {
+      await renderViewer({
+        entry: 'demo',
+        location: 'unavailable',
+        camera: 'unavailable',
+        orientation: 'unavailable',
+        demoScenarioId: 'sf-evening',
+      })
+
+      const initialSceneTimeMs = getLatestSceneTimeMs()
+
+      await act(async () => {
+        vi.advanceTimersByTime(900)
+      })
+      await flushEffects()
+
+      expect(getLatestSceneTimeMs()).toBe(initialSceneTimeMs)
+
+      await act(async () => {
+        vi.advanceTimersByTime(200)
+      })
+      await flushEffects()
+
+      expect(getLatestSceneTimeMs()).toBeGreaterThanOrEqual(initialSceneTimeMs + 1_000)
+    } finally {
+      restoreAnimationFrame()
+    }
+  })
+
+  it('retains previous and current aircraft snapshots across live polls', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-03-26T00:00:00.000Z'))
+    const restoreAnimationFrame = installAnimationFrameClock()
+    const firstSnapshot = createAircraftSnapshot('2026-03-26T00:00:00.000Z', [
+      {
+        id: 'icao24-alpha1',
+        callsign: 'ALPHA1',
+        lat: 37.81,
+        lon: -122.25,
+        geoAltitudeM: 5100,
+        velocityMps: 200,
+        headingDeg: 210,
+        azimuthDeg: 18,
+        elevationDeg: 28,
+        rangeKm: 15.2,
+      },
+    ])
+    const secondSnapshot = createAircraftSnapshot('2026-03-26T00:00:10.000Z', [
+      {
+        id: 'icao24-alpha1',
+        callsign: 'ALPHA1',
+        lat: 37.88,
+        lon: -122.18,
+        geoAltitudeM: 5200,
+        velocityMps: 210,
+        headingDeg: 214,
+        azimuthDeg: 24,
+        elevationDeg: 30,
+        rangeKm: 16.1,
+      },
+    ])
+
+    mockFetchAircraftSnapshot
+      .mockResolvedValueOnce(firstSnapshot)
+      .mockResolvedValueOnce(secondSnapshot)
+
+    try {
+      await renderViewer({
+        entry: 'live',
+        location: 'granted',
+        camera: 'granted',
+        orientation: 'granted',
+      })
+      await flushEffects()
+
+      const firstCall = mockResolveAircraftMotionObjects.mock.calls.at(-1)?.[0] as
+        | {
+            snapshot?: unknown
+            previousSnapshot?: unknown
+            transitionStartedAtMs?: unknown
+          }
+        | undefined
+
+      expect(firstCall?.snapshot).toEqual(firstSnapshot)
+      expect(firstCall?.previousSnapshot).toBeNull()
+      expect(typeof firstCall?.transitionStartedAtMs).toBe('number')
+
+      await act(async () => {
+        vi.advanceTimersByTime(10_000)
+      })
+      await flushEffects()
+
+      const secondCall = mockResolveAircraftMotionObjects.mock.calls.at(-1)?.[0] as
+        | {
+            snapshot?: unknown
+            previousSnapshot?: unknown
+            transitionStartedAtMs?: unknown
+          }
+        | undefined
+
+      expect(secondCall?.snapshot).toEqual(secondSnapshot)
+      expect(secondCall?.previousSnapshot).toEqual(firstSnapshot)
+      expect(typeof secondCall?.transitionStartedAtMs).toBe('number')
+    } finally {
+      restoreAnimationFrame()
+    }
+  })
+
+  it('keeps the last aircraft snapshot active when a live refresh fails', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-03-26T00:00:00.000Z'))
+    const restoreAnimationFrame = installAnimationFrameClock()
+    const firstSnapshot = createAircraftSnapshot('2026-03-26T00:00:00.000Z', [
+      {
+        id: 'icao24-bravo1',
+        callsign: 'BRAVO1',
+        lat: 37.81,
+        lon: -122.25,
+        geoAltitudeM: 5100,
+        velocityMps: 200,
+        headingDeg: 210,
+        azimuthDeg: 18,
+        elevationDeg: 28,
+        rangeKm: 15.2,
+      },
+    ])
+
+    mockFetchAircraftSnapshot
+      .mockResolvedValueOnce(firstSnapshot)
+      .mockRejectedValueOnce(new Error('temporary outage'))
+
+    try {
+      await renderViewer({
+        entry: 'live',
+        location: 'granted',
+        camera: 'granted',
+        orientation: 'granted',
+      })
+      await flushEffects()
+
+      await act(async () => {
+        vi.advanceTimersByTime(10_000)
+      })
+      await flushEffects()
+
+      const latestCall = mockResolveAircraftMotionObjects.mock.calls.at(-1)?.[0] as
+        | { snapshot?: unknown; previousSnapshot?: unknown }
+        | undefined
+
+      expect(latestCall?.snapshot).toEqual(firstSnapshot)
+      expect(latestCall?.previousSnapshot).toBeNull()
+    } finally {
+      restoreAnimationFrame()
+    }
+  })
+
+  it('surfaces stale aircraft motion metadata in marker labels and opacity', async () => {
+    mockResolveAircraftMotionObjects.mockReturnValue([
+      {
+        confidence: 0.4,
+        motionState: 'stale',
+        object: {
+          id: 'icao24-staleui',
+          type: 'aircraft',
+          label: 'STALEUI',
+          sublabel: 'Aircraft',
+          azimuthDeg: 0,
+          elevationDeg: 16,
+          rangeKm: 31.8,
+          importance: 83,
+          metadata: {
+            motionState: 'stale',
+            motionOpacity: 0.4,
+            detail: {
+              typeLabel: 'Aircraft',
+              altitudeFeet: 35000,
+              altitudeMeters: 10668,
+              rangeKm: 31.8,
+            },
+          },
+        },
+      },
+    ])
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'unavailable',
+      camera: 'unavailable',
+      orientation: 'unavailable',
+      demoScenarioId: 'tokyo-iss',
+    })
+
+    const marker = container.querySelector(
+      '[data-testid="sky-object-marker"][data-object-id="icao24-staleui"]',
+    ) as HTMLButtonElement | null
+
+    expect(marker).not.toBeNull()
+    expect(marker?.getAttribute('aria-label')).toContain('Aircraft Stale')
+    expect(marker?.style.opacity).toBe('0.4')
+  })
+
+  it('surfaces stale satellite motion metadata in marker labels and opacity', async () => {
+    mockResolveSatelliteMotionObjects.mockReturnValue([
+      {
+        confidence: 0.7,
+        motionState: 'stale',
+        object: {
+          id: '25544',
+          type: 'satellite',
+          label: 'ISS (ZARYA)',
+          sublabel: 'Satellite',
+          azimuthDeg: 0,
+          elevationDeg: 16,
+          rangeKm: 420.7,
+          importance: 88,
+          metadata: {
+            isIss: true,
+            motionState: 'stale',
+            motionOpacity: 0.7,
+            detail: {
+              typeLabel: 'Satellite',
+              noradId: 25544,
+              elevationDeg: 16,
+              azimuthDeg: 0,
+              rangeKm: 420.7,
+              isIss: true,
+            },
+          },
+        },
+      },
+    ])
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'unavailable',
+      camera: 'unavailable',
+      orientation: 'unavailable',
+      demoScenarioId: 'tokyo-iss',
+    })
+
+    const marker = container.querySelector(
+      '[data-testid="sky-object-marker"][data-object-id="25544"]',
+    ) as HTMLButtonElement | null
+
+    expect(marker).not.toBeNull()
+    expect(marker?.getAttribute('aria-label')).toContain('Satellite Stale')
+    expect(marker?.style.opacity).toBe('0.7')
+  })
+
+  it('surfaces estimated aircraft labels and badges in the selected detail view', async () => {
+    mockResolveAircraftMotionObjects.mockReturnValue([
+      {
+        confidence: 0.7,
+        motionState: 'estimated',
+        object: {
+          id: 'icao24-estui',
+          type: 'aircraft',
+          label: 'ESTUI',
+          sublabel: 'Aircraft',
+          azimuthDeg: 0,
+          elevationDeg: 16,
+          rangeKm: 31.8,
+          importance: 88,
+          metadata: {
+            motionState: 'estimated',
+            motionOpacity: 0.7,
+            detail: {
+              typeLabel: 'Aircraft',
+              altitudeFeet: 35000,
+              altitudeMeters: 10668,
+              rangeKm: 31.8,
+            },
+          },
+        },
+      },
+    ])
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'unavailable',
+      camera: 'unavailable',
+      orientation: 'unavailable',
+      demoScenarioId: 'tokyo-iss',
+    })
+
+    const marker = container.querySelector(
+      '[data-testid="sky-object-marker"][data-object-id="icao24-estui"]',
+    ) as HTMLButtonElement | null
+
+    expect(marker).not.toBeNull()
+    expect(marker?.getAttribute('aria-label')).toContain('Aircraft Estimated')
+
+    await act(async () => {
+      marker?.click()
+    })
+    await flushEffects()
+
+    expect(container.textContent).toContain('Selected object')
+    expect(container.textContent).toContain('Aircraft Estimated')
+    expect(
+      Array.from(container.querySelectorAll('span')).some(
+        (element) => element.textContent?.trim() === 'Estimated',
+      ),
+    ).toBe(true)
+  })
+
   it('uses requestAnimationFrame as the render-loop fallback when video-frame callbacks are unavailable', async () => {
     let animationFrameCallback: FrameRequestCallback | null = null
     const originalRequestAnimationFrame = window.requestAnimationFrame
@@ -1619,4 +2148,142 @@ function dispatchPointerEvent(
   }
 
   target.dispatchEvent(event)
+}
+
+function createAircraftSnapshot(
+  fetchedAt: string,
+  aircraft: Array<{
+    id: string
+    callsign?: string
+    lat: number
+    lon: number
+    geoAltitudeM?: number
+    velocityMps?: number
+    headingDeg?: number
+    azimuthDeg: number
+    elevationDeg: number
+    rangeKm: number
+  }>,
+) {
+  return {
+    fetchedAt,
+    observer: {
+      lat: LIVE_OBSERVER_FIXTURE.lat,
+      lon: LIVE_OBSERVER_FIXTURE.lon,
+      altMeters: LIVE_OBSERVER_FIXTURE.altMeters,
+    },
+    availability: 'available' as const,
+    aircraft,
+  }
+}
+
+function createMatchMediaStub(matches: boolean) {
+  return vi.fn((query: string) => ({
+    matches,
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(() => false),
+  }))
+}
+
+function createMatchMediaController(initialMatches: boolean) {
+  let matches = initialMatches
+  const changeListeners = new Set<(event: { matches: boolean; media: string }) => void>()
+
+  return {
+    matchMedia: vi.fn((query: string) => ({
+      get matches() {
+        return matches
+      },
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn((type: string, listener: (event: { matches: boolean; media: string }) => void) => {
+        if (type === 'change') {
+          changeListeners.add(listener)
+        }
+      }),
+      removeEventListener: vi.fn((type: string, listener: (event: { matches: boolean; media: string }) => void) => {
+        if (type === 'change') {
+          changeListeners.delete(listener)
+        }
+      }),
+      addListener: vi.fn((listener: (event: { matches: boolean; media: string }) => void) => {
+        changeListeners.add(listener)
+      }),
+      removeListener: vi.fn((listener: (event: { matches: boolean; media: string }) => void) => {
+        changeListeners.delete(listener)
+      }),
+      dispatchEvent: vi.fn(() => false),
+    })),
+    setMatches(nextMatches: boolean) {
+      matches = nextMatches
+
+      for (const listener of changeListeners) {
+        listener({
+          matches,
+          media: '(prefers-reduced-motion: reduce)',
+        })
+      }
+    },
+  }
+}
+
+function installAnimationFrameClock() {
+  const originalRequestAnimationFrame = window.requestAnimationFrame
+  const originalCancelAnimationFrame = window.cancelAnimationFrame
+  const handles = new Map<number, number>()
+  let nextHandle = 1
+
+  Object.defineProperty(window, 'requestAnimationFrame', {
+    configurable: true,
+    writable: true,
+    value: vi.fn((callback: FrameRequestCallback) => {
+      const handle = nextHandle++
+      const timeoutId = window.setTimeout(() => {
+        handles.delete(handle)
+        callback(Date.now())
+      }, 16)
+
+      handles.set(handle, timeoutId)
+      return handle
+    }),
+  })
+
+  Object.defineProperty(window, 'cancelAnimationFrame', {
+    configurable: true,
+    writable: true,
+    value: vi.fn((handle: number) => {
+      const timeoutId = handles.get(handle)
+
+      if (typeof timeoutId === 'number') {
+        window.clearTimeout(timeoutId)
+        handles.delete(handle)
+      }
+    }),
+  })
+
+  return () => {
+    Object.defineProperty(window, 'requestAnimationFrame', {
+      configurable: true,
+      writable: true,
+      value: originalRequestAnimationFrame,
+    })
+    Object.defineProperty(window, 'cancelAnimationFrame', {
+      configurable: true,
+      writable: true,
+      value: originalCancelAnimationFrame,
+    })
+  }
+}
+
+function getLatestSceneTimeMs() {
+  const latestCall = mockResolveSatelliteMotionObjects.mock.calls.at(-1)?.[0] as
+    | { timeMs?: number }
+    | undefined
+
+  return latestCall?.timeMs ?? 0
 }

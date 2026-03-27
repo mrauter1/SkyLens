@@ -32,6 +32,7 @@ describe('SettingsSheet', () => {
     const onFineAdjustCalibration = vi.fn()
     const onAlignmentTargetPreferenceChange = vi.fn()
     const onLabelDisplayModeChange = vi.fn()
+    const onMotionQualityChange = vi.fn()
 
     await act(async () => {
       root.render(
@@ -71,9 +72,11 @@ describe('SettingsSheet', () => {
           },
           likelyVisibleOnly: true,
           labelDisplayMode: 'center_only',
+          motionQuality: 'balanced',
           onLayerToggle: vi.fn(),
           onLikelyVisibleOnlyChange: vi.fn(),
           onLabelDisplayModeChange,
+          onMotionQualityChange,
         }),
       )
     })
@@ -143,6 +146,16 @@ describe('SettingsSheet', () => {
     })
 
     expect(onLabelDisplayModeChange).toHaveBeenCalledWith('top_list')
+
+    const highQualityRadio = container.querySelector(
+      'input[aria-label="High"]',
+    ) as HTMLInputElement | null
+
+    await act(async () => {
+      highQualityRadio?.click()
+    })
+
+    expect(onMotionQualityChange).toHaveBeenCalledWith('high')
   })
 
   it('shows disabled fallback copy when the selected target is unavailable', async () => {
@@ -227,6 +240,7 @@ describe('SettingsSheet', () => {
           },
           likelyVisibleOnly: true,
           labelDisplayMode: 'center_only',
+          motionQuality: 'balanced',
           demoScenarioId: 'sf-evening',
           demoScenarioOptions: [
             { id: 'sf-evening', label: 'San Francisco - Clear evening' },
@@ -236,6 +250,7 @@ describe('SettingsSheet', () => {
           onLayerToggle: vi.fn(),
           onLikelyVisibleOnlyChange: vi.fn(),
           onLabelDisplayModeChange: vi.fn(),
+          onMotionQualityChange: vi.fn(),
         }),
       )
     })
@@ -300,9 +315,11 @@ describe('SettingsSheet', () => {
           },
           likelyVisibleOnly: true,
           labelDisplayMode: 'center_only',
+          motionQuality: 'balanced',
           onLayerToggle: vi.fn(),
           onLikelyVisibleOnlyChange: vi.fn(),
           onLabelDisplayModeChange: vi.fn(),
+          onMotionQualityChange: vi.fn(),
         }),
       )
     })

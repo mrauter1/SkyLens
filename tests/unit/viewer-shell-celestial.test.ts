@@ -11,13 +11,13 @@ const {
   mockStartObserverTracking,
   mockSubscribeToOrientationPose,
   mockFetchAircraftSnapshot,
-  mockNormalizeAircraftObjects,
   mockGetAircraftAvailabilityMessage,
   mockNormalizeCelestialObjects,
   mockNormalizeVisibleStars,
   mockBuildVisibleConstellations,
   mockFetchSatelliteCatalog,
-  mockNormalizeSatelliteObjects,
+  mockResolveAircraftMotionObjects,
+  mockResolveSatelliteMotionObjects,
 } = vi.hoisted(() => ({
   mockRouterReplace: vi.fn(),
   mockSettingsSheetProps: vi.fn(),
@@ -25,13 +25,13 @@ const {
   mockStartObserverTracking: vi.fn(),
   mockSubscribeToOrientationPose: vi.fn(),
   mockFetchAircraftSnapshot: vi.fn(),
-  mockNormalizeAircraftObjects: vi.fn(),
   mockGetAircraftAvailabilityMessage: vi.fn(),
   mockNormalizeCelestialObjects: vi.fn(),
   mockNormalizeVisibleStars: vi.fn(),
   mockBuildVisibleConstellations: vi.fn(),
   mockFetchSatelliteCatalog: vi.fn(),
-  mockNormalizeSatelliteObjects: vi.fn(),
+  mockResolveAircraftMotionObjects: vi.fn(),
+  mockResolveSatelliteMotionObjects: vi.fn(),
 }))
 
 vi.mock('next/navigation', () => ({
@@ -97,14 +97,24 @@ vi.mock('../../lib/astronomy/constellations', () => ({
 
 vi.mock('../../lib/aircraft/client', () => ({
   fetchAircraftSnapshot: mockFetchAircraftSnapshot,
-  normalizeAircraftObjects: mockNormalizeAircraftObjects,
   getAircraftAvailabilityMessage: mockGetAircraftAvailabilityMessage,
 }))
 
 vi.mock('../../lib/satellites/client', () => ({
   fetchSatelliteCatalog: mockFetchSatelliteCatalog,
-  normalizeSatelliteObjects: mockNormalizeSatelliteObjects,
 }))
+
+vi.mock('../../lib/viewer/motion', async () => {
+  const actual = await vi.importActual<typeof import('../../lib/viewer/motion')>(
+    '../../lib/viewer/motion',
+  )
+
+  return {
+    ...actual,
+    resolveAircraftMotionObjects: mockResolveAircraftMotionObjects,
+    resolveSatelliteMotionObjects: mockResolveSatelliteMotionObjects,
+  }
+})
 
 import { ViewerShell } from '../../components/viewer/viewer-shell'
 import { VIEWER_SETTINGS_STORAGE_KEY } from '../../lib/viewer/settings'
@@ -153,13 +163,13 @@ describe('ViewerShell celestial behavior', () => {
     mockStartObserverTracking.mockReset()
     mockSubscribeToOrientationPose.mockReset()
     mockFetchAircraftSnapshot.mockReset()
-    mockNormalizeAircraftObjects.mockReset()
     mockGetAircraftAvailabilityMessage.mockReset()
     mockNormalizeCelestialObjects.mockReset()
     mockNormalizeVisibleStars.mockReset()
     mockBuildVisibleConstellations.mockReset()
     mockFetchSatelliteCatalog.mockReset()
-    mockNormalizeSatelliteObjects.mockReset()
+    mockResolveAircraftMotionObjects.mockReset()
+    mockResolveSatelliteMotionObjects.mockReset()
     SENSOR_CONTROLLER.stop.mockReset()
     SENSOR_CONTROLLER.recenter.mockReset()
     TRACKER.stop.mockReset()
@@ -177,7 +187,6 @@ describe('ViewerShell celestial behavior', () => {
       availability: 'available',
       aircraft: [],
     })
-    mockNormalizeAircraftObjects.mockReturnValue([])
     mockGetAircraftAvailabilityMessage.mockReturnValue(null)
     mockNormalizeVisibleStars.mockReturnValue([])
     mockBuildVisibleConstellations.mockReturnValue({
@@ -189,7 +198,8 @@ describe('ViewerShell celestial behavior', () => {
       expiresAt: '2026-03-26T06:00:00.000Z',
       satellites: [],
     })
-    mockNormalizeSatelliteObjects.mockReturnValue([])
+    mockResolveAircraftMotionObjects.mockReturnValue([])
+    mockResolveSatelliteMotionObjects.mockReturnValue([])
     window.localStorage.clear()
   })
 
@@ -950,25 +960,32 @@ describe('ViewerShell celestial behavior', () => {
 
     mockNormalizeCelestialObjects.mockReturnValue({
       sunAltitudeDeg: -12,
-      objects: Array.from({ length: 20 }, (_, index) => ({
-        id: `aircraft-${index}`,
-        type: 'aircraft' as const,
-        label: `Flight ${index}`,
-        sublabel: 'Aircraft',
-        azimuthDeg: normalizeTestAzimuth(-3.8 + index * 0.4),
-        elevationDeg: 16,
-        rangeKm: 20 + index,
-        importance: 90 - index,
-        metadata: {
-          detail: {
-            typeLabel: 'Aircraft',
-            altitudeFeet: 35000,
-            altitudeMeters: 10668,
-            rangeKm: 20 + index,
+      objects: [],
+    })
+    mockResolveAircraftMotionObjects.mockReturnValue(
+      Array.from({ length: 20 }, (_, index) => ({
+        confidence: 1,
+        motionState: 'live' as const,
+        object: {
+          id: `aircraft-${index}`,
+          type: 'aircraft' as const,
+          label: `Flight ${index}`,
+          sublabel: 'Aircraft',
+          azimuthDeg: normalizeTestAzimuth(-3.8 + index * 0.4),
+          elevationDeg: 16,
+          rangeKm: 20 + index,
+          importance: 90 - index,
+          metadata: {
+            detail: {
+              typeLabel: 'Aircraft',
+              altitudeFeet: 35000,
+              altitudeMeters: 10668,
+              rangeKm: 20 + index,
+            },
           },
         },
       })),
-    })
+    )
 
     await renderViewer({
       entry: 'demo',
@@ -1230,32 +1247,55 @@ describe('ViewerShell celestial behavior', () => {
     expect(venusButton?.className).not.toContain('transition')
   })
 
-  it('renders a trail polyline for a trail-eligible object as scene time advances', async () => {
+  it('renders a low-quality motion vector for a moving object as scene time advances', async () => {
     const timerHarness = installWindowTimerHarness()
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabledLayers: {
+          aircraft: true,
+          satellites: true,
+          planets: true,
+          stars: true,
+          constellations: true,
+        },
+        likelyVisibleOnly: false,
+        labelDisplayMode: 'center_only',
+        headingOffsetDeg: 0,
+        pitchOffsetDeg: 0,
+        verticalFovAdjustmentDeg: 0,
+        motionQuality: 'low',
+        onboardingCompleted: false,
+      }),
+    )
 
     mockNormalizeCelestialObjects.mockReturnValue({
       sunAltitudeDeg: -12,
       objects: [],
     })
-    mockNormalizeSatelliteObjects.mockReturnValue([
+    mockResolveSatelliteMotionObjects.mockReturnValue([
       {
-        id: '25544',
-        type: 'satellite',
-        label: 'ISS (ZARYA)',
-        sublabel: 'Satellite',
-        azimuthDeg: 0,
-        elevationDeg: 16,
-        rangeKm: 420.7,
-        importance: 88,
-        metadata: {
-          isIss: true,
-          detail: {
-            typeLabel: 'Satellite',
-            noradId: 25544,
-            elevationDeg: 16,
-            azimuthDeg: 0,
-            rangeKm: 420.7,
+        confidence: 1,
+        motionState: 'propagated',
+        object: {
+          id: '25544',
+          type: 'satellite',
+          label: 'ISS (ZARYA)',
+          sublabel: 'Satellite',
+          azimuthDeg: 0,
+          elevationDeg: 16,
+          rangeKm: 420.7,
+          importance: 88,
+          metadata: {
             isIss: true,
+            detail: {
+              typeLabel: 'Satellite',
+              noradId: 25544,
+              elevationDeg: 16,
+              azimuthDeg: 0,
+              rangeKm: 420.7,
+              isIss: true,
+            },
           },
         },
       },
@@ -1271,7 +1311,8 @@ describe('ViewerShell celestial behavior', () => {
 
     const advanceSceneTime = timerHarness.getIntervalCallback(1_000)
 
-    expect(container.querySelector('polyline')).toBeNull()
+    expect(container.querySelector('[data-testid="motion-affordance-vector"]')).toBeNull()
+    expect(container.querySelector('[data-testid="motion-affordance-trail"]')).toBeNull()
 
     await act(async () => {
       advanceSceneTime()
@@ -1283,7 +1324,148 @@ describe('ViewerShell celestial behavior', () => {
     })
     await flushEffects()
 
-    expect(container.querySelector('polyline')).not.toBeNull()
+    expect(container.querySelector('[data-testid="motion-affordance-vector"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="motion-affordance-trail"]')).toBeNull()
+  })
+
+  it('renders a trail for balanced motion quality', async () => {
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabledLayers: {
+          aircraft: true,
+          satellites: true,
+          planets: true,
+          stars: true,
+          constellations: true,
+        },
+        likelyVisibleOnly: false,
+        labelDisplayMode: 'center_only',
+        headingOffsetDeg: 0,
+        pitchOffsetDeg: 0,
+        verticalFovAdjustmentDeg: 0,
+        motionQuality: 'balanced',
+        onboardingCompleted: false,
+      }),
+    )
+
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -12,
+      objects: [],
+    })
+    mockResolveSatelliteMotionObjects.mockReturnValue([
+      {
+        confidence: 1,
+        motionState: 'propagated',
+        object: {
+          id: '25544',
+          type: 'satellite',
+          label: 'ISS (ZARYA)',
+          sublabel: 'Satellite',
+          azimuthDeg: 0,
+          elevationDeg: 16,
+          rangeKm: 420.7,
+          importance: 88,
+          metadata: {
+            isIss: true,
+            detail: {
+              typeLabel: 'Satellite',
+              noradId: 25544,
+              elevationDeg: 16,
+              azimuthDeg: 0,
+              rangeKm: 420.7,
+              isIss: true,
+            },
+          },
+        },
+      },
+    ])
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+      demoScenarioId: 'tokyo-iss',
+    })
+
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 150))
+    })
+    await flushEffects()
+
+    expect(container.querySelector('[data-testid="motion-affordance-vector"]')).toBeNull()
+    expect(container.querySelector('[data-testid="motion-affordance-trail"]')).not.toBeNull()
+  })
+
+  it('renders a trail for high motion quality', async () => {
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabledLayers: {
+          aircraft: true,
+          satellites: true,
+          planets: true,
+          stars: true,
+          constellations: true,
+        },
+        likelyVisibleOnly: false,
+        labelDisplayMode: 'center_only',
+        headingOffsetDeg: 0,
+        pitchOffsetDeg: 0,
+        verticalFovAdjustmentDeg: 0,
+        motionQuality: 'high',
+        onboardingCompleted: false,
+      }),
+    )
+
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -12,
+      objects: [],
+    })
+    mockResolveSatelliteMotionObjects.mockReturnValue([
+      {
+        confidence: 1,
+        motionState: 'propagated',
+        object: {
+          id: '25544',
+          type: 'satellite',
+          label: 'ISS (ZARYA)',
+          sublabel: 'Satellite',
+          azimuthDeg: 0,
+          elevationDeg: 16,
+          rangeKm: 420.7,
+          importance: 88,
+          metadata: {
+            isIss: true,
+            detail: {
+              typeLabel: 'Satellite',
+              noradId: 25544,
+              elevationDeg: 16,
+              azimuthDeg: 0,
+              rangeKm: 420.7,
+              isIss: true,
+            },
+          },
+        },
+      },
+    ])
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+      demoScenarioId: 'tokyo-iss',
+    })
+
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 150))
+    })
+    await flushEffects()
+
+    expect(container.querySelector('[data-testid="motion-affordance-vector"]')).toBeNull()
+    expect(container.querySelector('[data-testid="motion-affordance-trail"]')).not.toBeNull()
   })
 
   it('suppresses the trail polyline when prefers-reduced-motion is enabled', async () => {
@@ -1294,25 +1476,29 @@ describe('ViewerShell celestial behavior', () => {
       sunAltitudeDeg: -12,
       objects: [],
     })
-    mockNormalizeSatelliteObjects.mockReturnValue([
+    mockResolveSatelliteMotionObjects.mockReturnValue([
       {
-        id: '25544',
-        type: 'satellite',
-        label: 'ISS (ZARYA)',
-        sublabel: 'Satellite',
-        azimuthDeg: 0,
-        elevationDeg: 16,
-        rangeKm: 420.7,
-        importance: 88,
-        metadata: {
-          isIss: true,
-          detail: {
-            typeLabel: 'Satellite',
-            noradId: 25544,
-            elevationDeg: 16,
-            azimuthDeg: 0,
-            rangeKm: 420.7,
+        confidence: 1,
+        motionState: 'propagated',
+        object: {
+          id: '25544',
+          type: 'satellite',
+          label: 'ISS (ZARYA)',
+          sublabel: 'Satellite',
+          azimuthDeg: 0,
+          elevationDeg: 16,
+          rangeKm: 420.7,
+          importance: 88,
+          metadata: {
             isIss: true,
+            detail: {
+              typeLabel: 'Satellite',
+              noradId: 25544,
+              elevationDeg: 16,
+              azimuthDeg: 0,
+              rangeKm: 420.7,
+              isIss: true,
+            },
           },
         },
       },
@@ -1338,7 +1524,8 @@ describe('ViewerShell celestial behavior', () => {
     })
     await flushEffects()
 
-    expect(container.querySelector('polyline')).toBeNull()
+    expect(container.querySelector('[data-testid="motion-affordance-trail"]')).toBeNull()
+    expect(container.querySelector('[data-testid="motion-affordance-vector"]')).toBeNull()
   })
 
   it('lets a daylit focus-only planet reach the centered label path', async () => {
@@ -1386,25 +1573,29 @@ describe('ViewerShell celestial behavior', () => {
       sunAltitudeDeg: -12,
       objects: [],
     })
-    mockNormalizeSatelliteObjects.mockReturnValue([
+    mockResolveSatelliteMotionObjects.mockReturnValue([
       {
-        id: '25544',
-        type: 'satellite',
-        label: 'ISS (ZARYA)',
-        sublabel: 'Satellite',
-        azimuthDeg: 0,
-        elevationDeg: 16,
-        rangeKm: 420.7,
-        importance: 88,
-        metadata: {
-          isIss: true,
-          detail: {
-            typeLabel: 'Satellite',
-            noradId: 25544,
-            elevationDeg: 16,
-            azimuthDeg: 0,
-            rangeKm: 420.7,
+        confidence: 1,
+        motionState: 'propagated',
+        object: {
+          id: '25544',
+          type: 'satellite',
+          label: 'ISS (ZARYA)',
+          sublabel: 'Satellite',
+          azimuthDeg: 0,
+          elevationDeg: 16,
+          rangeKm: 420.7,
+          importance: 88,
+          metadata: {
             isIss: true,
+            detail: {
+              typeLabel: 'Satellite',
+              noradId: 25544,
+              elevationDeg: 16,
+              azimuthDeg: 0,
+              rangeKm: 420.7,
+              isIss: true,
+            },
           },
         },
       },
@@ -1425,30 +1616,85 @@ describe('ViewerShell celestial behavior', () => {
     expect(container.textContent).toContain('420.7 km')
   })
 
+  it('keeps stale satellite treatment additive for the ISS badge state', async () => {
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -12,
+      objects: [],
+    })
+    mockResolveSatelliteMotionObjects.mockReturnValue([
+      {
+        confidence: 0.7,
+        motionState: 'stale',
+        object: {
+          id: '25544',
+          type: 'satellite',
+          label: 'ISS (ZARYA)',
+          sublabel: 'Satellite',
+          azimuthDeg: 0,
+          elevationDeg: 16,
+          rangeKm: 420.7,
+          importance: 88,
+          metadata: {
+            isIss: true,
+            motionState: 'stale',
+            motionOpacity: 0.7,
+            detail: {
+              typeLabel: 'Satellite',
+              noradId: 25544,
+              elevationDeg: 16,
+              azimuthDeg: 0,
+              rangeKm: 420.7,
+              isIss: true,
+            },
+          },
+        },
+      },
+    ])
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
+
+    expect(container.textContent).toContain('Satellite Stale')
+    expect(
+      container.querySelector('[data-testid="object-badge"][data-badge-id="motion-stale"]'),
+    ).not.toBeNull()
+    expect(
+      container.querySelector('[data-testid="object-badge"][data-badge-id="iss"]'),
+    ).not.toBeNull()
+  })
+
   it('renders the aircraft detail-card contract with Unknown flight fallback', async () => {
     mockNormalizeCelestialObjects.mockReturnValue({
       sunAltitudeDeg: -12,
       objects: [],
     })
-    mockNormalizeAircraftObjects.mockReturnValue([
+    mockResolveAircraftMotionObjects.mockReturnValue([
       {
-        id: 'icao24-d4e5f6',
-        type: 'aircraft',
-        label: 'Unknown flight',
-        sublabel: 'Aircraft',
-        azimuthDeg: 0,
-        elevationDeg: 16,
-        rangeKm: 31.8,
-        importance: 83,
-        metadata: {
-          detail: {
-            typeLabel: 'Aircraft',
-            altitudeFeet: 35000,
-            altitudeMeters: 10668,
-            headingCardinal: 'SE',
-            speedKph: 864,
-            rangeKm: 31.8,
-            originCountry: 'Canada',
+        confidence: 1,
+        motionState: 'live',
+        object: {
+          id: 'icao24-d4e5f6',
+          type: 'aircraft',
+          label: 'Unknown flight',
+          sublabel: 'Aircraft',
+          azimuthDeg: 0,
+          elevationDeg: 16,
+          rangeKm: 31.8,
+          importance: 83,
+          metadata: {
+            detail: {
+              typeLabel: 'Aircraft',
+              altitudeFeet: 35000,
+              altitudeMeters: 10668,
+              headingCardinal: 'SE',
+              speedKph: 864,
+              rangeKm: 31.8,
+              originCountry: 'Canada',
+            },
           },
         },
       },
@@ -1513,7 +1759,7 @@ describe('ViewerShell celestial behavior', () => {
         },
       ],
     })
-    mockNormalizeSatelliteObjects.mockImplementation(() => {
+    mockResolveSatelliteMotionObjects.mockImplementation(() => {
       throw new Error('satellite propagation failed')
     })
 
@@ -1526,6 +1772,103 @@ describe('ViewerShell celestial behavior', () => {
 
     expect(mockRouterReplace).not.toHaveBeenCalledWith(expect.stringMatching(/entry=demo/))
     expect(container.textContent).toContain('Sun')
+    expect(container.textContent).not.toContain('Astronomy fallback active.')
+  })
+
+  it('keeps aircraft markers visible when satellite propagation throws', async () => {
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -12,
+      objects: [],
+    })
+    mockResolveAircraftMotionObjects.mockReturnValue([
+      {
+        confidence: 1,
+        motionState: 'live',
+        object: {
+          id: 'icao24-alpha1',
+          type: 'aircraft',
+          label: 'ALPHA1',
+          sublabel: 'Aircraft',
+          azimuthDeg: 0,
+          elevationDeg: 16,
+          rangeKm: 31.8,
+          importance: 83,
+          metadata: {
+            detail: {
+              typeLabel: 'Aircraft',
+              altitudeFeet: 35000,
+              altitudeMeters: 10668,
+              rangeKm: 31.8,
+            },
+          },
+        },
+      },
+    ])
+    mockResolveSatelliteMotionObjects.mockImplementation(() => {
+      throw new Error('satellite propagation failed')
+    })
+
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'granted',
+    })
+
+    expect(
+      container.querySelector('[data-testid="sky-object-marker"][data-object-id="icao24-alpha1"]'),
+    ).not.toBeNull()
+    expect(container.textContent).toContain('ALPHA1')
+    expect(container.textContent).not.toContain('Astronomy fallback active.')
+  })
+
+  it('keeps satellite markers visible when aircraft resolution throws', async () => {
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -12,
+      objects: [],
+    })
+    mockResolveAircraftMotionObjects.mockImplementation(() => {
+      throw new Error('aircraft resolution failed')
+    })
+    mockResolveSatelliteMotionObjects.mockReturnValue([
+      {
+        confidence: 1,
+        motionState: 'propagated',
+        object: {
+          id: '25544',
+          type: 'satellite',
+          label: 'ISS (ZARYA)',
+          sublabel: 'Satellite',
+          azimuthDeg: 0,
+          elevationDeg: 16,
+          rangeKm: 420.7,
+          importance: 88,
+          metadata: {
+            isIss: true,
+            detail: {
+              typeLabel: 'Satellite',
+              noradId: 25544,
+              elevationDeg: 16,
+              azimuthDeg: 0,
+              rangeKm: 420.7,
+              isIss: true,
+            },
+          },
+        },
+      },
+    ])
+
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'granted',
+    })
+
+    expect(
+      container.querySelector('[data-testid="sky-object-marker"][data-object-id="25544"]'),
+    ).not.toBeNull()
+    expect(container.textContent).toContain('ISS (ZARYA)')
     expect(container.textContent).not.toContain('Astronomy fallback active.')
   })
 

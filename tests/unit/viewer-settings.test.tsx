@@ -106,6 +106,23 @@ describe('ViewerShell settings integration', () => {
     vi.unstubAllGlobals()
   })
 
+  it('defaults missing motionQuality while preserving the rest of persisted settings', () => {
+    expect(readViewerSettings()).toMatchObject({
+      enabledLayers: {
+        aircraft: false,
+        satellites: true,
+        planets: true,
+        stars: true,
+        constellations: true,
+      },
+      likelyVisibleOnly: false,
+      labelDisplayMode: 'on_objects',
+      motionQuality: 'balanced',
+      verticalFovAdjustmentDeg: 6,
+      onboardingCompleted: false,
+    })
+  })
+
   it('loads persisted settings, preserves offsets on recenter, and routes demo mode from the sheet', async () => {
     await act(async () => {
       root.render(
@@ -179,6 +196,10 @@ describe('ViewerShell settings integration', () => {
       (container.querySelector('input[aria-label="On objects"]') as HTMLInputElement | null)
         ?.checked,
     ).toBe(true)
+    expect(
+      (container.querySelector('input[aria-label="Balanced"]') as HTMLInputElement | null)
+        ?.checked,
+    ).toBe(true)
 
     await act(async () => {
       recenterButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
@@ -186,6 +207,7 @@ describe('ViewerShell settings integration', () => {
 
     expect(readViewerSettings()).toMatchObject({
       labelDisplayMode: 'on_objects',
+      motionQuality: 'balanced',
       verticalFovAdjustmentDeg: 6,
     })
     expect(readViewerSettings().poseCalibration.calibrated).toBe(false)
@@ -250,6 +272,9 @@ describe('ViewerShell settings integration', () => {
     const topListRadio = container.querySelector(
       'input[aria-label="Top list"]',
     ) as HTMLInputElement | null
+    const highMotionQualityRadio = container.querySelector(
+      'input[aria-label="High"]',
+    ) as HTMLInputElement | null
 
     expect(planesToggle.checked).toBe(false)
     expect(satellitesToggle.checked).toBe(true)
@@ -261,6 +286,7 @@ describe('ViewerShell settings integration', () => {
       satellitesToggle.click()
       likelyVisibleToggle.click()
       topListRadio?.click()
+      highMotionQualityRadio?.click()
       nudgeLeftButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
       setInputValue(fovSlider!, '-4')
     })
@@ -275,6 +301,7 @@ describe('ViewerShell settings integration', () => {
       },
       likelyVisibleOnly: true,
       labelDisplayMode: 'top_list',
+      motionQuality: 'high',
       verticalFovAdjustmentDeg: -4,
     })
     expect(readViewerSettings().poseCalibration.calibrated).toBe(false)
@@ -338,6 +365,9 @@ describe('ViewerShell settings integration', () => {
     expect(
       (container.querySelector('input[aria-label="Top list"]') as HTMLInputElement | null)
         ?.checked,
+    ).toBe(true)
+    expect(
+      (container.querySelector('input[aria-label="High"]') as HTMLInputElement | null)?.checked,
     ).toBe(true)
   })
 

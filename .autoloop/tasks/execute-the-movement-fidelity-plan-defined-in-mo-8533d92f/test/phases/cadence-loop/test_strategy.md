@@ -1,0 +1,29 @@
+# Test Strategy
+
+- Task ID: execute-the-movement-fidelity-plan-defined-in-mo-8533d92f
+- Pair: test
+- Phase ID: cadence-loop
+- Phase Directory Key: cadence-loop
+- Phase Title: Increase scene cadence
+- Scope: phase-local producer artifact
+- Behavior-to-test coverage map:
+  - Animated cadence / demo: `tests/unit/viewer-shell.test.ts` proves demo `sceneTimeMs` advances continuously under the throttled animation loop.
+  - Animated cadence / live: `tests/unit/viewer-shell.test.ts` proves live `sceneTimeMs` stays tied to wall clock under the same animated policy.
+  - Coarse fallback / reduced motion: `tests/unit/viewer-shell.test.ts` proves reduced motion holds scene time steady before 1 second and advances after the coarse tick.
+  - Coarse fallback / non-animated context: `tests/unit/viewer-shell.test.ts` proves missing `requestAnimationFrame` uses the same coarse cadence.
+  - Coarse fallback / low-power policy: `tests/unit/viewer-shell.test.ts` proves `motionQuality='low'` uses the explicit 1 Hz battery-conscious cadence.
+  - Policy change continuity: `tests/unit/viewer-shell.test.ts` proves toggling reduced motion mid-demo keeps scene time monotonic.
+  - Settings persistence prerequisite: `tests/unit/viewer-settings.test.tsx` proves missing persisted `motionQuality` normalizes to `balanced`.
+- Preserved invariants checked:
+  - Demo mode remains relative to its current scene-time baseline.
+  - Live mode remains wall-clock driven.
+  - Reduced-motion suppression and low-quality low-power policy do not silently fall back to animation cadence.
+- Edge cases:
+  - Mid-session policy switch from animated to reduced motion.
+  - Browser environment without `requestAnimationFrame`.
+- Failure-path / stabilization notes:
+  - Timing assertions observe mocked `normalizeSatelliteObjects` `timeMs` inputs instead of rendered text.
+  - Fake timers plus deterministic `requestAnimationFrame` stubs eliminate wall-clock flake.
+- Known gaps:
+  - Motion-quality UI is out of scope for this phase, so tests seed low-quality through persisted settings rather than the settings sheet.
+  - Full `npm run lint` remains blocked by pre-existing lint issues outside this test phase.

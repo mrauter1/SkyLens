@@ -10,7 +10,7 @@ import {
 
 import type { EnabledLayer } from '../../lib/config'
 import type { DemoScenarioId } from '../../lib/demo/scenarios'
-import type { LabelDisplayMode } from '../../lib/viewer/settings'
+import type { LabelDisplayMode, MotionQuality } from '../../lib/viewer/settings'
 
 type AlignmentTargetPreference = 'sun' | 'moon'
 
@@ -50,9 +50,11 @@ type SettingsSheetProps = {
   layerAvailabilityLabels?: Partial<Record<EnabledLayer, string>>
   likelyVisibleOnly: boolean
   labelDisplayMode: LabelDisplayMode
+  motionQuality: MotionQuality
   onLayerToggle: (layer: EnabledLayer, enabled: boolean) => void
   onLikelyVisibleOnlyChange: (enabled: boolean) => void
   onLabelDisplayModeChange: (mode: LabelDisplayMode) => void
+  onMotionQualityChange: (quality: MotionQuality) => void
   onVerticalFovAdjustmentChange?: (value: number) => void
   onSelectedCameraDeviceChange?: (deviceId: string) => void
   demoScenarioId?: DemoScenarioId
@@ -92,6 +94,28 @@ const LABEL_DISPLAY_MODE_OPTIONS: Array<{
   },
 ]
 
+const MOTION_QUALITY_OPTIONS: Array<{
+  id: MotionQuality
+  label: string
+  description: string
+}> = [
+  {
+    id: 'low',
+    label: 'Low',
+    description: 'Battery-conscious cadence with a short direction vector only.',
+  },
+  {
+    id: 'balanced',
+    label: 'Balanced',
+    description: 'Moderate trails for moving objects at the default viewer cadence.',
+  },
+  {
+    id: 'high',
+    label: 'High',
+    description: 'Longest moving-object trails with the highest animation cadence.',
+  },
+]
+
 export function SettingsSheet({
   onEnterDemoMode,
   onDemoScenarioSelect,
@@ -127,9 +151,11 @@ export function SettingsSheet({
   layerAvailabilityLabels,
   likelyVisibleOnly,
   labelDisplayMode,
+  motionQuality,
   onLayerToggle,
   onLikelyVisibleOnlyChange,
   onLabelDisplayModeChange,
+  onMotionQualityChange,
   onVerticalFovAdjustmentChange,
   onSelectedCameraDeviceChange,
   demoScenarioId,
@@ -299,6 +325,40 @@ export function SettingsSheet({
                         value={option.id}
                         checked={labelDisplayMode === option.id}
                         onChange={() => onLabelDisplayModeChange(option.id)}
+                        aria-label={option.label}
+                      />
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <fieldset className="rounded-[1.5rem] border border-sky-100/10 bg-white/5 p-4">
+              <legend className="px-1 text-xs uppercase tracking-[0.18em] text-sky-200/60">
+                Motion quality
+              </legend>
+              <div className="mt-3 grid gap-2">
+                {MOTION_QUALITY_OPTIONS.map((option) => (
+                  <label
+                    key={option.id}
+                    className={`rounded-2xl border px-4 py-3 text-sm ${
+                      motionQuality === option.id
+                        ? 'border-amber-200/45 bg-amber-200/12 text-amber-50'
+                        : 'border-sky-100/10 bg-slate-950/30 text-sky-50'
+                    }`}
+                  >
+                    <span className="flex items-start justify-between gap-3">
+                      <span>
+                        <span className="block font-medium">{option.label}</span>
+                        <span className="mt-1 block text-xs text-sky-100/70">
+                          {option.description}
+                        </span>
+                      </span>
+                      <input
+                        type="radio"
+                        name="motion-quality"
+                        value={option.id}
+                        checked={motionQuality === option.id}
+                        onChange={() => onMotionQualityChange(option.id)}
                         aria-label={option.label}
                       />
                     </span>

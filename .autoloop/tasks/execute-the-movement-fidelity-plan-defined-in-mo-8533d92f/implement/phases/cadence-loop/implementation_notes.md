@@ -1,0 +1,52 @@
+# Implementation Notes
+
+- Task ID: execute-the-movement-fidelity-plan-defined-in-mo-8533d92f
+- Pair: implement
+- Phase ID: cadence-loop
+- Phase Directory Key: cadence-loop
+- Phase Title: Increase scene cadence
+- Scope: phase-local producer artifact
+- Files changed:
+  - `components/viewer/viewer-shell.tsx`
+  - `lib/viewer/settings.ts`
+  - `tests/unit/viewer-shell.test.ts`
+  - `tests/unit/viewer-settings.test.tsx`
+  - `.autoloop/tasks/execute-the-movement-fidelity-plan-defined-in-mo-8533d92f/decisions.txt`
+- Symbols touched:
+  - `ViewerShell`
+  - `resolveSceneClock`
+  - `getInitialReducedMotionPreference`
+  - `sceneTimeMsRef`
+  - `ViewerSettings`
+  - `MotionQuality`
+  - `getDefaultViewerSettings`
+  - `normalizeViewerSettings`
+- Checklist mapping:
+  - Milestone 1 / scene cadence: replaced the 1 Hz scene clock with an animation-driven `requestAnimationFrame` loop throttled by motion quality.
+  - Milestone 1 / fallback policy: preserved coarse 1 Hz cadence for reduced motion, missing animation support, and explicit low-power `motionQuality='low'`.
+  - Milestone 1 / tests: added viewer-shell coverage for animated demo cadence, animated live cadence, reduced-motion fallback, low-quality fallback, and mid-session reduced-motion continuity.
+  - Milestone 4 prerequisite: added persisted `motionQuality` normalization with backward-compatible default `balanced`; UI control intentionally deferred to the later phase.
+- Assumptions:
+  - `motionQuality='low'` is the deterministic battery-conscious low-power path for cadence in this phase even before the UI exposes the setting.
+- Preserved invariants:
+  - Demo mode still progresses relative to its scenario start time.
+  - Demo time remains monotonic when cadence policy changes mid-session.
+  - Live mode still syncs scene time to wall clock time.
+  - Reduced-motion handling remains explicit and now applies from the initial render.
+  - No aircraft interpolation, API contract, or settings-sheet UI changes were introduced in this phase.
+- Intended behavior changes:
+  - Balanced/high motion quality now drive scene-time updates from a throttled animation loop instead of a 1 Hz interval.
+  - Low quality and reduced motion use the coarse 1 Hz policy intentionally.
+- Known non-changes:
+  - No aircraft interpolation/dead-reckoning work.
+  - No motion-quality selector in `settings-sheet`.
+  - No changes to trail affordances beyond existing cadence inputs.
+- Expected side effects:
+  - `buildSceneSnapshot` re-runs more often in animated modes, but cadence is explicitly throttled to 15 fps (`balanced`) or 30 fps (`high`).
+- Validation performed:
+  - `npm ci`
+  - `npm test -- --run tests/unit/viewer-settings.test.tsx`
+  - `npm test -- --run tests/unit/viewer-shell.test.ts`
+  - `npm run lint` (fails on pre-existing `components/viewer/viewer-shell.tsx` lint errors unrelated to this phase: React immutability/purity rules and existing hook dependency warnings)
+- Deduplication / centralization:
+  - Centralized cadence policy in `resolveSceneClock` rather than duplicating reduced-motion/quality checks across effects.
