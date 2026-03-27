@@ -1,0 +1,96 @@
+{
+  "task_id": "execute-the-movement-fidelity-plan-defined-in-mo-8533d92f",
+  "created_at": "2026-03-27T17:41:16.150403+00:00",
+  "request_text": "Execute the movement fidelity plan defined in MOVEMENT_FIDELITY_AUTOLOOP_PLAN.md. Follow all plan\u2192implement\u2192test pairs in that file end-to-end.",
+  "request_updated_at": "2026-03-27T17:41:16.150463+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/execute-the-movement-fidelity-plan-defined-in-mo-8533d92f/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260327T174116Z-2e992f16",
+    "mode": "single",
+    "phase_ids": [
+      "cadence-loop",
+      "aircraft-temporal-continuity",
+      "unified-motion-state",
+      "motion-affordances-and-controls",
+      "final-verification"
+    ],
+    "explicit": true,
+    "current_phase_index": 5,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "cadence-loop": "completed",
+    "aircraft-temporal-continuity": "completed",
+    "unified-motion-state": "completed",
+    "motion-affordances-and-controls": "completed",
+    "final-verification": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "cadence-loop",
+      "run_id": "run-20260327T174116Z-2e992f16",
+      "status": "in_progress",
+      "ts": "2026-03-27T17:46:08.338354+00:00"
+    },
+    {
+      "phase_id": "cadence-loop",
+      "run_id": "run-20260327T174116Z-2e992f16",
+      "status": "completed",
+      "ts": "2026-03-27T17:57:42.759334+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "aircraft-temporal-continuity",
+      "run_id": "run-20260327T174116Z-2e992f16",
+      "status": "in_progress",
+      "ts": "2026-03-27T17:57:42.760417+00:00"
+    },
+    {
+      "phase_id": "aircraft-temporal-continuity",
+      "run_id": "run-20260327T174116Z-2e992f16",
+      "status": "completed",
+      "ts": "2026-03-27T18:20:44.317345+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "unified-motion-state",
+      "run_id": "run-20260327T174116Z-2e992f16",
+      "status": "in_progress",
+      "ts": "2026-03-27T18:20:44.318638+00:00"
+    },
+    {
+      "phase_id": "unified-motion-state",
+      "run_id": "run-20260327T174116Z-2e992f16",
+      "status": "completed",
+      "ts": "2026-03-27T18:35:15.635466+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "motion-affordances-and-controls",
+      "run_id": "run-20260327T174116Z-2e992f16",
+      "status": "in_progress",
+      "ts": "2026-03-27T18:35:15.636776+00:00"
+    },
+    {
+      "phase_id": "motion-affordances-and-controls",
+      "run_id": "run-20260327T174116Z-2e992f16",
+      "status": "completed",
+      "ts": "2026-03-27T18:48:17.305735+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "final-verification",
+      "run_id": "run-20260327T174116Z-2e992f16",
+      "status": "in_progress",
+      "ts": "2026-03-27T18:48:17.307061+00:00"
+    },
+    {
+      "phase_id": "final-verification",
+      "run_id": "run-20260327T174116Z-2e992f16",
+      "status": "completed",
+      "ts": "2026-03-27T19:01:59.028519+00:00",
+      "pair": "test"
+    }
+  ]
+}
