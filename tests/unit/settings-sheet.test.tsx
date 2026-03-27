@@ -28,7 +28,8 @@ describe('SettingsSheet', () => {
 
   it('renders subtle aircraft availability messaging inside the sheet', async () => {
     const onFixAlignment = vi.fn()
-    const onHeadingOffsetChange = vi.fn()
+    const onAlignCalibration = vi.fn()
+    const onFineAdjustCalibration = vi.fn()
     const onLabelDisplayModeChange = vi.fn()
 
     await act(async () => {
@@ -36,10 +37,14 @@ describe('SettingsSheet', () => {
         React.createElement(SettingsSheet, {
           onEnterDemoMode: vi.fn(),
           onFixAlignment,
+          onAlignCalibration,
+          onFineAdjustCalibration,
           onRecenter: vi.fn(),
           canFixAlignment: true,
+          canAlignCalibration: true,
           canRecenter: true,
-          headingOffsetDeg: 4,
+          calibrationTargetLabel: 'Venus',
+          calibrationStatus: 'Relative sensors need Venus before labels can lock.',
           layers: {
             aircraft: true,
             satellites: true,
@@ -55,7 +60,6 @@ describe('SettingsSheet', () => {
           onLayerToggle: vi.fn(),
           onLikelyVisibleOnlyChange: vi.fn(),
           onLabelDisplayModeChange,
-          onHeadingOffsetChange,
         }),
       )
     })
@@ -74,7 +78,7 @@ describe('SettingsSheet', () => {
     expect(container.textContent).toContain('Live aircraft temporarily unavailable')
 
     const fixAlignmentButton = Array.from(container.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('Fix alignment'),
+      button.textContent?.includes('Alignment'),
     )
 
     expect(fixAlignmentButton).toBeDefined()
@@ -83,22 +87,31 @@ describe('SettingsSheet', () => {
       fixAlignmentButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    const headingSlider = container.querySelector(
-      'input[aria-label="Heading nudge"]',
-    ) as HTMLInputElement | null
+    const alignButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Align to target'),
+    )
+    const nudgeRightButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Nudge right'),
+    )
 
     expect(onFixAlignment).toHaveBeenCalledTimes(1)
-    expect(headingSlider?.value).toBe('4')
+    expect(container.textContent).toContain('Venus')
+    expect(container.textContent).toContain('Relative sensors need Venus before labels can lock.')
     expect(
       (container.querySelector('input[aria-label="Center only"]') as HTMLInputElement | null)
         ?.checked,
     ).toBe(true)
 
     await act(async () => {
-      setInputValue(headingSlider!, '6')
+      alignButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      nudgeRightButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(onHeadingOffsetChange).toHaveBeenCalledWith(6)
+    expect(onAlignCalibration).toHaveBeenCalledTimes(1)
+    expect(onFineAdjustCalibration).toHaveBeenCalledWith({
+      axis: 'yaw',
+      deltaDeg: 0.75,
+    })
 
     const topListRadio = container.querySelector(
       'input[aria-label="Top list"]',
@@ -245,14 +258,3 @@ describe('SettingsSheet', () => {
     expect(settingsButton?.getAttribute('aria-expanded')).toBe('false')
   })
 })
-
-function setInputValue(input: HTMLInputElement, value: string) {
-  const valueSetter = Object.getOwnPropertyDescriptor(
-    HTMLInputElement.prototype,
-    'value',
-  )?.set
-
-  valueSetter?.call(input, value)
-  input.dispatchEvent(new Event('input', { bubbles: true }))
-  input.dispatchEvent(new Event('change', { bubbles: true }))
-}

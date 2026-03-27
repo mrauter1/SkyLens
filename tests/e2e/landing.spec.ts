@@ -15,7 +15,7 @@ test('landing page shows shell copy and demo entry', async ({ page }) => {
       'Location is used only to calculate what is above you right now.',
     ),
   ).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Start SkyLens' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Open live viewer' })).toBeVisible()
 
   const demoLink = page.getByRole('link', { name: 'Try demo mode' })
   const demoHref = await demoLink.getAttribute('href')

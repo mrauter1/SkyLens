@@ -1,8 +1,6 @@
 'use client'
 
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import { useState, useTransition } from 'react'
 
 import {
   LANDING_DESCRIPTION,
@@ -10,32 +8,11 @@ import {
   getPublicConfig,
 } from '../../lib/config'
 import { markViewerOnboardingCompleted } from '../../lib/viewer/settings'
-import {
-  buildViewerHref,
-  createDemoViewerRoute,
-  runStartFlow,
-} from '../../lib/permissions/coordinator'
+import { createDemoViewerRoute } from '../../lib/permissions/coordinator'
 
 export function LandingScreen() {
-  const router = useRouter()
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [isPending, startTransition] = useTransition()
   const buildVersion = getPublicConfig().buildVersion
   const demoRoute = createDemoViewerRoute()
-
-  const handleStart = () => {
-    setErrorMessage(null)
-
-    startTransition(async () => {
-      try {
-        const routeState = await runStartFlow()
-        markViewerOnboardingCompleted()
-        router.push(buildViewerHref(routeState))
-      } catch {
-        setErrorMessage('SkyLens could not start the permission flow. Try demo mode instead.')
-      }
-    })
-  }
 
   return (
     <main className="relative isolate min-h-screen overflow-hidden px-6 py-8 sm:px-10">
@@ -62,14 +39,15 @@ export function LandingScreen() {
             sending camera frames away from your device.
           </p>
           <div className="flex flex-col gap-3 sm:flex-row">
-            <button
-              type="button"
-              onClick={handleStart}
-              disabled={isPending}
+            <Link
+              href="/view"
+              onClick={() => {
+                markViewerOnboardingCompleted()
+              }}
               className="rounded-full bg-amber-300 px-6 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-200 disabled:cursor-wait disabled:bg-amber-100"
             >
-              {isPending ? 'Checking permissions...' : 'Start SkyLens'}
-            </button>
+              Open live viewer
+            </Link>
             <Link
               href={demoRoute.href}
               onClick={() => {
@@ -80,11 +58,6 @@ export function LandingScreen() {
               Try demo mode
             </Link>
           </div>
-          {errorMessage ? (
-            <p className="text-sm text-amber-200" role="alert">
-              {errorMessage}
-            </p>
-          ) : null}
         </section>
 
         <aside className="shell-panel relative overflow-hidden rounded-[2rem] p-6 sm:p-8">
@@ -110,11 +83,11 @@ export function LandingScreen() {
             <div className="grid gap-3 rounded-[1.5rem] border border-sky-200/10 bg-slate-950/30 p-4 text-sm text-sky-100/70">
               <div className="flex items-center justify-between">
                 <span>Permission order</span>
-                <span className="text-sky-50">Location → Camera → Motion</span>
+                <span className="text-sky-50">Motion → Camera → Location</span>
               </div>
               <div className="flex items-center justify-between">
                 <span>Fallbacks</span>
-                <span className="text-sky-50">Blocked, non-camera, manual pan</span>
+                <span className="text-sky-50">Manual observer, non-camera, manual pan</span>
               </div>
               <div className="flex items-center justify-between">
                 <span>Build</span>

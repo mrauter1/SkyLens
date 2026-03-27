@@ -54,19 +54,29 @@ import {
   type RankedLabelPlacement,
 } from '../../lib/labels/ranking'
 import {
+  createAxisAngleQuaternion,
+  createCameraFrameLayout,
   createCameraQuaternion,
+  createQuaternionFromBasis,
+  crossVec3,
+  dotVec3,
   getEffectiveVerticalFovDeg,
+  getCameraBasisVectors,
+  getStreamVideoDeviceId,
+  horizontalToWorldVector,
+  listAvailableVideoInputDevices,
+  multiplyQuaternions,
+  normalizeVec3,
   pickCenterLockedCandidate,
   projectWorldPointToScreen,
   requestRearCameraStream,
   stopMediaStream,
+  type CameraDeviceOption,
+  type CameraFrameLayout,
 } from '../../lib/projection/camera'
 import {
   buildViewerHref,
   createDemoViewerRoute,
-  describeViewerExperience,
-  hasVerifiedLiveViewerState,
-  runStartFlow,
   type PermissionStatusValue,
   type ViewerRouteState,
 } from '../../lib/permissions/coordinator'
@@ -77,16 +87,23 @@ import {
 import {
   applyManualPoseDrag,
   createManualCameraPose,
+  createPoseCalibration,
+  createPoseCalibrationFromReferencePose,
   createManualPoseState,
+  createIdentityPoseCalibration,
   recenterManualPose,
   requestOrientationPermission,
   subscribeToOrientationPose,
+  type OrientationSample,
+  type OrientationSource,
+  type PoseCalibration,
 } from '../../lib/sensors/orientation'
 import type { CameraPose, ObserverState, SkyObject } from '../../lib/viewer/contracts'
 import {
   markViewerOnboardingCompleted,
   readViewerSettings,
   writeViewerSettings,
+  type ManualObserverSettings,
 } from '../../lib/viewer/settings'
 import { SettingsSheet } from '../settings/settings-sheet'
 
@@ -105,6 +122,44 @@ type TrailSample = {
   y: number
 }
 
+type StartupState =
+  | 'unsupported'
+  | 'ready-to-request'
+  | 'requesting'
+  | 'camera-only'
+  | 'sensor-relative-needs-calibration'
+  | 'sensor-absolute'
+  | 'manual'
+  | 'error'
+
+type RuntimeExperience = {
+  mode: 'blocked' | 'live' | 'non-camera' | 'manual-pan' | 'demo' | 'camera-only'
+  title: string
+  body: string
+}
+
+type ManualObserverDraft = {
+  lat: string
+  lon: string
+  altMeters: string
+}
+
+type SceneSnapshot = {
+  objects: SkyObject[]
+  visibleStars: ReturnType<typeof normalizeVisibleStars>
+  sunAltitudeDeg: number
+  error: string | null
+}
+
+type CalibrationTarget = {
+  id: string
+  label: string
+  description: string
+  azimuthDeg: number
+  elevationDeg: number
+  sourceType: SkyObject['type'] | 'north-marker'
+}
+
 const DEFAULT_VIEWPORT = {
   width: 390,
   height: 844,
@@ -112,23 +167,37 @@ const DEFAULT_VIEWPORT = {
 
 const PUBLIC_CONFIG = getPublicConfig()
 const STAR_CATALOG = loadStarCatalog()
-const EMPTY_SCENE = {
+const EMPTY_SCENE_SNAPSHOT: SceneSnapshot = {
   objects: [] as SkyObject[],
-  lineSegments: [] as ReturnType<typeof buildVisibleConstellations>['lineSegments'],
+  visibleStars: [],
+  sunAltitudeDeg: -90,
   error: null as string | null,
 }
+const EMPTY_CONSTELLATION_SCENE = {
+  objects: [] as ReturnType<typeof buildVisibleConstellations>['objects'],
+  lineSegments: [] as ReturnType<typeof buildVisibleConstellations>['lineSegments'],
+}
+const WORLD_UP: [number, number, number] = [0, 0, 1]
 
 export function ViewerShell({ initialState }: ViewerShellProps) {
   const router = useRouter()
   const initialDemoScenario = getDemoScenario(initialState.demoScenarioId)
+  const persistedViewerSettings = readViewerSettings()
+  const persistedManualObserver =
+    initialState.entry === 'live' && initialState.location !== 'granted'
+      ? createObserverStateFromManualSettings(persistedViewerSettings.manualObserver)
+      : null
   const [isPending, startTransition] = useTransition()
   const [retryError, setRetryError] = useState<string | null>(null)
   const [state, setState] = useState(initialState)
   const [stageElement, setStageElement] = useState<HTMLDivElement | null>(null)
   const [videoElement, setVideoElement] = useState<HTMLVideoElement | null>(null)
   const [viewport, setViewport] = useState(DEFAULT_VIEWPORT)
-  const [liveObserver, setLiveObserver] = useState<ObserverState | null>(null)
+  const [liveObserver, setLiveObserver] = useState<ObserverState | null>(persistedManualObserver)
   const [liveLocationError, setLiveLocationError] = useState<string | null>(null)
+  const [observerSource, setObserverSource] = useState<'geo' | 'manual' | null>(
+    persistedManualObserver ? 'manual' : null,
+  )
   const [manualPoseState, setManualPoseState] = useState(() =>
     createManualPoseState({
       pitchDeg: initialState.entry === 'demo' ? initialDemoScenario.initialPitchDeg : 0,
@@ -140,7 +209,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const [sceneTimeMs, setSceneTimeMs] = useState(() =>
     initialState.entry === 'demo' ? initialDemoScenario.observer.timestampMs : Date.now(),
   )
-  const [viewerSettings, setViewerSettings] = useState(() => readViewerSettings())
+  const [viewerSettings, setViewerSettings] = useState(persistedViewerSettings)
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null)
   const [astronomyFailureBanner, setAstronomyFailureBanner] = useState<string | null>(null)
   const [aircraftSnapshot, setAircraftSnapshot] = useState<AircraftApiResponse | null>(null)
@@ -150,16 +219,53 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const [satelliteCatalog, setSatelliteCatalog] = useState<TleApiResponse | null>(null)
   const [liveCameraStreamActive, setLiveCameraStreamActive] = useState(false)
   const [liveCameraError, setLiveCameraError] = useState<string | null>(null)
+  const [cameraDevices, setCameraDevices] = useState<CameraDeviceOption[]>([])
+  const [cameraFrameLayout, setCameraFrameLayout] = useState<CameraFrameLayout | null>(null)
+  const [renderFrameToken, setRenderFrameToken] = useState(0)
+  const [cameraSourceSize, setCameraSourceSize] = useState<{
+    width: number
+    height: number
+  } | null>(null)
+  const [orientationSource, setOrientationSource] = useState<OrientationSource | null>(null)
+  const [orientationAbsolute, setOrientationAbsolute] = useState(
+    initialState.orientation === 'granted',
+  )
+  const [orientationNeedsCalibration, setOrientationNeedsCalibration] = useState(false)
+  const [latestOrientationSample, setLatestOrientationSample] = useState<OrientationSample | null>(
+    null,
+  )
+  const [sceneSnapshot, setSceneSnapshot] = useState<SceneSnapshot>(EMPTY_SCENE_SNAPSHOT)
+  const [startupState, setStartupState] = useState<StartupState>(() =>
+    initialState.entry === 'demo'
+      ? 'sensor-absolute'
+      : initialState.location === 'unknown' ||
+          initialState.camera === 'unknown' ||
+          initialState.orientation === 'unknown'
+        ? 'ready-to-request'
+        : resolveStartupState({
+            orientationStatus: initialState.orientation,
+            cameraStatus: initialState.camera,
+            hasObserver: persistedManualObserver !== null || initialState.location === 'granted',
+          }),
+  )
   const [showAlignmentGuidance, setShowAlignmentGuidance] = useState(false)
+  const [calibrationBanner, setCalibrationBanner] = useState<string | null>(null)
   const [healthStatus, setHealthStatus] = useState<HealthApiResponse | null>(null)
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false)
   const [trailSamples, setTrailSamples] = useState<TrailSample[]>([])
   const [isMobileOverlayOpen, setIsMobileOverlayOpen] = useState(false)
   const [motionRetryError, setMotionRetryError] = useState<string | null>(null)
+  const [manualObserverError, setManualObserverError] = useState<string | null>(null)
+  const [manualObserverDraft, setManualObserverDraft] = useState<ManualObserverDraft>(() =>
+    createManualObserverDraft(persistedViewerSettings.manualObserver),
+  )
   const orientationControllerRef = useRef<ReturnType<typeof subscribeToOrientationPose> | null>(
     null,
   )
   const cameraStreamRef = useRef<MediaStream | null>(null)
+  const cameraRequestIdRef = useRef(0)
+  const lastOpenedCameraPreferenceRef = useRef<string | null>(null)
+  const liveObserverRef = useRef<ObserverState | null>(persistedManualObserver)
   const poorSinceRef = useRef<number | null>(null)
   const dragRef = useRef<{
     pointerId: number
@@ -169,34 +275,40 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   } | null>(null)
   const lastTapAtRef = useRef(0)
   const hasMounted = useSyncExternalStore(subscribeToHydrationReady, getHydratedSnapshot, getServerHydrationSnapshot)
+  const secureLiveArContext =
+    typeof window === 'undefined' ||
+    window.location.protocol === 'about:' ||
+    window.isSecureContext
   const demoScenario = getDemoScenario(state.demoScenarioId)
   const demoScenarioOptions = listDemoScenarios().map((scenario) => ({
     id: scenario.id,
     label: scenario.label,
   }))
-  const experience = describeViewerExperience(state)
-  const hasVerifiedLiveState = hasVerifiedLiveViewerState(state)
+  const hasLiveSessionStarted =
+    state.entry === 'live' &&
+    startupState !== 'ready-to-request' &&
+    startupState !== 'requesting' &&
+    startupState !== 'unsupported' &&
+    startupState !== 'error'
   const enabledLayers = viewerSettings.enabledLayers
   const likelyVisibleOnly = viewerSettings.likelyVisibleOnly
   const observer =
     state.entry === 'demo'
       ? demoScenario.observer
-      : hasVerifiedLiveState && state.location === 'granted'
-        ? liveObserver
-        : null
-  const locationError =
-    !hasVerifiedLiveState || state.location !== 'granted' ? null : liveLocationError
+      : liveObserver
+  const experience = describeRuntimeExperience({
+    state,
+    startupState,
+    hasObserver: observer !== null,
+  })
+  const locationError = state.entry === 'demo' ? null : liveLocationError
   const manualMode =
     experience.mode === 'demo' || experience.mode === 'manual-pan'
   const cameraPose = manualMode
     ? createManualCameraPose(manualPoseState)
     : sensorCameraPose
   const shouldPollAircraft =
-    hasVerifiedLiveState &&
-    state.entry !== 'demo' &&
-    state.location === 'granted' &&
-    observer !== null &&
-    enabledLayers.aircraft
+    state.entry !== 'demo' && hasLiveSessionStarted && observer !== null && enabledLayers.aircraft
   const activeAircraftSnapshot = shouldPollAircraft ? aircraftSnapshot : null
   const demoAircraftSnapshot = state.entry === 'demo' ? demoScenario.aircraftSnapshot : null
   const activeAircraftData = demoAircraftSnapshot ?? activeAircraftSnapshot
@@ -209,41 +321,51 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const activeSatelliteCatalog =
     state.entry === 'demo' ? demoScenario.satelliteCatalog : satelliteCatalog
   const cameraStreamActive =
-    hasVerifiedLiveState && state.camera === 'granted' && liveCameraStreamActive
-  const cameraError =
-    !hasVerifiedLiveState || state.camera !== 'granted' ? null : liveCameraError
-  const shouldMountVideoElement =
-    hasVerifiedLiveState && state.camera === 'granted'
+    state.entry === 'live' && state.camera === 'granted' && liveCameraStreamActive
+  const cameraError = state.entry === 'demo' ? null : liveCameraError
+  const shouldMountVideoElement = state.entry === 'live'
 
   const showGradientBackground =
     state.entry === 'demo' ||
     state.camera !== 'granted' ||
     !cameraStreamActive
-  const blockingCopy = getBlockingCopy(state)
+  const blockingCopy = getBlockingCopy(state, startupState)
   const locationStatusValue =
     state.entry === 'demo'
       ? 'Demo scenario'
       : observer
-        ? `Ready ±${Math.round(observer.accuracyMeters ?? 0)}m`
-        : badgeValue(state.location)
+        ? getObserverStatusValue(observer, observerSource)
+        : startupState === 'requesting'
+          ? 'Pending'
+          : startupState === 'camera-only'
+            ? 'Manual needed'
+            : badgeValue(state.location)
   const cameraStatusValue =
     state.camera === 'granted' && cameraStreamActive ? 'Ready' : badgeValue(state.camera)
-  const motionStatusValue = getMotionBadgeValue(experience.mode, state, cameraPose)
-  const scene = observer
-    ? buildSkyScene({
-        observer,
-        timeMs: sceneTimeMs,
-        enabledLayers,
-        likelyVisibleOnly,
-        focusedObjectId: selectedObjectId,
-        aircraftSnapshot: activeAircraftData,
-        satelliteCatalog: activeSatelliteCatalog,
-        cameraPose,
-        viewport,
-        verticalFovAdjustmentDeg: viewerSettings.verticalFovAdjustmentDeg,
-      })
-    : EMPTY_SCENE
-  const projectedObjects: ProjectedSkyObject[] = scene.objects.map((object) => ({
+  const motionStatusValue = getMotionBadgeValue(
+    experience.mode,
+    state,
+    cameraPose,
+    startupState,
+    orientationSource,
+  )
+  const constellationScene =
+    observer && sceneSnapshot.error === null
+      ? buildVisibleConstellations({
+          cameraPose,
+          viewport,
+          verticalFovAdjustmentDeg: viewerSettings.verticalFovAdjustmentDeg,
+          enabledLayers,
+          likelyVisibleOnly,
+          sunAltitudeDeg: sceneSnapshot.sunAltitudeDeg,
+          visibleStars: sceneSnapshot.visibleStars,
+          starCatalog: STAR_CATALOG,
+        })
+      : EMPTY_CONSTELLATION_SCENE
+  const sceneObjects = sceneSnapshot.error
+    ? EMPTY_SCENE_SNAPSHOT.objects
+    : [...sceneSnapshot.objects, ...constellationScene.objects]
+  const projectedObjects: ProjectedSkyObject[] = sceneObjects.map((object) => ({
     ...object,
     projection: projectWorldPointToScreen(
       cameraPose,
@@ -251,7 +373,11 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         azimuthDeg: object.azimuthDeg,
         elevationDeg: object.elevationDeg,
       },
-      viewport,
+      {
+        ...viewport,
+        sourceWidth: cameraFrameLayout?.sourceWidth,
+        sourceHeight: cameraFrameLayout?.sourceHeight,
+      },
       viewerSettings.verticalFovAdjustmentDeg,
     ),
   }))
@@ -319,7 +445,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     shouldRenderTrail && activeSummaryObject
       ? trailSamples.filter((sample) => sample.id === activeSummaryObject.id)
       : []
-  const renderedLineSegments = hasMounted ? scene.lineSegments : []
+  const renderedLineSegments = hasMounted ? constellationScene.lineSegments : []
   const renderedMarkerObjects = hasMounted ? markerObjects : []
   const renderedOnObjectLabels = hasMounted ? onObjectLabels : []
   const renderedTopListObjects = hasMounted ? topListObjects : []
@@ -332,22 +458,258 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         ? 'No objects are currently visible. Likely visible only may hide stars, constellations, and satellites in daylight.'
         : 'No objects are currently visible. Check location accuracy, tilt the phone above the horizon, and confirm layer toggles in Settings.'
       : `${renderedMarkerObjects.length} objects are currently visible on screen.`
+  const calibrationTarget = selectCalibrationTarget(sceneObjects)
+  const calibrationStatus = describeCalibrationStatus({
+    startupState,
+    cameraPose,
+    poseCalibration: viewerSettings.poseCalibration,
+    calibrationTarget,
+  })
+  const sensorStatusValue = getSensorStatusValue({
+    startupState,
+    orientationSource,
+    orientationAbsolute,
+    cameraPose,
+  })
+
+  const commitViewerRouteState = (nextState: ViewerRouteState) => {
+    setState(nextState)
+    router.replace(buildViewerHref(nextState))
+  }
+
+  const syncCameraDevices = async () => {
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices) {
+      return
+    }
+
+    const nextDevices = await listAvailableVideoInputDevices(navigator.mediaDevices)
+
+    setCameraDevices(nextDevices)
+  }
+
+  const openLiveCamera = async (preferredDeviceId?: string | null) => {
+    if (!videoElement) {
+      throw new Error('camera-element-unavailable')
+    }
+
+    const mediaRuntime =
+      typeof navigator !== 'undefined' ? navigator.mediaDevices : undefined
+
+    const requestId = cameraRequestIdRef.current + 1
+    cameraRequestIdRef.current = requestId
+    setLiveCameraStreamActive(false)
+    setLiveCameraError(null)
+    setCameraSourceSize(null)
+    setCameraFrameLayout(null)
+
+    stopMediaStream(cameraStreamRef.current)
+    cameraStreamRef.current = null
+    videoElement.srcObject = null
+
+    try {
+      const stream = await requestRearCameraStream(mediaRuntime, {
+        preferredDeviceId,
+      })
+
+      if (cameraRequestIdRef.current !== requestId) {
+        stopMediaStream(stream)
+        return null
+      }
+
+      cameraStreamRef.current = stream
+      lastOpenedCameraPreferenceRef.current =
+        getStreamVideoDeviceId(stream) ?? preferredDeviceId ?? null
+      videoElement.srcObject = stream
+      await videoElement.play().catch(() => undefined)
+      setLiveCameraStreamActive(true)
+      await syncCameraDevices()
+
+      const activeDeviceId = getStreamVideoDeviceId(stream) ?? preferredDeviceId ?? null
+
+      if (activeDeviceId) {
+        setViewerSettings((current) => ({
+          ...current,
+          selectedCameraDeviceId: activeDeviceId,
+        }))
+      }
+
+      return stream
+    } catch (error) {
+      if (cameraRequestIdRef.current === requestId) {
+        setLiveCameraError(
+          'SkyLens retried the stored camera if available, then exact environment, then environment fallback, without requesting microphone access.',
+        )
+        setLiveCameraStreamActive(false)
+        lastOpenedCameraPreferenceRef.current = null
+      }
+
+      throw error
+    }
+  }
+
+  const applyManualObserver = (manualObserver: ManualObserverSettings) => {
+    const nextObserver = createObserverStateFromManualSettings(manualObserver)
+
+    setLiveObserver(nextObserver)
+    setObserverSource('manual')
+    setLiveLocationError(
+      'SkyLens is using your saved manual observer until a live location fix is available.',
+    )
+    setViewerSettings((current) => ({
+      ...current,
+      manualObserver,
+    }))
+    setStartupState(resolveStartupState({
+      orientationStatus: state.orientation,
+      cameraStatus: state.camera,
+      hasObserver: true,
+      orientationNeedsCalibration: startupState === 'sensor-relative-needs-calibration',
+    }))
+  }
+
+  const requestInitialObserver = async () => {
+    try {
+      const nextObserver = await requestStartupObserverState()
+
+      setLiveObserver(nextObserver)
+      setObserverSource('geo')
+      setLiveLocationError(null)
+      return {
+        locationStatus: 'granted' as const,
+        hasObserver: true,
+      }
+    } catch {
+      const savedManualObserver = viewerSettings.manualObserver
+
+      if (savedManualObserver) {
+        applyManualObserver(savedManualObserver)
+
+        return {
+          locationStatus: 'denied' as const,
+          hasObserver: true,
+        }
+      }
+
+      setLiveObserver(null)
+      setObserverSource(null)
+      setLiveLocationError(
+        'Location did not resolve in time. Enter latitude, longitude, and altitude manually or retry geolocation.',
+      )
+
+      return {
+        locationStatus: 'denied' as const,
+        hasObserver: false,
+      }
+    }
+  }
 
   const handleRetryPermissions = () => {
     setRetryError(null)
     setAstronomyFailureBanner(null)
+    setManualObserverError(null)
+    setMotionRetryError(null)
+    setCalibrationBanner(null)
 
     startTransition(async () => {
+      if (state.entry !== 'live') {
+        return
+      }
+
+      if (!secureLiveArContext) {
+        setStartupState('unsupported')
+        return
+      }
+
+      setStartupState('requesting')
+      markViewerOnboardingCompleted()
+      setViewerSettings((current) => ({
+        ...current,
+        onboardingCompleted: true,
+      }))
+      setLiveObserver(null)
+      setObserverSource(null)
+      setLiveLocationError(null)
+
       try {
-        const nextState = await runStartFlow()
+        const orientation = await requestOrientationPermission()
+        let camera: PermissionStatusValue = 'unknown'
+
+        try {
+          await openLiveCamera(viewerSettings.selectedCameraDeviceId)
+          camera = 'granted'
+        } catch {
+          camera = 'denied'
+        }
+
+        const observerResult = await requestInitialObserver()
+        const nextState: ViewerRouteState = {
+          ...state,
+          orientation,
+          camera,
+          location: observerResult.locationStatus,
+        }
+
         setSelectedObjectId(null)
         setTrailSamples([])
         setSceneTimeMs(Date.now())
-        setState(nextState)
-        router.replace(buildViewerHref(nextState))
+        commitViewerRouteState(nextState)
+        setStartupState(
+          resolveStartupState({
+            orientationStatus: orientation,
+            cameraStatus: camera,
+            hasObserver: observerResult.hasObserver,
+            orientationNeedsCalibration: false,
+          }),
+        )
       } catch {
-        setRetryError('Permission retry failed. Use demo mode if you want to continue now.')
+        setStartupState('error')
+        setRetryError('SkyLens could not complete startup. Try again or switch to demo mode.')
       }
+    })
+  }
+
+  const handleManualObserverSubmit = () => {
+    setManualObserverError(null)
+
+    const parsed = parseManualObserverDraft(manualObserverDraft)
+
+    if (!parsed) {
+      setManualObserverError('Enter valid latitude, longitude, and altitude values.')
+      return
+    }
+
+    applyManualObserver(parsed)
+    commitViewerRouteState({
+      ...state,
+      location: 'denied',
+    })
+  }
+
+  const handleRetryLocation = () => {
+    setManualObserverError(null)
+    setLiveLocationError(null)
+
+    startTransition(async () => {
+      if (state.entry !== 'live') {
+        return
+      }
+
+      const observerResult = await requestInitialObserver()
+      const nextState: ViewerRouteState = {
+        ...state,
+        location: observerResult.locationStatus,
+      }
+
+      commitViewerRouteState(nextState)
+      setStartupState(
+        resolveStartupState({
+          orientationStatus: state.orientation,
+          cameraStatus: state.camera,
+          hasObserver: observerResult.hasObserver,
+          orientationNeedsCalibration:
+            startupState === 'sensor-relative-needs-calibration',
+        }),
+      )
     })
   }
 
@@ -357,14 +719,22 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     startTransition(async () => {
       try {
         const orientation = await requestOrientationPermission()
+
         if (state.entry === 'live') {
           const nextState: ViewerRouteState = {
             ...state,
             orientation,
           }
 
-          setState(nextState)
-          router.replace(buildViewerHref(nextState))
+          commitViewerRouteState(nextState)
+          setStartupState(
+            resolveStartupState({
+              orientationStatus: orientation,
+              cameraStatus: state.camera,
+              hasObserver: observer !== null,
+              orientationNeedsCalibration: startupState === 'sensor-relative-needs-calibration',
+            }),
+          )
         }
 
         if (orientation !== 'granted') {
@@ -389,14 +759,15 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     }))
     setSelectedObjectId(null)
     setTrailSamples([])
+    setCalibrationBanner(null)
     setManualPoseState(
       createManualPoseState({
         pitchDeg: demoScenario.initialPitchDeg,
       }),
     )
     setSceneTimeMs(demoScenario.observer.timestampMs)
-    setState(demoRoute.state)
-    router.replace(demoRoute.href)
+    setStartupState('sensor-absolute')
+    commitViewerRouteState(demoRoute.state)
   }
 
   const handleSelectDemoScenario = (scenarioId: DemoScenarioId) => {
@@ -413,8 +784,8 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       }),
     )
     setSceneTimeMs(nextScenario.observer.timestampMs)
-    setState(nextState)
-    router.replace(buildViewerHref(nextState))
+    setStartupState('sensor-absolute')
+    commitViewerRouteState(nextState)
   }
 
   const handleStageRef = useCallback((node: HTMLDivElement | null) => {
@@ -452,7 +823,34 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   }, [demoScenario.observer.timestampMs, state.entry])
 
   useEffect(() => {
-    if (!scene.error || state.entry === 'demo') {
+    if (!observer) {
+      setSceneSnapshot(EMPTY_SCENE_SNAPSHOT)
+      return
+    }
+
+    setSceneSnapshot(
+      buildSceneSnapshot({
+        observer,
+        timeMs: sceneTimeMs,
+        enabledLayers,
+        likelyVisibleOnly,
+        focusedObjectId: selectedObjectId,
+        aircraftSnapshot: activeAircraftData,
+        satelliteCatalog: activeSatelliteCatalog,
+      }),
+    )
+  }, [
+    activeAircraftData,
+    activeSatelliteCatalog,
+    enabledLayers,
+    likelyVisibleOnly,
+    observer,
+    sceneTimeMs,
+    selectedObjectId,
+  ])
+
+  useEffect(() => {
+    if (!sceneSnapshot.error || state.entry === 'demo') {
       return
     }
 
@@ -469,18 +867,26 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         }),
       )
       setSceneTimeMs(getDemoScenario('tokyo-iss').observer.timestampMs)
-      setState(demoRoute.state)
-      router.replace(demoRoute.href)
+      setStartupState('sensor-absolute')
+      commitViewerRouteState(demoRoute.state)
     }, 0)
 
     return () => {
       window.clearTimeout(timeoutId)
     }
-  }, [router, scene.error, state.entry])
+  }, [router, sceneSnapshot.error, state.entry])
 
   useEffect(() => {
     writeViewerSettings(viewerSettings)
   }, [viewerSettings])
+
+  useEffect(() => {
+    liveObserverRef.current = liveObserver
+  }, [liveObserver])
+
+  useEffect(() => {
+    setManualObserverDraft(createManualObserverDraft(viewerSettings.manualObserver))
+  }, [viewerSettings.manualObserver])
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
@@ -626,7 +1032,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   ])
 
   useEffect(() => {
-    if (!hasVerifiedLiveState || state.entry === 'demo') {
+    if (!hasLiveSessionStarted || state.entry === 'demo') {
       return
     }
 
@@ -656,7 +1062,17 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       disposed = true
       window.clearInterval(intervalId)
     }
-  }, [hasVerifiedLiveState, state.entry])
+  }, [hasLiveSessionStarted, state.entry])
+
+  useEffect(() => {
+    if (state.entry !== 'live' || typeof window === 'undefined') {
+      return
+    }
+
+    if (!secureLiveArContext) {
+      setStartupState('unsupported')
+    }
+  }, [secureLiveArContext, state.entry])
 
   useEffect(() => {
     if (!stageElement) {
@@ -691,17 +1107,16 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   }, [stageElement])
 
   useEffect(() => {
-    if (!hasVerifiedLiveState || state.location !== 'granted') {
+    if (
+      state.entry !== 'live' ||
+      startupState === 'ready-to-request' ||
+      state.location !== 'granted' ||
+      liveObserver !== null
+    ) {
       return
     }
 
     let disposed = false
-    let tracker: ReturnType<typeof startObserverTracking> | null = null
-
-    const handleObserverUpdate = (nextObserver: ObserverState) => {
-      setLiveObserver(nextObserver)
-      setLiveLocationError(null)
-    }
 
     requestStartupObserverState()
       .then((nextObserver) => {
@@ -709,83 +1124,303 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
           return
         }
 
-        handleObserverUpdate(nextObserver)
-        tracker = startObserverTracking(handleObserverUpdate, {
-          initialObserver: nextObserver,
-          onError: () => {
-            if (!disposed) {
-              setLiveLocationError(
-                'SkyLens keeps your last accepted observer until the next fix moves more than 25 meters or 15 seconds have elapsed.',
-              )
-            }
-          },
-        })
+        setLiveObserver(nextObserver)
+        setObserverSource('geo')
+        setLiveLocationError(null)
       })
       .catch(() => {
-        if (!disposed) {
-          setLiveObserver(null)
-          setLiveLocationError(
-            'Location access was granted, but the initial high-accuracy fix did not arrive in time.',
-          )
+        if (disposed) {
+          return
         }
+
+        if (viewerSettings.manualObserver) {
+          applyManualObserver(viewerSettings.manualObserver)
+          return
+        }
+
+        setLiveLocationError(
+          'Location did not resolve in time. Enter latitude, longitude, and altitude manually or retry geolocation.',
+        )
+        setStartupState(
+          resolveStartupState({
+            orientationStatus: state.orientation,
+            cameraStatus: state.camera,
+            hasObserver: false,
+          }),
+        )
       })
 
     return () => {
       disposed = true
-      tracker?.stop()
     }
-  }, [hasVerifiedLiveState, state.location])
+  }, [liveObserver, startupState, state, viewerSettings.manualObserver])
 
   useEffect(() => {
-    if (!hasVerifiedLiveState || state.camera !== 'granted' || !videoElement) {
+    if (
+      state.entry !== 'live' ||
+      startupState === 'ready-to-request' ||
+      state.camera !== 'granted' ||
+      !videoElement ||
+      cameraStreamRef.current
+    ) {
+      return
+    }
+
+    void openLiveCamera(viewerSettings.selectedCameraDeviceId).catch(() => undefined)
+  }, [startupState, state, videoElement, viewerSettings.selectedCameraDeviceId])
+
+  useEffect(() => {
+    if (
+      !hasLiveSessionStarted ||
+      state.location !== 'granted' ||
+      observerSource !== 'geo' ||
+      !liveObserverRef.current
+    ) {
       return
     }
 
     let disposed = false
-
-    requestRearCameraStream()
-      .then(async (stream) => {
-        if (disposed) {
-          stopMediaStream(stream)
-          return
-        }
-
-        cameraStreamRef.current = stream
-        videoElement.srcObject = stream
-        await videoElement.play().catch(() => undefined)
-        setLiveCameraError(null)
-        setLiveCameraStreamActive(true)
-      })
-      .catch(() => {
-        if (!disposed) {
-          setLiveCameraError(
-            'SkyLens retried exact environment first, then environment fallback, without requesting microphone access.',
-          )
-          setLiveCameraStreamActive(false)
-        }
-      })
+    const tracker = startObserverTracking(
+      (nextObserver) => {
+        setLiveObserver(nextObserver)
+        setLiveLocationError(null)
+      },
+      {
+        initialObserver: liveObserverRef.current,
+        onError: () => {
+          if (!disposed) {
+            setLiveLocationError(
+              'SkyLens keeps your last accepted observer until the next fix moves more than 25 meters or 15 seconds have elapsed.',
+            )
+          }
+        },
+      },
+    )
 
     return () => {
       disposed = true
+      tracker.stop()
+    }
+  }, [hasLiveSessionStarted, observerSource, state.location])
+
+  useEffect(() => {
+    if (!cameraSourceSize) {
+      setCameraFrameLayout(null)
+      return
+    }
+
+    setCameraFrameLayout(
+      createCameraFrameLayout({
+        width: viewport.width,
+        height: viewport.height,
+        sourceWidth: cameraSourceSize.width,
+        sourceHeight: cameraSourceSize.height,
+      }),
+    )
+  }, [cameraSourceSize, viewport])
+
+  useEffect(() => {
+    if (!hasLiveSessionStarted) {
+      return
+    }
+
+    let cancelled = false
+    let animationFrameId: number | null = null
+    let videoFrameRequestId: number | null = null
+    const frameVideo = videoElement as HTMLVideoElement | null
+    const callbackVideo = frameVideo as (HTMLVideoElement & {
+      requestVideoFrameCallback?: (
+        callback: (
+          now: number,
+          metadata: { width?: number; height?: number },
+        ) => void,
+      ) => number
+      cancelVideoFrameCallback?: (handle: number) => void
+    }) | null
+
+    const updateSize = (width?: number, height?: number) => {
+      setRenderFrameToken((current) => current + 1)
+
+      if (!frameVideo) {
+        return
+      }
+
+      const nextWidth = Math.round(width ?? frameVideo.videoWidth ?? 0)
+      const nextHeight = Math.round(height ?? frameVideo.videoHeight ?? 0)
+
+      if (nextWidth <= 0 || nextHeight <= 0) {
+        return
+      }
+
+      setCameraSourceSize((current) =>
+        current?.width === nextWidth && current?.height === nextHeight
+          ? current
+          : {
+              width: nextWidth,
+              height: nextHeight,
+            },
+      )
+    }
+
+    const scheduleAnimationFrame = () => {
+      animationFrameId = window.requestAnimationFrame(() => {
+        if (cancelled) {
+          return
+        }
+
+        updateSize()
+        scheduleAnimationFrame()
+      })
+    }
+
+    if (
+      cameraStreamActive &&
+      callbackVideo &&
+      typeof callbackVideo.requestVideoFrameCallback === 'function'
+    ) {
+      const handleFrame = (_now: number, metadata: { width?: number; height?: number }) => {
+        if (cancelled) {
+          return
+        }
+
+        updateSize(metadata.width, metadata.height)
+        videoFrameRequestId = callbackVideo.requestVideoFrameCallback?.(handleFrame) ?? null
+      }
+
+      videoFrameRequestId = callbackVideo.requestVideoFrameCallback(handleFrame)
+    } else {
+      scheduleAnimationFrame()
+    }
+
+    updateSize()
+
+    return () => {
+      cancelled = true
+
+      if (animationFrameId !== null) {
+        window.cancelAnimationFrame(animationFrameId)
+      }
+
+      if (
+        videoFrameRequestId !== null &&
+        callbackVideo &&
+        typeof callbackVideo.cancelVideoFrameCallback === 'function'
+      ) {
+        callbackVideo.cancelVideoFrameCallback(videoFrameRequestId)
+      }
+    }
+  }, [cameraStreamActive, hasLiveSessionStarted, videoElement])
+
+  useEffect(() => {
+    if (
+      state.entry !== 'live' ||
+      state.camera !== 'granted' ||
+      !hasLiveSessionStarted ||
+      !videoElement
+    ) {
+      return
+    }
+
+    if (!cameraStreamRef.current) {
+      return
+    }
+
+    const preferredDeviceId = viewerSettings.selectedCameraDeviceId ?? null
+
+    if (lastOpenedCameraPreferenceRef.current === preferredDeviceId) {
+      return
+    }
+
+    void openLiveCamera(preferredDeviceId).catch(() => {
+      commitViewerRouteState({
+        ...state,
+        camera: 'denied',
+      })
+      setStartupState(
+        resolveStartupState({
+          orientationStatus: state.orientation,
+          cameraStatus: 'denied',
+          hasObserver: observer !== null,
+          orientationNeedsCalibration: startupState === 'sensor-relative-needs-calibration',
+        }),
+      )
+    })
+  }, [
+    hasLiveSessionStarted,
+    observer,
+    startupState,
+    state,
+    videoElement,
+    viewerSettings.selectedCameraDeviceId,
+  ])
+
+  useEffect(() => {
+    if (state.entry === 'live' && state.camera === 'granted') {
+      return
+    }
+
+    if (videoElement) {
       videoElement.srcObject = null
+    }
+
+    stopMediaStream(cameraStreamRef.current)
+    cameraStreamRef.current = null
+    lastOpenedCameraPreferenceRef.current = null
+    setLiveCameraStreamActive(false)
+    setCameraSourceSize(null)
+    setCameraFrameLayout(null)
+  }, [state.camera, state.entry, videoElement])
+
+  useEffect(() => {
+    return () => {
+      if (videoElement) {
+        videoElement.srcObject = null
+      }
+
       stopMediaStream(cameraStreamRef.current)
       cameraStreamRef.current = null
+      lastOpenedCameraPreferenceRef.current = null
       setLiveCameraStreamActive(false)
     }
-  }, [hasVerifiedLiveState, state.camera, videoElement])
+  }, [videoElement])
 
   useEffect(() => {
     orientationControllerRef.current?.stop()
     orientationControllerRef.current = null
     poorSinceRef.current = null
+    setCalibrationBanner(null)
+    setOrientationSource(null)
+    setOrientationAbsolute(state.orientation === 'granted')
+    setOrientationNeedsCalibration(false)
+    setLatestOrientationSample(null)
 
-    if (!hasVerifiedLiveState || manualMode) {
+    if (!hasLiveSessionStarted || manualMode) {
       return
     }
 
     const controller = subscribeToOrientationPose(
-      ({ pose, sample }) => {
+      ({
+        pose,
+        sample,
+        orientationSource: nextOrientationSource,
+        orientationAbsolute,
+        orientationNeedsCalibration,
+        poseCalibration,
+      }) => {
         setSensorCameraPose(pose)
+        setOrientationSource(nextOrientationSource)
+        setOrientationAbsolute(orientationAbsolute)
+        setOrientationNeedsCalibration(orientationNeedsCalibration)
+        setLatestOrientationSample(sample)
+        setStartupState(
+          resolveStartupState({
+            orientationStatus: 'granted',
+            cameraStatus: state.camera,
+            hasObserver: liveObserverRef.current !== null,
+            orientationNeedsCalibration,
+            orientationAbsolute,
+          }),
+        )
 
         if (pose.alignmentHealth === 'poor') {
           if (poorSinceRef.current === null) {
@@ -801,12 +1436,16 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
 
         poorSinceRef.current = null
         setShowAlignmentGuidance(false)
+        setCalibrationBanner(
+          orientationNeedsCalibration
+            ? 'Relative motion is active. Center the suggested target and align before trusting labels.'
+            : poseCalibration.calibrated
+              ? 'Calibration is active.'
+              : null,
+        )
       },
       {
-        offsets: {
-          headingDeg: viewerSettings.headingOffsetDeg,
-          pitchDeg: viewerSettings.pitchOffsetDeg,
-        },
+        initialCalibration: viewerSettings.poseCalibration,
       },
     )
 
@@ -820,11 +1459,15 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       }
     }
   }, [
-    hasVerifiedLiveState,
+    hasLiveSessionStarted,
     manualMode,
-    viewerSettings.headingOffsetDeg,
-    viewerSettings.pitchOffsetDeg,
+    state.camera,
+    state.orientation,
   ])
+
+  useEffect(() => {
+    orientationControllerRef.current?.setCalibration?.(viewerSettings.poseCalibration)
+  }, [viewerSettings.poseCalibration])
 
   useEffect(() => {
     if (!showAlignmentGuidance || manualMode) {
@@ -840,31 +1483,123 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     }
   }, [manualMode, showAlignmentGuidance])
 
+  const updatePoseCalibration = (nextCalibration: PoseCalibration) => {
+    setCalibrationBanner(null)
+    setShowAlignmentGuidance(false)
+    setViewerSettings((current) => ({
+      ...current,
+      poseCalibration: nextCalibration,
+    }))
+  }
+
   const recenter = () => {
     setShowAlignmentGuidance(false)
 
     if (manualMode) {
       setManualPoseState(recenterManualPose())
-      return
     }
-
-    orientationControllerRef.current?.recenter()
   }
 
   const fixAlignment = () => {
     setShowAlignmentGuidance(true)
   }
 
+  const alignCalibrationTarget = () => {
+    if (manualMode || !latestOrientationSample) {
+      return
+    }
+
+    const target = calibrationTarget
+
+    if (!target) {
+      setCalibrationBanner('No calibration target is available right now.')
+      return
+    }
+
+    const rawBasis = getCameraBasisVectors(latestOrientationSample.rawQuaternion)
+    const targetForwardWorld = normalizeVec3(
+      horizontalToWorldVector(target.azimuthDeg, target.elevationDeg),
+    )
+    let right = normalizeVec3(crossVec3(targetForwardWorld, WORLD_UP))
+
+    if (Math.hypot(...right) < 1e-6) {
+      const projectedRight = subtractProjectedComponent(rawBasis.right, targetForwardWorld)
+      right =
+        Math.hypot(...projectedRight) < 1e-6 ? rawBasis.right : normalizeVec3(projectedRight)
+    }
+
+    const up = normalizeVec3(crossVec3(right, targetForwardWorld))
+    const targetQuaternion = createQuaternionFromBasis(right, [-up[0], -up[1], -up[2]], targetForwardWorld)
+    const nextCalibration = createPoseCalibrationFromReferencePose(
+      latestOrientationSample.rawQuaternion,
+      {
+        targetQuaternion,
+        source: latestOrientationSample.source,
+        timestampMs: Date.now(),
+      },
+    )
+
+    updatePoseCalibration(nextCalibration)
+    setCalibrationBanner(`Aligned to ${target.label}.`)
+  }
+
+  const resetCalibration = () => {
+    updatePoseCalibration(createIdentityPoseCalibration())
+    setCalibrationBanner('Calibration reset to the raw sensor pose.')
+  }
+
+  const fineAdjustCalibration = (adjustment: {
+    axis: 'yaw' | 'pitch'
+    deltaDeg: number
+  }) => {
+    if (manualMode) {
+      return
+    }
+
+    const axis =
+      adjustment.axis === 'yaw'
+        ? WORLD_UP
+        : getCameraBasisVectors(sensorCameraPose.quaternion).right
+    const deltaQuaternion = createAxisAngleQuaternion(axis, adjustment.deltaDeg)
+    const nextCalibration = createPoseCalibration({
+      ...viewerSettings.poseCalibration,
+      calibrated: true,
+      sourceAtCalibration:
+        orientationSource ?? viewerSettings.poseCalibration.sourceAtCalibration,
+      lastCalibratedAtMs: Date.now(),
+      offsetQuaternion: multiplyQuaternions(
+        deltaQuaternion,
+        viewerSettings.poseCalibration.offsetQuaternion,
+      ),
+    })
+
+    updatePoseCalibration(nextCalibration)
+  }
+
   const settingsSheetProps = {
     onEnterDemoMode: handleEnterDemoMode,
     onDemoScenarioSelect: handleSelectDemoScenario,
     onFixAlignment: fixAlignment,
+    onAlignCalibration: alignCalibrationTarget,
+    onResetCalibration: resetCalibration,
+    onFineAdjustCalibration: fineAdjustCalibration,
     onRecenter: recenter,
     canFixAlignment: experience.mode !== 'blocked',
-    canRecenter: experience.mode !== 'blocked',
-    headingOffsetDeg: viewerSettings.headingOffsetDeg,
-    pitchOffsetDeg: viewerSettings.pitchOffsetDeg,
+    canAlignCalibration: cameraPose.mode === 'sensor' && latestOrientationSample !== null,
+    canResetCalibration:
+      cameraPose.mode === 'sensor' &&
+      (viewerSettings.poseCalibration.calibrated ||
+        !quaternionsApproximatelyEqual(
+          viewerSettings.poseCalibration.offsetQuaternion,
+          createIdentityPoseCalibration().offsetQuaternion,
+        )),
+    canRecenter: manualMode,
+    calibrationTargetLabel: calibrationTarget.label,
+    calibrationTargetDescription: calibrationTarget.description,
+    calibrationStatus,
     verticalFovAdjustmentDeg: viewerSettings.verticalFovAdjustmentDeg,
+    cameraDevices,
+    selectedCameraDeviceId: viewerSettings.selectedCameraDeviceId,
     layers: enabledLayers,
     layerAvailabilityLabels: {
       aircraft: getAircraftAvailabilityMessage(activeAircraftAvailability) ?? undefined,
@@ -895,22 +1630,16 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         labelDisplayMode,
       }))
     },
-    onHeadingOffsetChange: (value: number) => {
-      setViewerSettings((current) => ({
-        ...current,
-        headingOffsetDeg: value,
-      }))
-    },
-    onPitchOffsetChange: (value: number) => {
-      setViewerSettings((current) => ({
-        ...current,
-        pitchOffsetDeg: value,
-      }))
-    },
     onVerticalFovAdjustmentChange: (value: number) => {
       setViewerSettings((current) => ({
         ...current,
         verticalFovAdjustmentDeg: value,
+      }))
+    },
+    onSelectedCameraDeviceChange: (deviceId: string) => {
+      setViewerSettings((current) => ({
+        ...current,
+        selectedCameraDeviceId: deviceId || null,
       }))
     },
   }
@@ -936,6 +1665,25 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
           </p>
         ) : null}
       </section>
+    ) : null
+  const manualObserverPanel =
+    state.entry !== 'demo' &&
+    startupState !== 'ready-to-request' &&
+    startupState !== 'requesting' &&
+    observerSource !== 'geo' ? (
+      <ManualObserverPanel
+        draft={manualObserverDraft}
+        error={manualObserverError}
+        onDraftChange={(field, value) => {
+          setManualObserverDraft((current) => ({
+            ...current,
+            [field]: value,
+          }))
+        }}
+        onRetryLocation={handleRetryLocation}
+        onSubmit={handleManualObserverSubmit}
+        isPending={isPending}
+      />
     ) : null
 
   const handleStagePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -1052,6 +1800,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       <div
         ref={handleStageRef}
         className="absolute inset-0 touch-none"
+        data-frame-token={renderFrameToken}
         tabIndex={manualMode ? 0 : -1}
         aria-label="Sky viewer stage"
         onPointerDown={handleStagePointerDown}
@@ -1226,7 +1975,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                 <p className="text-sm text-sky-50/90">{experience.title}</p>
               </div>
               <div className="rounded-full bg-emerald-400/10 px-3 py-1 text-xs text-emerald-100/85">
-                {alignmentBadgeValue(state, cameraPose)}
+                {alignmentBadgeValue(state, cameraPose, startupState)}
               </div>
             </div>
           </div>
@@ -1243,6 +1992,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             <StatusBadge label="Location" value={locationStatusValue} />
             <StatusBadge label="Camera" value={cameraStatusValue} />
             <StatusBadge label="Motion" value={motionStatusValue} />
+            <StatusBadge label="Sensor" value={sensorStatusValue} />
           </div>
 
           {astronomyFailureBanner ? (
@@ -1261,7 +2011,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
           {experience.mode === 'blocked' && state.entry !== 'demo' ? (
             <section className="pointer-events-auto shell-panel rounded-[2rem] p-6">
               <p className="text-xs uppercase tracking-[0.2em] text-amber-200/70">
-                {blockingEyebrow(state)}
+                {blockingEyebrow(state, startupState)}
               </p>
               <h1
                 className="mt-2 text-2xl font-semibold text-white"
@@ -1273,14 +2023,20 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                 {blockingCopy.body}
               </p>
               <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-                <button
-                  type="button"
-                  onClick={handleRetryPermissions}
-                  disabled={isPending}
-                  className="rounded-full bg-amber-300 px-5 py-3 text-sm font-semibold text-slate-950 disabled:cursor-wait disabled:bg-amber-100"
-                >
-                  {isPending ? 'Retrying permissions...' : 'Retry permissions'}
-                </button>
+                {startupState !== 'unsupported' ? (
+                  <button
+                    type="button"
+                    onClick={handleRetryPermissions}
+                    disabled={isPending}
+                    className="rounded-full bg-amber-300 px-5 py-3 text-sm font-semibold text-slate-950 disabled:cursor-wait disabled:bg-amber-100"
+                  >
+                    {isPending
+                      ? 'Starting AR...'
+                      : startupState === 'ready-to-request'
+                        ? 'Start AR'
+                        : 'Retry startup'}
+                  </button>
+                ) : null}
                 <Link
                   href={createDemoViewerRoute().href}
                   className="rounded-full border border-sky-100/20 px-5 py-3 text-sm font-semibold text-sky-50"
@@ -1291,6 +2047,12 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
               {retryError ? (
                 <p className="mt-3 text-sm text-amber-200" role="alert">
                   {retryError}
+                </p>
+              ) : null}
+              {startupState === 'unsupported' ? (
+                <p className="mt-3 text-sm text-amber-200">
+                  Live AR requires HTTPS or `localhost`, plus camera, geolocation, and motion
+                  sensor permissions delegated to this page.
                 </p>
               ) : null}
             </section>
@@ -1315,16 +2077,29 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                   body={locationError}
                 />
               ) : null}
+              {manualObserverPanel}
               {cameraError ? (
                 <FallbackBanner
                   title="Rear camera could not attach."
                   body={cameraError}
                 />
               ) : null}
+              {startupState === 'sensor-relative-needs-calibration' ? (
+                <FallbackBanner
+                  title="Relative sensor mode needs alignment."
+                  body={`Center ${calibrationTarget.label} in the reticle, then align before trusting label placement.`}
+                />
+              ) : null}
+              {calibrationBanner ? (
+                <FallbackBanner
+                  title="Calibration"
+                  body={calibrationBanner}
+                />
+              ) : null}
               {showAlignmentGuidance && !manualMode ? (
                 <FallbackBanner
                   title="Alignment looks off."
-                  body="Move phone in a figure eight or tap Fix alignment."
+                  body={`Move phone in a figure eight or open Alignment to use ${calibrationTarget.label}.`}
                 />
               ) : null}
               <section className="pointer-events-auto shell-panel rounded-[2rem] p-5 sm:p-6">
@@ -1354,6 +2129,13 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                       FOV {getEffectiveVerticalFovDeg(viewerSettings.verticalFovAdjustmentDeg)}°
                       {' '}vertical
                     </p>
+                    <p>Sensor {sensorStatusValue}</p>
+                    <p>Target {calibrationTarget.label}</p>
+                    {cameraFrameLayout ? (
+                      <p>
+                        Frame {cameraFrameLayout.sourceWidth}×{cameraFrameLayout.sourceHeight}
+                      </p>
+                    ) : null}
                     <p>Visible markers {renderedMarkerObjects.length}</p>
                   </div>
                 </div>
@@ -1488,7 +2270,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                     <p className="truncate text-sm text-sky-50/90">{experience.title}</p>
                   </div>
                   <div className="rounded-full bg-emerald-400/10 px-3 py-1 text-xs text-emerald-100/85">
-                    {alignmentBadgeValue(state, cameraPose)}
+                    {alignmentBadgeValue(state, cameraPose, startupState)}
                   </div>
                 </div>
               </div>
@@ -1510,6 +2292,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                 <StatusBadge label="Location" value={locationStatusValue} />
                 <StatusBadge label="Camera" value={cameraStatusValue} />
                 <StatusBadge label="Motion" value={motionStatusValue} />
+                <StatusBadge label="Sensor" value={sensorStatusValue} />
               </div>
               {astronomyFailureBanner ? (
                 <FallbackBanner
@@ -1527,19 +2310,25 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
               {experience.mode === 'blocked' && state.entry !== 'demo' ? (
                 <section className="rounded-[1.25rem] border border-sky-100/10 bg-white/5 p-4">
                   <p className="text-xs uppercase tracking-[0.2em] text-amber-200/70">
-                    {blockingEyebrow(state)}
+                    {blockingEyebrow(state, startupState)}
                   </p>
                   <h2 className="mt-2 text-lg font-semibold text-white">{blockingCopy.title}</h2>
                   <p className="mt-2 text-sm leading-6 text-sky-100/80">{blockingCopy.body}</p>
                   <div className="mt-4 flex flex-col gap-2">
-                    <button
-                      type="button"
-                      onClick={handleRetryPermissions}
-                      disabled={isPending}
-                      className="rounded-full bg-amber-300 px-4 py-2 text-sm font-semibold text-slate-950 disabled:cursor-wait disabled:bg-amber-100"
-                    >
-                      {isPending ? 'Retrying permissions...' : 'Retry permissions'}
-                    </button>
+                    {startupState !== 'unsupported' ? (
+                      <button
+                        type="button"
+                        onClick={handleRetryPermissions}
+                        disabled={isPending}
+                        className="rounded-full bg-amber-300 px-4 py-2 text-sm font-semibold text-slate-950 disabled:cursor-wait disabled:bg-amber-100"
+                      >
+                        {isPending
+                          ? 'Starting AR...'
+                          : startupState === 'ready-to-request'
+                            ? 'Start AR'
+                            : 'Retry startup'}
+                      </button>
+                    ) : null}
                     <Link
                       href={createDemoViewerRoute().href}
                       className="rounded-full border border-sky-100/20 px-4 py-2 text-center text-sm font-semibold text-sky-50"
@@ -1550,6 +2339,12 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                   {retryError ? (
                     <p className="mt-3 text-sm text-amber-200" role="alert">
                       {retryError}
+                    </p>
+                  ) : null}
+                  {startupState === 'unsupported' ? (
+                    <p className="mt-3 text-sm text-amber-200">
+                      Live AR requires HTTPS or `localhost` plus delegated camera, geolocation,
+                      and sensor permissions.
                     </p>
                   ) : null}
                 </section>
@@ -1574,16 +2369,29 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                       body={locationError}
                     />
                   ) : null}
+                  {manualObserverPanel}
                   {cameraError ? (
                     <FallbackBanner
                       title="Rear camera could not attach."
                       body={cameraError}
                     />
                   ) : null}
+                  {startupState === 'sensor-relative-needs-calibration' ? (
+                    <FallbackBanner
+                      title="Relative sensor mode needs alignment."
+                      body={`Center ${calibrationTarget.label} in the reticle, then align before trusting label placement.`}
+                    />
+                  ) : null}
+                  {calibrationBanner ? (
+                    <FallbackBanner
+                      title="Calibration"
+                      body={calibrationBanner}
+                    />
+                  ) : null}
                   {showAlignmentGuidance && !manualMode ? (
                     <FallbackBanner
                       title="Alignment looks off."
-                      body="Move phone in a figure eight or tap Fix alignment."
+                      body={`Move phone in a figure eight or open Alignment to use ${calibrationTarget.label}.`}
                     />
                   ) : null}
                   <section className="rounded-[1.25rem] border border-sky-100/10 bg-white/5 p-4">
@@ -1610,6 +2418,13 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                           FOV {getEffectiveVerticalFovDeg(viewerSettings.verticalFovAdjustmentDeg)}
                           ° vertical
                         </p>
+                        <p>Sensor {sensorStatusValue}</p>
+                        <p>Target {calibrationTarget.label}</p>
+                        {cameraFrameLayout ? (
+                          <p>
+                            Frame {cameraFrameLayout.sourceWidth}×{cameraFrameLayout.sourceHeight}
+                          </p>
+                        ) : null}
                         <p>Visible markers {renderedMarkerObjects.length}</p>
                       </div>
                     </div>
@@ -1868,6 +2683,189 @@ function clampNumber(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max)
 }
 
+function selectCalibrationTarget(objects: readonly SkyObject[]): CalibrationTarget {
+  const visibleCelestialTargets = objects.filter((object) => {
+    if (
+      object.type !== 'sun' &&
+      object.type !== 'moon' &&
+      object.type !== 'planet' &&
+      object.type !== 'star'
+    ) {
+      return false
+    }
+
+    return !isCelestialDaylightLabelSuppressed(object)
+  })
+
+  const sun = visibleCelestialTargets.find((object) => object.type === 'sun')
+  if (sun) {
+    return {
+      id: sun.id,
+      label: sun.label,
+      description: 'Center the Sun in the reticle, then align.',
+      azimuthDeg: sun.azimuthDeg,
+      elevationDeg: sun.elevationDeg,
+      sourceType: 'sun',
+    }
+  }
+
+  const moon = visibleCelestialTargets.find((object) => object.type === 'moon')
+  if (moon) {
+    return {
+      id: moon.id,
+      label: moon.label,
+      description: 'Center the Moon in the reticle, then align.',
+      azimuthDeg: moon.azimuthDeg,
+      elevationDeg: moon.elevationDeg,
+      sourceType: 'moon',
+    }
+  }
+
+  const brightestPlanet = [...visibleCelestialTargets]
+    .filter((object) => object.type === 'planet')
+    .sort(compareCalibrationBrightness)[0]
+  if (brightestPlanet) {
+    return {
+      id: brightestPlanet.id,
+      label: brightestPlanet.label,
+      description: 'Center the brightest visible planet in the reticle, then align.',
+      azimuthDeg: brightestPlanet.azimuthDeg,
+      elevationDeg: brightestPlanet.elevationDeg,
+      sourceType: 'planet',
+    }
+  }
+
+  const brightestStar = [...visibleCelestialTargets]
+    .filter((object) => object.type === 'star')
+    .sort(compareCalibrationBrightness)[0]
+  if (brightestStar) {
+    return {
+      id: brightestStar.id,
+      label: brightestStar.label,
+      description: 'Center the brightest visible star in the reticle, then align.',
+      azimuthDeg: brightestStar.azimuthDeg,
+      elevationDeg: brightestStar.elevationDeg,
+      sourceType: 'star',
+    }
+  }
+
+  return {
+    id: 'north-marker',
+    label: 'North marker',
+    description: 'Use north on the horizon when no sky body is suitable.',
+    azimuthDeg: 0,
+    elevationDeg: 0,
+    sourceType: 'north-marker',
+  }
+}
+
+function compareCalibrationBrightness(left: SkyObject, right: SkyObject) {
+  const leftMagnitude = left.magnitude ?? Number.POSITIVE_INFINITY
+  const rightMagnitude = right.magnitude ?? Number.POSITIVE_INFINITY
+
+  if (leftMagnitude !== rightMagnitude) {
+    return leftMagnitude - rightMagnitude
+  }
+
+  if (right.importance !== left.importance) {
+    return right.importance - left.importance
+  }
+
+  return right.elevationDeg - left.elevationDeg
+}
+
+function describeCalibrationStatus({
+  startupState,
+  cameraPose,
+  poseCalibration,
+  calibrationTarget,
+}: {
+  startupState: StartupState
+  cameraPose: CameraPose
+  poseCalibration: PoseCalibration
+  calibrationTarget: CalibrationTarget
+}) {
+  if (cameraPose.mode === 'manual') {
+    return 'Manual pan is active.'
+  }
+
+  if (startupState === 'sensor-relative-needs-calibration') {
+    return `Relative sensors need ${calibrationTarget.label} before labels can lock.`
+  }
+
+  if (poseCalibration.calibrated) {
+    return `Aligned using ${calibrationTarget.label}.`
+  }
+
+  return 'Absolute sensors are active, but manual alignment is still available.'
+}
+
+function getSensorStatusValue({
+  startupState,
+  orientationSource,
+  orientationAbsolute,
+  cameraPose,
+}: {
+  startupState: StartupState
+  orientationSource: OrientationSource | null
+  orientationAbsolute: boolean
+  cameraPose: CameraPose
+}) {
+  if (cameraPose.mode === 'manual') {
+    return 'Manual'
+  }
+
+  if (startupState === 'sensor-relative-needs-calibration') {
+    return 'Relative'
+  }
+
+  if (orientationSource === 'absolute-sensor') {
+    return 'Absolute sensor'
+  }
+
+  if (orientationSource === 'deviceorientation-absolute' || orientationAbsolute) {
+    return 'Absolute'
+  }
+
+  if (orientationSource === 'deviceorientation-relative') {
+    return 'Relative'
+  }
+
+  return 'Pending'
+}
+
+function subtractProjectedComponent(
+  vector: [number, number, number],
+  normal: [number, number, number],
+): [number, number, number] {
+  const scale = dotVec3(vector, normal)
+  return [
+    vector[0] - normal[0] * scale,
+    vector[1] - normal[1] * scale,
+    vector[2] - normal[2] * scale,
+  ]
+}
+
+function quaternionsApproximatelyEqual(
+  left: [number, number, number, number],
+  right: [number, number, number, number],
+) {
+  const sameSignDistance = Math.hypot(
+    left[0] - right[0],
+    left[1] - right[1],
+    left[2] - right[2],
+    left[3] - right[3],
+  )
+  const flippedSignDistance = Math.hypot(
+    left[0] + right[0],
+    left[1] + right[1],
+    left[2] + right[2],
+    left[3] + right[3],
+  )
+
+  return Math.min(sameSignDistance, flippedSignDistance) < 1e-6
+}
+
 function StatusBadge({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-full border border-sky-100/10 bg-slate-950/55 px-3 py-2 text-xs uppercase tracking-[0.16em] text-sky-100/80">
@@ -1915,7 +2913,7 @@ function FallbackBanner({
   )
 }
 
-function buildSkyScene({
+function buildSceneSnapshot({
   observer,
   timeMs,
   enabledLayers,
@@ -1923,9 +2921,6 @@ function buildSkyScene({
   focusedObjectId,
   aircraftSnapshot,
   satelliteCatalog,
-  cameraPose,
-  viewport,
-  verticalFovAdjustmentDeg,
 }: {
   observer: ObserverState
   timeMs: number
@@ -1934,13 +2929,7 @@ function buildSkyScene({
   focusedObjectId: string | null
   aircraftSnapshot: AircraftApiResponse | null
   satelliteCatalog: TleApiResponse | null
-  cameraPose: CameraPose
-  viewport: {
-    width: number
-    height: number
-  }
-  verticalFovAdjustmentDeg: number
-}) {
+}): SceneSnapshot {
   try {
     const celestial = normalizeCelestialObjects({
       observer,
@@ -1967,16 +2956,6 @@ function buildSkyScene({
       likelyVisibleOnly,
       sunAltitudeDeg: celestial.sunAltitudeDeg,
     })
-    const constellations = buildVisibleConstellations({
-      cameraPose,
-      viewport,
-      verticalFovAdjustmentDeg,
-      enabledLayers,
-      likelyVisibleOnly,
-      sunAltitudeDeg: celestial.sunAltitudeDeg,
-      visibleStars: stars,
-      starCatalog: STAR_CATALOG,
-    })
     let satellites: SkyObject[] = []
 
     try {
@@ -1998,14 +2977,14 @@ function buildSkyScene({
         ...celestial.objects,
         ...satellites,
         ...stars.map((entry) => entry.object),
-        ...constellations.objects,
       ],
-      lineSegments: constellations.lineSegments,
+      visibleStars: stars,
+      sunAltitudeDeg: celestial.sunAltitudeDeg,
       error: null,
     }
   } catch (error) {
     return {
-      ...EMPTY_SCENE,
+      ...EMPTY_SCENE_SNAPSHOT,
       error: error instanceof Error ? error.message : 'Unknown astronomy failure.',
     }
   }
@@ -2138,26 +3117,67 @@ function badgeValue(status: PermissionStatusValue) {
   }
 }
 
-function getBlockingCopy(state: ViewerRouteState) {
+function getObserverStatusValue(
+  observer: ObserverState,
+  observerSource: 'geo' | 'manual' | null,
+) {
+  if (observerSource === 'manual' || observer.source === 'manual') {
+    return 'Manual observer'
+  }
+
+  return `Ready ±${Math.round(observer.accuracyMeters ?? 0)}m`
+}
+
+function getBlockingCopy(state: ViewerRouteState, startupState: StartupState) {
+  if (startupState === 'unsupported') {
+    return {
+      title: 'Live AR requires a secure context.',
+      body: 'Open SkyLens from HTTPS or localhost so camera, geolocation, and motion sensors are allowed to start in the viewer.',
+    }
+  }
+
+  if (startupState === 'error') {
+    return {
+      title: 'SkyLens could not finish startup.',
+      body: 'Retry from this viewer to request motion, start the rear camera, and recover location or manual observer state in the same live flow.',
+    }
+  }
+
+  if (startupState === 'camera-only') {
+    return {
+      title: 'Observer location still needs input.',
+      body: 'SkyLens can keep the viewer open, but it needs either a geolocation fix or your manual latitude, longitude, and altitude before it can place sky labels accurately.',
+    }
+  }
+
+  if (startupState === 'requesting') {
+    return {
+      title: 'SkyLens is starting live AR.',
+      body: 'The viewer is requesting motion access first, starting the rear camera second, and resolving location third so the live session stays in one activation path.',
+    }
+  }
+
   if (
     state.location === 'unknown' ||
     state.camera === 'unknown' ||
     state.orientation === 'unknown'
   ) {
     return {
-      title: 'Start SkyLens to continue.',
-      body: 'The viewer needs a verified permission result before it can enter live or fallback mode. Start from the landing screen, or retry permissions here if you opened /view directly.',
+      title: 'Start AR from this viewer.',
+      body: 'The viewer owns the live startup flow now. Use Start AR here to request motion access, attach the rear camera inline, and then resolve location or manual observer fallback.',
     }
   }
 
   return {
-    title: 'SkyLens needs your location to know what is above you.',
-    body: 'The viewer will stay blocked until location access is granted. Camera frames stay on your device, and location is used only to calculate what is above you right now.',
+    title: 'Observer location still needs input.',
+    body: 'SkyLens keeps the viewer available, but geolocation did not resolve. Enter a manual observer or retry location without losing the live session.',
   }
 }
 
-function blockingEyebrow(state: ViewerRouteState) {
+function blockingEyebrow(state: ViewerRouteState, startupState: StartupState) {
   if (
+    startupState === 'ready-to-request' ||
+    startupState === 'requesting' ||
     state.location === 'unknown' ||
     state.camera === 'unknown' ||
     state.orientation === 'unknown'
@@ -2165,20 +3185,38 @@ function blockingEyebrow(state: ViewerRouteState) {
     return 'Start required'
   }
 
-  return 'Location required'
+  if (startupState === 'unsupported') {
+    return 'Secure context required'
+  }
+
+  return 'Observer required'
 }
 
 function getMotionBadgeValue(
-  experienceMode: ReturnType<typeof describeViewerExperience>['mode'],
+  experienceMode: RuntimeExperience['mode'],
   state: ViewerRouteState,
   cameraPose: CameraPose,
+  startupState: StartupState,
+  orientationSource: OrientationSource | null,
 ) {
+  if (experienceMode === 'blocked' && startupState === 'requesting') {
+    return 'Pending'
+  }
+
   if (experienceMode === 'blocked') {
     return badgeValue(state.orientation)
   }
 
   if (cameraPose.mode === 'manual') {
     return 'Manual pan'
+  }
+
+  if (startupState === 'sensor-relative-needs-calibration') {
+    return 'Align first'
+  }
+
+  if (orientationSource === 'absolute-sensor') {
+    return 'Absolute sensor'
   }
 
   if (cameraPose.alignmentHealth === 'good') {
@@ -2203,25 +3241,33 @@ function createDefaultSensorCameraPose(): CameraPose {
   }
 }
 
-function alignmentBadgeValue(state: ViewerRouteState, cameraPose: CameraPose) {
+function alignmentBadgeValue(
+  state: ViewerRouteState,
+  cameraPose: CameraPose,
+  startupState: StartupState,
+) {
   if (state.entry === 'demo') {
     return 'Demo controls'
   }
 
-  if (
-    state.location === 'unknown' ||
-    state.camera === 'unknown' ||
-    state.orientation === 'unknown'
-  ) {
+  if (startupState === 'ready-to-request' || startupState === 'requesting') {
     return 'Pending start'
   }
 
-  if (state.location !== 'granted') {
-    return 'Location required'
+  if (startupState === 'unsupported') {
+    return 'HTTPS required'
+  }
+
+  if (startupState === 'camera-only') {
+    return 'Observer needed'
   }
 
   if (cameraPose.mode === 'manual') {
     return 'Manual pan'
+  }
+
+  if (startupState === 'sensor-relative-needs-calibration') {
+    return 'Align first'
   }
 
   if (cameraPose.alignmentHealth === 'good') {
@@ -2233,4 +3279,229 @@ function alignmentBadgeValue(state: ViewerRouteState, cameraPose: CameraPose) {
   }
 
   return 'Alignment fair'
+}
+
+function describeRuntimeExperience({
+  state,
+  startupState,
+  hasObserver,
+}: {
+  state: ViewerRouteState
+  startupState: StartupState
+  hasObserver: boolean
+}): RuntimeExperience {
+  if (state.entry === 'demo') {
+    return {
+      mode: 'demo',
+      title: 'Demo viewer',
+      body: 'The live overlay shell is running against a non-camera demo backdrop so SkyLens stays presentable after denial or on desktop.',
+    }
+  }
+
+  if (
+    startupState === 'unsupported' ||
+    startupState === 'ready-to-request' ||
+    startupState === 'requesting' ||
+    startupState === 'error'
+  ) {
+    return {
+      mode: 'blocked',
+      title: getBlockingCopy(state, startupState).title,
+      body: getBlockingCopy(state, startupState).body,
+    }
+  }
+
+  if (startupState === 'camera-only' || !hasObserver) {
+    return {
+      mode: state.orientation !== 'granted' ? 'manual-pan' : 'live',
+      title: 'Manual observer needed',
+      body: 'Enter a manual observer or retry location. Camera and motion can stay live while SkyLens waits for a usable observer.',
+    }
+  }
+
+  if (state.orientation !== 'granted' || startupState === 'manual') {
+    return {
+      mode: 'manual-pan',
+      title: 'Manual pan fallback',
+      body: 'SkyLens is keeping the viewer active with manual panning until motion access becomes available again.',
+    }
+  }
+
+  if (state.camera !== 'granted') {
+    return {
+      mode: 'non-camera',
+      title: 'Non-camera fallback',
+      body: 'SkyLens is keeping the viewer active without the live camera feed and will render over a dark gradient background.',
+    }
+  }
+
+  return {
+    mode: 'live',
+    title: 'Live viewer',
+    body: 'Permissions are in place and the viewer shell is ready for the live overlay pipeline.',
+  }
+}
+
+function resolveStartupState({
+  orientationStatus,
+  cameraStatus,
+  hasObserver,
+  orientationNeedsCalibration = false,
+  orientationAbsolute = true,
+}: {
+  orientationStatus: PermissionStatusValue
+  cameraStatus: PermissionStatusValue
+  hasObserver: boolean
+  orientationNeedsCalibration?: boolean
+  orientationAbsolute?: boolean
+}): StartupState {
+  if (orientationStatus !== 'granted') {
+    return 'manual'
+  }
+
+  if (orientationNeedsCalibration || !orientationAbsolute) {
+    return 'sensor-relative-needs-calibration'
+  }
+
+  if (!hasObserver) {
+    return 'camera-only'
+  }
+
+  return 'sensor-absolute'
+}
+
+function createManualObserverDraft(
+  manualObserver: ManualObserverSettings | null,
+): ManualObserverDraft {
+  return {
+    lat: manualObserver ? String(manualObserver.lat) : '',
+    lon: manualObserver ? String(manualObserver.lon) : '',
+    altMeters: manualObserver ? String(manualObserver.altMeters) : '0',
+  }
+}
+
+function createObserverStateFromManualSettings(
+  manualObserver: ManualObserverSettings | null,
+): ObserverState | null {
+  if (!manualObserver) {
+    return null
+  }
+
+  return {
+    lat: manualObserver.lat,
+    lon: manualObserver.lon,
+    altMeters: manualObserver.altMeters,
+    accuracyMeters: undefined,
+    timestampMs: Date.now(),
+    source: 'manual',
+  }
+}
+
+function parseManualObserverDraft(
+  draft: ManualObserverDraft,
+): ManualObserverSettings | null {
+  const lat = Number(draft.lat)
+  const lon = Number(draft.lon)
+  const altMeters = Number(draft.altMeters)
+
+  if (
+    !Number.isFinite(lat) ||
+    !Number.isFinite(lon) ||
+    !Number.isFinite(altMeters) ||
+    lat < -90 ||
+    lat > 90 ||
+    lon < -180 ||
+    lon > 180
+  ) {
+    return null
+  }
+
+  return {
+    lat,
+    lon,
+    altMeters,
+  }
+}
+
+function ManualObserverPanel({
+  draft,
+  error,
+  onDraftChange,
+  onRetryLocation,
+  onSubmit,
+  isPending,
+}: {
+  draft: ManualObserverDraft
+  error: string | null
+  onDraftChange: (field: keyof ManualObserverDraft, value: string) => void
+  onRetryLocation: () => void
+  onSubmit: () => void
+  isPending: boolean
+}) {
+  return (
+    <section className="pointer-events-auto rounded-[1.5rem] border border-sky-100/10 bg-white/5 p-4">
+      <p className="text-xs uppercase tracking-[0.2em] text-amber-200/70">Manual observer</p>
+      <p className="mt-2 text-sm leading-6 text-sky-100/80">
+        Enter latitude, longitude, and altitude so SkyLens can keep projecting labels when
+        geolocation is denied or times out.
+      </p>
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <label className="grid gap-1 text-sm text-sky-50">
+          <span>Latitude</span>
+          <input
+            aria-label="Latitude"
+            type="number"
+            inputMode="decimal"
+            value={draft.lat}
+            onChange={(event) => onDraftChange('lat', event.target.value)}
+            className="rounded-xl border border-sky-100/15 bg-slate-950/50 px-3 py-2 text-sky-50"
+          />
+        </label>
+        <label className="grid gap-1 text-sm text-sky-50">
+          <span>Longitude</span>
+          <input
+            aria-label="Longitude"
+            type="number"
+            inputMode="decimal"
+            value={draft.lon}
+            onChange={(event) => onDraftChange('lon', event.target.value)}
+            className="rounded-xl border border-sky-100/15 bg-slate-950/50 px-3 py-2 text-sky-50"
+          />
+        </label>
+        <label className="grid gap-1 text-sm text-sky-50">
+          <span>Altitude (m)</span>
+          <input
+            aria-label="Altitude"
+            type="number"
+            inputMode="decimal"
+            value={draft.altMeters}
+            onChange={(event) => onDraftChange('altMeters', event.target.value)}
+            className="rounded-xl border border-sky-100/15 bg-slate-950/50 px-3 py-2 text-sky-50"
+          />
+        </label>
+      </div>
+      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+        <button
+          type="button"
+          onClick={onSubmit}
+          className="rounded-full bg-amber-300 px-4 py-2 text-sm font-semibold text-slate-950"
+        >
+          Save observer
+        </button>
+        <button
+          type="button"
+          onClick={onRetryLocation}
+          disabled={isPending}
+          className="rounded-full border border-sky-100/20 px-4 py-2 text-sm font-semibold text-sky-50 disabled:cursor-wait disabled:opacity-70"
+        >
+          {isPending ? 'Retrying...' : 'Retry location'}
+        </button>
+      </div>
+      {error ? (
+        <p className="mt-3 text-sm text-amber-200" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </section>
+  )
 }

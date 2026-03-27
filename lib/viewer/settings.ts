@@ -1,18 +1,30 @@
 import { z } from 'zod'
 
 import { getPublicConfig, type EnabledLayer } from '../config'
+import {
+  createIdentityPoseCalibration,
+  createPoseCalibration,
+  type PoseCalibration,
+} from '../sensors/orientation'
 
 export const VIEWER_SETTINGS_STORAGE_KEY = 'skylens.viewer-settings.v1'
 
 export type LabelDisplayMode = 'center_only' | 'on_objects' | 'top_list'
 
+export interface ManualObserverSettings {
+  lat: number
+  lon: number
+  altMeters: number
+}
+
 export interface ViewerSettings {
   enabledLayers: Record<EnabledLayer, boolean>
   likelyVisibleOnly: boolean
   labelDisplayMode: LabelDisplayMode
-  headingOffsetDeg: number
-  pitchOffsetDeg: number
+  poseCalibration: PoseCalibration
   verticalFovAdjustmentDeg: number
+  selectedCameraDeviceId: string | null
+  manualObserver: ManualObserverSettings | null
   onboardingCompleted: boolean
 }
 
@@ -31,9 +43,32 @@ const SettingsSchema = z.object({
   }),
   likelyVisibleOnly: z.boolean(),
   labelDisplayMode: z.enum(['center_only', 'on_objects', 'top_list']),
-  headingOffsetDeg: z.number(),
-  pitchOffsetDeg: z.number(),
+  headingOffsetDeg: z.number().optional(),
+  pitchOffsetDeg: z.number().optional(),
+  poseCalibration: z
+    .object({
+      offsetQuaternion: z.tuple([z.number(), z.number(), z.number(), z.number()]),
+      calibrated: z.boolean(),
+      sourceAtCalibration: z
+        .enum([
+          'absolute-sensor',
+          'deviceorientation-absolute',
+          'deviceorientation-relative',
+          'manual',
+        ])
+        .nullable(),
+      lastCalibratedAtMs: z.number().nullable(),
+    })
+    .optional(),
   verticalFovAdjustmentDeg: z.number(),
+  selectedCameraDeviceId: z.string().nullable(),
+  manualObserver: z
+    .object({
+      lat: z.number(),
+      lon: z.number(),
+      altMeters: z.number(),
+    })
+    .nullable(),
   onboardingCompleted: z.boolean(),
 })
 
@@ -50,9 +85,10 @@ export function getDefaultViewerSettings(): ViewerSettings {
     },
     likelyVisibleOnly: config.defaults.likelyVisibleOnly,
     labelDisplayMode: 'center_only',
-    headingOffsetDeg: 0,
-    pitchOffsetDeg: 0,
+    poseCalibration: createIdentityPoseCalibration(),
     verticalFovAdjustmentDeg: 0,
+    selectedCameraDeviceId: null,
+    manualObserver: null,
     onboardingCompleted: false,
   }
 }
@@ -127,10 +163,29 @@ export function normalizeViewerSettings(settings: ViewerSettings): ViewerSetting
     },
     likelyVisibleOnly: settings.likelyVisibleOnly,
     labelDisplayMode: settings.labelDisplayMode,
-    headingOffsetDeg: clamp(settings.headingOffsetDeg, -20, 20),
-    pitchOffsetDeg: clamp(settings.pitchOffsetDeg, -10, 10),
-    verticalFovAdjustmentDeg: clamp(settings.verticalFovAdjustmentDeg, -10, 10),
+    poseCalibration: createPoseCalibration(settings.poseCalibration),
+    verticalFovAdjustmentDeg: clamp(settings.verticalFovAdjustmentDeg, -30, 30),
+    selectedCameraDeviceId:
+      typeof settings.selectedCameraDeviceId === 'string' &&
+      settings.selectedCameraDeviceId.length > 0
+        ? settings.selectedCameraDeviceId
+        : null,
+    manualObserver: normalizeManualObserver(settings.manualObserver),
     onboardingCompleted: settings.onboardingCompleted,
+  }
+}
+
+function normalizeManualObserver(
+  manualObserver: ManualObserverSettings | null | undefined,
+) {
+  if (!manualObserver) {
+    return null
+  }
+
+  return {
+    lat: clamp(manualObserver.lat, -90, 90),
+    lon: clamp(manualObserver.lon, -180, 180),
+    altMeters: clamp(manualObserver.altMeters, -500, 10_000),
   }
 }
 

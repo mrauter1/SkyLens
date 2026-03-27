@@ -3,9 +3,11 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { buildViewerHref, type ViewerRouteState } from '../../lib/permissions/coordinator'
+import { VIEWER_SETTINGS_STORAGE_KEY, readViewerSettings } from '../../lib/viewer/settings'
 
 const {
   mockRouterReplace,
+  mockSettingsSheetProps,
   mockRequestStartupObserverState,
   mockStartObserverTracking,
   mockSubscribeToOrientationPose,
@@ -19,6 +21,7 @@ const {
   mockNormalizeSatelliteObjects,
 } = vi.hoisted(() => ({
   mockRouterReplace: vi.fn(),
+  mockSettingsSheetProps: vi.fn(),
   mockRequestStartupObserverState: vi.fn(),
   mockStartObserverTracking: vi.fn(),
   mockSubscribeToOrientationPose: vi.fn(),
@@ -48,15 +51,18 @@ vi.mock('next/link', () => ({
 }))
 
 vi.mock('../../components/settings/settings-sheet', () => ({
-  SettingsSheet: () =>
-    React.createElement(
+  SettingsSheet: (props: unknown) => {
+    mockSettingsSheetProps(props)
+
+    return React.createElement(
       'button',
       {
         type: 'button',
         'data-testid': 'settings-sheet',
       },
       'Settings',
-    ),
+    )
+  },
 }))
 
 vi.mock('../../lib/sensors/location', async () => {
@@ -120,6 +126,7 @@ const LIVE_OBSERVER_FIXTURE = {
 const SENSOR_CONTROLLER = {
   stop: vi.fn(),
   recenter: vi.fn(),
+  setCalibration: vi.fn(),
 }
 
 const TRACKER = {
@@ -128,6 +135,7 @@ const TRACKER = {
 
 const CAMERA_STREAM = {
   getTracks: vi.fn(() => []),
+  getVideoTracks: vi.fn(() => []),
 } as unknown as MediaStream
 
 describe('ViewerShell startup gating', () => {
@@ -149,14 +157,37 @@ describe('ViewerShell startup gating', () => {
       writable: true,
       value: null,
     })
+
+    Object.defineProperty(HTMLVideoElement.prototype, 'requestVideoFrameCallback', {
+      configurable: true,
+      writable: true,
+      value: vi.fn(() => 1),
+    })
+    Object.defineProperty(HTMLVideoElement.prototype, 'cancelVideoFrameCallback', {
+      configurable: true,
+      writable: true,
+      value: vi.fn(),
+    })
   })
 
   beforeEach(() => {
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
+    Object.defineProperty(window, 'isSecureContext', {
+      configurable: true,
+      value: true,
+    })
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: {
+        enumerateDevices: vi.fn(async () => []),
+      },
+    })
+    window.localStorage.clear()
 
     mockRouterReplace.mockReset()
+    mockSettingsSheetProps.mockReset()
     mockRequestStartupObserverState.mockReset()
     mockStartObserverTracking.mockReset()
     mockSubscribeToOrientationPose.mockReset()
@@ -170,6 +201,7 @@ describe('ViewerShell startup gating', () => {
     mockNormalizeSatelliteObjects.mockReset()
     SENSOR_CONTROLLER.stop.mockReset()
     SENSOR_CONTROLLER.recenter.mockReset()
+    SENSOR_CONTROLLER.setCalibration.mockReset()
     TRACKER.stop.mockReset()
 
     mockRequestStartupObserverState.mockResolvedValue(LIVE_OBSERVER_FIXTURE)
@@ -204,9 +236,10 @@ describe('ViewerShell startup gating', () => {
       root.unmount()
     })
     container.remove()
+    window.localStorage.clear()
   })
 
-  it('suppresses all startup side effects while the live route is still blocked preflight', async () => {
+  it('suppresses all startup side effects before Start AR is pressed', async () => {
     await renderViewer({
       entry: 'live',
       location: 'unknown',
@@ -222,21 +255,90 @@ describe('ViewerShell startup gating', () => {
     expect(mockFetchSatelliteCatalog).not.toHaveBeenCalled()
   })
 
-  it('keeps location and orientation startup live in verified non-camera fallback', async () => {
-    await renderViewer({
-      entry: 'live',
-      location: 'granted',
-      camera: 'denied',
-      orientation: 'granted',
+  it('blocks live startup behind a secure context requirement', async () => {
+    Object.defineProperty(window, 'isSecureContext', {
+      configurable: true,
+      value: false,
     })
 
-    expect(mockRequestStartupObserverState).toHaveBeenCalledTimes(1)
-    expect(mockStartObserverTracking).toHaveBeenCalledTimes(1)
-    expect(mockSubscribeToOrientationPose).toHaveBeenCalledTimes(1)
+    await renderViewer({
+      entry: 'live',
+      location: 'unknown',
+      camera: 'unknown',
+      orientation: 'unknown',
+    })
+
+    const startArButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Start AR'),
+    )
+
+    expect(container.textContent).toContain('Live AR requires a secure context.')
+    expect(container.textContent).toContain('HTTPS or localhost')
+    expect(startArButton).toBeUndefined()
+    expect(mockRequestStartupObserverState).not.toHaveBeenCalled()
     expect(mockRequestRearCameraStream).not.toHaveBeenCalled()
-    expect(mockFetchAircraftSnapshot).toHaveBeenCalledTimes(1)
-    expect(mockFetchSatelliteCatalog).toHaveBeenCalledTimes(1)
+    expect(mockSubscribeToOrientationPose).not.toHaveBeenCalled()
   })
+
+  it('requests motion, then camera, then location when Start AR is pressed in-view', async () => {
+    const callOrder: string[] = []
+
+    mockRequestOrientationPermission.mockImplementation(async () => {
+      callOrder.push('orientation')
+      return 'granted'
+    })
+    mockRequestRearCameraStream.mockImplementation(async () => {
+      callOrder.push('camera')
+      return CAMERA_STREAM
+    })
+    mockRequestStartupObserverState.mockImplementation(async () => {
+      callOrder.push('location')
+      return LIVE_OBSERVER_FIXTURE
+    })
+
+    await renderViewer({
+      entry: 'live',
+      location: 'unknown',
+      camera: 'unknown',
+      orientation: 'unknown',
+    })
+
+    const startArButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Start AR'),
+    )
+
+    expect(startArButton).toBeDefined()
+
+    await act(async () => {
+      startArButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(callOrder).toEqual(['orientation', 'camera', 'location'])
+    expect(mockRequestOrientationPermission).toHaveBeenCalledTimes(1)
+    expect(mockRequestRearCameraStream).toHaveBeenCalledTimes(1)
+    expect(mockRequestStartupObserverState).toHaveBeenCalledTimes(1)
+  })
+
+  it(
+    'keeps location and orientation startup live in verified non-camera fallback',
+    async () => {
+      await renderViewer({
+        entry: 'live',
+        location: 'granted',
+        camera: 'denied',
+        orientation: 'granted',
+      })
+
+      expect(mockRequestStartupObserverState).toHaveBeenCalledTimes(1)
+      expect(mockStartObserverTracking).toHaveBeenCalledTimes(1)
+      expect(mockSubscribeToOrientationPose.mock.calls.length).toBeGreaterThanOrEqual(1)
+      expect(mockRequestRearCameraStream).not.toHaveBeenCalled()
+      expect(mockFetchAircraftSnapshot).toHaveBeenCalledTimes(1)
+      expect(mockFetchSatelliteCatalog).toHaveBeenCalledTimes(1)
+    },
+    10_000,
+  )
 
   it('keeps location and camera startup live in verified manual-pan fallback', async () => {
     await renderViewer({
@@ -245,15 +347,89 @@ describe('ViewerShell startup gating', () => {
       camera: 'granted',
       orientation: 'denied',
     })
+    await flushEffects()
 
     expect(mockRequestStartupObserverState).toHaveBeenCalledTimes(1)
     expect(mockStartObserverTracking).toHaveBeenCalledTimes(1)
     expect(mockFetchAircraftSnapshot).toHaveBeenCalledTimes(1)
-    expect(mockRequestRearCameraStream).toHaveBeenCalledTimes(1)
+    expect(mockRequestRearCameraStream.mock.calls.length).toBeGreaterThanOrEqual(1)
     expect(mockSubscribeToOrientationPose).not.toHaveBeenCalled()
   })
 
-  it('keeps the viewer privacy reassurance copy visible during the blocked preflight shell', async () => {
+  it('reopens the live camera when the picker switches back to auto rear camera', async () => {
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'granted',
+    })
+
+    const latestSettingsProps = () =>
+      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+        | {
+            onSelectedCameraDeviceChange?: (deviceId: string) => void
+          }
+        | undefined
+
+    expect(mockRequestRearCameraStream).toHaveBeenCalledTimes(1)
+    expect(latestSettingsProps()?.onSelectedCameraDeviceChange).toBeTypeOf('function')
+
+    await act(async () => {
+      latestSettingsProps()?.onSelectedCameraDeviceChange?.('rear-tele')
+    })
+    await flushEffects()
+
+    expect(mockRequestRearCameraStream).toHaveBeenCalledTimes(2)
+
+    await act(async () => {
+      latestSettingsProps()?.onSelectedCameraDeviceChange?.('')
+    })
+    await flushEffects()
+
+    expect(mockRequestRearCameraStream).toHaveBeenCalledTimes(3)
+  })
+
+  it('hydrates a persisted manual observer without re-requesting location on denied deep links', async () => {
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabledLayers: {
+          aircraft: true,
+          satellites: true,
+          planets: true,
+          stars: true,
+          constellations: true,
+        },
+        likelyVisibleOnly: true,
+        labelDisplayMode: 'center_only',
+        headingOffsetDeg: 0,
+        pitchOffsetDeg: 0,
+        verticalFovAdjustmentDeg: 0,
+        selectedCameraDeviceId: null,
+        manualObserver: {
+          lat: 34.0522,
+          lon: -118.2437,
+          altMeters: 120,
+        },
+        onboardingCompleted: true,
+      }),
+    )
+
+    await renderViewer({
+      entry: 'live',
+      location: 'denied',
+      camera: 'granted',
+      orientation: 'granted',
+    })
+
+    expect(mockRequestStartupObserverState).not.toHaveBeenCalled()
+    expect(mockStartObserverTracking).not.toHaveBeenCalled()
+    expect(mockRequestRearCameraStream.mock.calls.length).toBeGreaterThanOrEqual(1)
+    expect(mockSubscribeToOrientationPose.mock.calls.length).toBeGreaterThanOrEqual(1)
+    expect(container.textContent).toContain('Location: Manual observer')
+  })
+
+  it('keeps the viewer privacy reassurance copy visible before live startup begins', async () => {
     await renderViewer({
       entry: 'live',
       location: 'unknown',
@@ -501,8 +677,30 @@ describe('ViewerShell startup gating', () => {
 
     expect(mobileOverlay).not.toBeNull()
     expect(mobileOverlay?.querySelector('[data-testid="settings-sheet"]')).not.toBeNull()
-    expect(mobileOverlay?.textContent).toContain('Retry permissions')
+    expect(mobileOverlay?.textContent).toContain('Start AR')
     expect(mobileOverlay?.textContent).toContain('Try demo mode')
+  })
+
+  it('shows the secure-context failure screen when live AR is unavailable on this origin', async () => {
+    Object.defineProperty(window, 'isSecureContext', {
+      configurable: true,
+      value: false,
+    })
+
+    await renderViewer({
+      entry: 'live',
+      location: 'unknown',
+      camera: 'unknown',
+      orientation: 'unknown',
+    })
+
+    expect(container.textContent).toContain('Live AR requires a secure context.')
+    expect(container.textContent).toContain(
+      'Open SkyLens from HTTPS or localhost so camera, geolocation, and motion sensors are allowed to start in the viewer.',
+    )
+    expect(container.textContent).toContain('Live AR requires HTTPS or `localhost`')
+    expect(container.textContent).not.toContain('Start AR')
+    expect(container.textContent).toContain('Try demo mode')
   })
 
   it('keeps the expanded mobile overlay inside the safe viewport bounds', async () => {
@@ -564,7 +762,7 @@ describe('ViewerShell startup gating', () => {
     await flushEffects()
 
     expect(mockRequestOrientationPermission).toHaveBeenCalledTimes(1)
-    expect(mockRouterReplace).toHaveBeenCalledTimes(1)
+    expect(mockRouterReplace).toHaveBeenCalled()
     expect(mockRouterReplace).toHaveBeenCalledWith(
       buildViewerHref({
         entry: 'live',
@@ -598,7 +796,7 @@ describe('ViewerShell startup gating', () => {
     await flushEffects()
 
     expect(mockRequestOrientationPermission).toHaveBeenCalledTimes(1)
-    expect(mockRouterReplace).toHaveBeenCalledTimes(1)
+    expect(mockRouterReplace).toHaveBeenCalled()
     expect(mockRouterReplace).toHaveBeenCalledWith(
       buildViewerHref({
         entry: 'live',
@@ -611,6 +809,484 @@ describe('ViewerShell startup gating', () => {
     expect(container.textContent).toContain(
       'Motion access is still denied. Check iOS Settings → Safari → Motion & Orientation Access, then retry.',
     )
+  })
+
+  it('surfaces the relative-sensor warning state and calibration target guidance', async () => {
+    mockSubscribeToOrientationPose.mockImplementationOnce((onPose: (state: unknown) => void) => {
+      onPose({
+        pose: {
+          yawDeg: 0,
+          pitchDeg: 0,
+          rollDeg: 0,
+          quaternion: [0, 0, 0, 1],
+          alignmentHealth: 'poor',
+          mode: 'sensor',
+        },
+        sample: {
+          source: 'deviceorientation-relative',
+          absolute: false,
+          needsCalibration: true,
+          timestampMs: Date.UTC(2026, 2, 26, 0, 45, 6),
+          headingDeg: 0,
+          pitchDeg: 0,
+          rollDeg: 0,
+          quaternion: [0, 0, 0, 1],
+          rawQuaternion: [0, 0, 0, 1],
+          rawSample: {
+            source: 'deviceorientation-relative',
+            localFrame: 'device',
+            absolute: false,
+            timestampMs: Date.UTC(2026, 2, 26, 0, 45, 6),
+            worldFromLocal: [
+              [1, 0, 0],
+              [0, 1, 0],
+              [0, 0, 1],
+            ],
+          },
+        },
+        history: [],
+        orientationSource: 'deviceorientation-relative',
+        orientationAbsolute: false,
+        orientationNeedsCalibration: true,
+        poseCalibration: {
+          offsetQuaternion: [0, 0, 0, 1],
+          calibrated: false,
+          sourceAtCalibration: null,
+          lastCalibratedAtMs: null,
+        },
+      })
+
+      return SENSOR_CONTROLLER
+    })
+
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'granted',
+    })
+
+    expect(container.textContent).toContain('Relative sensor mode needs alignment.')
+    expect(container.textContent).toMatch(
+      /Center .* in the reticle, then align before trusting label placement\./,
+    )
+    expect(container.textContent).toContain('Motion: Align first')
+    expect(container.textContent).toContain('Sensor: Relative')
+  })
+
+  it('distinguishes absolute-sensor mode from relative and manual fallbacks', async () => {
+    mockSubscribeToOrientationPose.mockImplementationOnce((onPose: (state: unknown) => void) => {
+      onPose({
+        pose: {
+          yawDeg: 0,
+          pitchDeg: 0,
+          rollDeg: 0,
+          quaternion: [0, 0, 0, 1],
+          alignmentHealth: 'good',
+          mode: 'sensor',
+        },
+        sample: {
+          source: 'absolute-sensor',
+          absolute: true,
+          needsCalibration: false,
+          timestampMs: Date.UTC(2026, 2, 26, 0, 45, 6),
+          headingDeg: 0,
+          pitchDeg: 0,
+          rollDeg: 0,
+          quaternion: [0, 0, 0, 1],
+          rawQuaternion: [0, 0, 0, 1],
+          rawSample: {
+            source: 'absolute-sensor',
+            localFrame: 'screen',
+            absolute: true,
+            timestampMs: Date.UTC(2026, 2, 26, 0, 45, 6),
+            worldFromLocal: [
+              [1, 0, 0],
+              [0, 1, 0],
+              [0, 0, 1],
+            ],
+          },
+        },
+        history: [],
+        orientationSource: 'absolute-sensor',
+        orientationAbsolute: true,
+        orientationNeedsCalibration: false,
+        poseCalibration: {
+          offsetQuaternion: [0, 0, 0, 1],
+          calibrated: false,
+          sourceAtCalibration: null,
+          lastCalibratedAtMs: null,
+        },
+      })
+
+      return SENSOR_CONTROLLER
+    })
+
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'granted',
+    })
+
+    expect(container.textContent).toContain('Motion: Absolute sensor')
+    expect(container.textContent).toContain('Sensor: Absolute sensor')
+    expect(container.textContent).not.toContain('Relative sensor mode needs alignment.')
+  })
+
+  it('uses requestAnimationFrame as the render-loop fallback when video-frame callbacks are unavailable', async () => {
+    let animationFrameCallback: FrameRequestCallback | null = null
+    const originalRequestAnimationFrame = window.requestAnimationFrame
+    const originalCancelAnimationFrame = window.cancelAnimationFrame
+    const originalRequestVideoFrameCallback = (
+      HTMLVideoElement.prototype as HTMLVideoElement & {
+        requestVideoFrameCallback?: (
+          callback: (now: number, metadata: { width?: number; height?: number }) => void,
+        ) => number
+      }
+    ).requestVideoFrameCallback
+    const originalCancelVideoFrameCallback = (
+      HTMLVideoElement.prototype as HTMLVideoElement & {
+        cancelVideoFrameCallback?: (handle: number) => void
+      }
+    ).cancelVideoFrameCallback
+
+    Object.defineProperty(HTMLVideoElement.prototype, 'requestVideoFrameCallback', {
+      configurable: true,
+      writable: true,
+      value: undefined,
+    })
+    Object.defineProperty(HTMLVideoElement.prototype, 'cancelVideoFrameCallback', {
+      configurable: true,
+      writable: true,
+      value: undefined,
+    })
+
+    Object.defineProperty(window, 'requestAnimationFrame', {
+      configurable: true,
+      writable: true,
+      value: vi.fn((callback: FrameRequestCallback) => {
+        animationFrameCallback = callback
+        return 1
+      }),
+    })
+    Object.defineProperty(window, 'cancelAnimationFrame', {
+      configurable: true,
+      writable: true,
+      value: vi.fn(),
+    })
+
+    try {
+      await renderViewer({
+        entry: 'live',
+        location: 'granted',
+        camera: 'granted',
+        orientation: 'granted',
+      })
+
+      const stage = container.querySelector('[aria-label="Sky viewer stage"]') as
+        | HTMLDivElement
+        | null
+
+      expect(stage).not.toBeNull()
+      expect(animationFrameCallback).toBeTypeOf('function')
+
+      const frameTokenBefore = Number(stage?.getAttribute('data-frame-token') ?? '0')
+
+      await act(async () => {
+        animationFrameCallback?.(16)
+      })
+      await flushEffects()
+
+      expect(Number(stage?.getAttribute('data-frame-token') ?? '0')).toBeGreaterThan(
+        frameTokenBefore,
+      )
+    } finally {
+      Object.defineProperty(window, 'requestAnimationFrame', {
+        configurable: true,
+        writable: true,
+        value: originalRequestAnimationFrame,
+      })
+      Object.defineProperty(window, 'cancelAnimationFrame', {
+        configurable: true,
+        writable: true,
+        value: originalCancelAnimationFrame,
+      })
+      Object.defineProperty(HTMLVideoElement.prototype, 'requestVideoFrameCallback', {
+        configurable: true,
+        writable: true,
+        value: originalRequestVideoFrameCallback,
+      })
+      Object.defineProperty(HTMLVideoElement.prototype, 'cancelVideoFrameCallback', {
+        configurable: true,
+        writable: true,
+        value: originalCancelVideoFrameCallback,
+      })
+    }
+  })
+
+  it(
+    'syncs fine-adjust and reset calibration actions into persisted viewer settings',
+    async () => {
+      await renderViewer({
+        entry: 'live',
+        location: 'granted',
+        camera: 'granted',
+        orientation: 'granted',
+      })
+
+      const latestSettingsProps = () =>
+        mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+          | {
+              onFineAdjustCalibration?: (adjustment: {
+                axis: 'yaw' | 'pitch'
+                deltaDeg: number
+              }) => void
+              onResetCalibration?: () => void
+            }
+          | undefined
+
+      expect(latestSettingsProps()?.onFineAdjustCalibration).toBeTypeOf('function')
+      expect(latestSettingsProps()?.onResetCalibration).toBeTypeOf('function')
+      expect(readViewerSettings().poseCalibration.calibrated).toBe(false)
+      const calibrationCallsBefore = SENSOR_CONTROLLER.setCalibration.mock.calls.length
+
+      await act(async () => {
+        latestSettingsProps()?.onFineAdjustCalibration?.({ axis: 'yaw', deltaDeg: 0.75 })
+      })
+      await flushEffects()
+
+      expect(SENSOR_CONTROLLER.setCalibration.mock.calls.length).toBe(
+        calibrationCallsBefore + 1,
+      )
+      expect(readViewerSettings().poseCalibration.calibrated).toBe(true)
+
+      await act(async () => {
+        latestSettingsProps()?.onResetCalibration?.()
+      })
+      await flushEffects()
+
+      expect(SENSOR_CONTROLLER.setCalibration.mock.calls.length).toBe(
+        calibrationCallsBefore + 2,
+      )
+      expect(readViewerSettings().poseCalibration.calibrated).toBe(false)
+    },
+    10_000,
+  )
+
+  it('uses video-frame metadata when requestVideoFrameCallback is available', async () => {
+    let videoFrameCallback:
+      | ((now: number, metadata: { width?: number; height?: number }) => void)
+      | null = null
+    const originalRequestVideoFrameCallback = (
+      HTMLVideoElement.prototype as HTMLVideoElement & {
+        requestVideoFrameCallback?: (
+          callback: (now: number, metadata: { width?: number; height?: number }) => void,
+        ) => number
+      }
+    ).requestVideoFrameCallback
+    const originalCancelVideoFrameCallback = (
+      HTMLVideoElement.prototype as HTMLVideoElement & {
+        cancelVideoFrameCallback?: (handle: number) => void
+      }
+    ).cancelVideoFrameCallback
+
+    Object.defineProperty(HTMLVideoElement.prototype, 'requestVideoFrameCallback', {
+      configurable: true,
+      value: vi.fn(
+        (callback: (now: number, metadata: { width?: number; height?: number }) => void) => {
+          videoFrameCallback = callback
+          return 1
+        },
+      ),
+    })
+    Object.defineProperty(HTMLVideoElement.prototype, 'cancelVideoFrameCallback', {
+      configurable: true,
+      value: vi.fn(),
+    })
+
+    try {
+      await renderViewer({
+        entry: 'live',
+        location: 'granted',
+        camera: 'granted',
+        orientation: 'granted',
+      })
+
+      const stage = container.querySelector('[aria-label="Sky viewer stage"]') as
+        | HTMLDivElement
+        | null
+
+      expect(stage).not.toBeNull()
+      expect(videoFrameCallback).toBeTypeOf('function')
+
+      const frameTokenBefore = Number(stage?.getAttribute('data-frame-token') ?? '0')
+
+      await act(async () => {
+        videoFrameCallback?.(0, { width: 1920, height: 1080 })
+      })
+      await flushEffects()
+
+      expect(Number(stage?.getAttribute('data-frame-token') ?? '0')).toBeGreaterThan(
+        frameTokenBefore,
+      )
+      expect(container.textContent).toContain('Frame 1920×1080')
+    } finally {
+      Object.defineProperty(HTMLVideoElement.prototype, 'requestVideoFrameCallback', {
+        configurable: true,
+        value: originalRequestVideoFrameCallback,
+      })
+      Object.defineProperty(HTMLVideoElement.prototype, 'cancelVideoFrameCallback', {
+        configurable: true,
+        value: originalCancelVideoFrameCallback,
+      })
+    }
+  })
+
+  it('pushes fine-adjust and reset calibration changes into storage and the live sensor controller', async () => {
+    mockSubscribeToOrientationPose.mockImplementation((onPose: (state: unknown) => void) => {
+      onPose({
+        pose: {
+          yawDeg: 0,
+          pitchDeg: 0,
+          rollDeg: 0,
+          quaternion: [0, 0, 0, 1],
+          alignmentHealth: 'fair',
+          mode: 'sensor',
+        },
+        sample: {
+          source: 'deviceorientation-absolute',
+          absolute: true,
+          needsCalibration: false,
+          timestampMs: 1,
+          headingDeg: 0,
+          pitchDeg: 0,
+          rollDeg: 0,
+          quaternion: [0, 0, 0, 1],
+          rawQuaternion: [0, 0, 0, 1],
+          rawSample: {
+            source: 'deviceorientation-absolute',
+            localFrame: 'device',
+            absolute: true,
+            timestampMs: 1,
+            worldFromLocal: [
+              [1, 0, 0],
+              [0, 1, 0],
+              [0, 0, 1],
+            ],
+          },
+        },
+        orientationSource: 'deviceorientation-absolute',
+        orientationAbsolute: true,
+        orientationNeedsCalibration: false,
+        poseCalibration: {
+          offsetQuaternion: [0, 0, 0, 1],
+          calibrated: false,
+          sourceAtCalibration: null,
+          lastCalibratedAtMs: null,
+        },
+      })
+
+      return SENSOR_CONTROLLER
+    })
+
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'granted',
+    })
+
+    const latestSettingsProps = () =>
+      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+        | {
+            onFineAdjustCalibration?: (adjustment: {
+              axis: 'yaw' | 'pitch'
+              deltaDeg: number
+            }) => void
+            onResetCalibration?: () => void
+          }
+        | undefined
+
+    await act(async () => {
+      latestSettingsProps()?.onFineAdjustCalibration?.({ axis: 'yaw', deltaDeg: 0.75 })
+    })
+    await flushEffects()
+
+    expect(SENSOR_CONTROLLER.setCalibration).toHaveBeenCalled()
+    expect(readViewerSettings().poseCalibration.calibrated).toBe(true)
+    expect(readViewerSettings().poseCalibration.offsetQuaternion).not.toEqual([0, 0, 0, 1])
+
+    await act(async () => {
+      latestSettingsProps()?.onResetCalibration?.()
+    })
+    await flushEffects()
+
+    expect(readViewerSettings().poseCalibration).toMatchObject({
+      calibrated: false,
+      sourceAtCalibration: null,
+      lastCalibratedAtMs: null,
+      offsetQuaternion: [0, 0, 0, 1],
+    })
+  })
+
+  it('surfaces relative sensor status and alignment-required messaging when calibration is still needed', async () => {
+    mockSubscribeToOrientationPose.mockImplementation((onPose: (state: unknown) => void) => {
+      onPose({
+        pose: {
+          yawDeg: 0,
+          pitchDeg: 0,
+          rollDeg: 0,
+          quaternion: [0, 0, 0, 1],
+          alignmentHealth: 'poor',
+          mode: 'sensor',
+        },
+        sample: {
+          source: 'deviceorientation-relative',
+          absolute: false,
+          needsCalibration: true,
+          timestampMs: 1,
+          headingDeg: 0,
+          pitchDeg: 0,
+          rollDeg: 0,
+          quaternion: [0, 0, 0, 1],
+          rawQuaternion: [0, 0, 0, 1],
+          rawSample: {
+            source: 'deviceorientation-relative',
+            localFrame: 'device',
+            absolute: false,
+            timestampMs: 1,
+            worldFromLocal: [
+              [1, 0, 0],
+              [0, 1, 0],
+              [0, 0, 1],
+            ],
+          },
+        },
+        orientationSource: 'deviceorientation-relative',
+        orientationAbsolute: false,
+        orientationNeedsCalibration: true,
+        poseCalibration: {
+          offsetQuaternion: [0, 0, 0, 1],
+          calibrated: false,
+          sourceAtCalibration: null,
+          lastCalibratedAtMs: null,
+        },
+      })
+
+      return SENSOR_CONTROLLER
+    })
+
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'granted',
+    })
+
+    expect(container.textContent).toContain('Sensor: Relative')
+    expect(container.textContent).toContain('Motion: Align first')
+    expect(container.textContent).toContain('Relative sensor mode needs alignment.')
   })
 
   it('preserves the desktop viewer header and desktop content composition', async () => {

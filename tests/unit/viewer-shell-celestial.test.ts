@@ -272,6 +272,259 @@ describe('ViewerShell celestial behavior', () => {
 
     expect(container.textContent).toContain('Bottom dock')
     expect(container.textContent).toContain('Move until an object snaps here.')
+    expect(container.textContent).toContain('Target North marker')
+  })
+
+  it('prefers calibration targets in the required celestial priority order', async () => {
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -12,
+      objects: [
+        {
+          id: 'sun',
+          type: 'sun',
+          label: 'Sun',
+          azimuthDeg: 0,
+          elevationDeg: 18,
+          importance: 95,
+          metadata: {
+            detail: {
+              typeLabel: 'Sun',
+              elevationDeg: 18,
+              azimuthDeg: 0,
+            },
+          },
+        },
+        {
+          id: 'moon',
+          type: 'moon',
+          label: 'Moon',
+          azimuthDeg: 12,
+          elevationDeg: 28,
+          importance: 88,
+          metadata: {
+            detail: {
+              typeLabel: 'Moon',
+              elevationDeg: 28,
+              azimuthDeg: 12,
+            },
+          },
+        },
+        {
+          id: 'planet-venus',
+          type: 'planet',
+          label: 'Venus',
+          azimuthDeg: 22,
+          elevationDeg: 24,
+          magnitude: -4.3,
+          importance: 82,
+          metadata: {
+            detail: {
+              typeLabel: 'Planet',
+              magnitude: -4.3,
+              elevationDeg: 24,
+              azimuthDeg: 22,
+            },
+          },
+        },
+        {
+          id: 'star-sirius',
+          type: 'star',
+          label: 'Sirius',
+          azimuthDeg: 34,
+          elevationDeg: 32,
+          magnitude: -1.46,
+          importance: 74,
+          metadata: {
+            detail: {
+              typeLabel: 'Star',
+              magnitude: -1.46,
+              elevationDeg: 32,
+            },
+          },
+        },
+      ],
+    })
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
+
+    expect(container.textContent).toContain('Target Sun')
+  })
+
+  it('falls back from suppressed sun to moon, then brightest planet, then brightest star', async () => {
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -12,
+      objects: [
+        {
+          id: 'sun',
+          type: 'sun',
+          label: 'Sun',
+          azimuthDeg: 0,
+          elevationDeg: 8,
+          importance: 95,
+          metadata: {
+            daylightLabelSuppressed: true,
+            detail: {
+              typeLabel: 'Sun',
+              elevationDeg: 8,
+              azimuthDeg: 0,
+            },
+          },
+        },
+        {
+          id: 'moon',
+          type: 'moon',
+          label: 'Moon',
+          azimuthDeg: 16,
+          elevationDeg: 20,
+          importance: 88,
+          metadata: {
+            detail: {
+              typeLabel: 'Moon',
+              elevationDeg: 20,
+              azimuthDeg: 16,
+            },
+          },
+        },
+      ],
+    })
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
+
+    expect(container.textContent).toContain('Target Moon')
+
+    await act(async () => {
+      root.unmount()
+    })
+
+    root = createRoot(container)
+
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -18,
+      objects: [
+        {
+          id: 'planet-jupiter',
+          type: 'planet',
+          label: 'Jupiter',
+          azimuthDeg: 26,
+          elevationDeg: 30,
+          magnitude: -2.4,
+          importance: 80,
+          metadata: {
+            detail: {
+              typeLabel: 'Planet',
+              magnitude: -2.4,
+              elevationDeg: 30,
+              azimuthDeg: 26,
+            },
+          },
+        },
+        {
+          id: 'planet-mars',
+          type: 'planet',
+          label: 'Mars',
+          azimuthDeg: 40,
+          elevationDeg: 18,
+          magnitude: 0.7,
+          importance: 73,
+          metadata: {
+            detail: {
+              typeLabel: 'Planet',
+              magnitude: 0.7,
+              elevationDeg: 18,
+              azimuthDeg: 40,
+            },
+          },
+        },
+        {
+          id: 'star-sirius',
+          type: 'star',
+          label: 'Sirius',
+          azimuthDeg: 52,
+          elevationDeg: 22,
+          magnitude: -1.46,
+          importance: 76,
+          metadata: {
+            detail: {
+              typeLabel: 'Star',
+              magnitude: -1.46,
+              elevationDeg: 22,
+            },
+          },
+        },
+      ],
+    })
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
+
+    expect(container.textContent).toContain('Target Jupiter')
+
+    await act(async () => {
+      root.unmount()
+    })
+
+    root = createRoot(container)
+
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -18,
+      objects: [
+        {
+          id: 'star-sirius',
+          type: 'star',
+          label: 'Sirius',
+          azimuthDeg: 52,
+          elevationDeg: 22,
+          magnitude: -1.46,
+          importance: 76,
+          metadata: {
+            detail: {
+              typeLabel: 'Star',
+              magnitude: -1.46,
+              elevationDeg: 22,
+            },
+          },
+        },
+        {
+          id: 'star-vega',
+          type: 'star',
+          label: 'Vega',
+          azimuthDeg: 70,
+          elevationDeg: 44,
+          magnitude: 0.03,
+          importance: 70,
+          metadata: {
+            detail: {
+              typeLabel: 'Star',
+              magnitude: 0.03,
+              elevationDeg: 44,
+            },
+          },
+        },
+      ],
+    })
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
+
+    expect(container.textContent).toContain('Target Sirius')
   })
 
   it('defaults to center-only overlay copy for the center-locked object', async () => {

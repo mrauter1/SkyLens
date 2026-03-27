@@ -1,14 +1,18 @@
 import {
   clamp,
-  crossVec3,
-  createAxisAngleQuaternion,
   createCameraQuaternion,
+  createQuaternionFromBasis,
+  crossVec3,
+  dotVec3,
   getCameraBasisVectors,
+  multiplyMat3Vec3,
   multiplyQuaternions,
+  negateVec3,
+  normalizeQuaternion,
   normalizeVec3,
   radiansToDegrees,
   slerpQuaternions,
-  dotVec3,
+  type Mat3,
   type Quaternion,
   type Vec3,
 } from '../projection/camera'
@@ -22,17 +26,74 @@ export interface DeviceOrientationReading {
   webkitCompassHeading?: number
 }
 
+export type OrientationSource =
+  | 'absolute-sensor'
+  | 'deviceorientation-absolute'
+  | 'deviceorientation-relative'
+  | 'manual'
+
+export type LocalFrame = 'device' | 'screen'
+
+export interface RawOrientationSample {
+  source: OrientationSource
+  localFrame: LocalFrame
+  absolute: boolean
+  timestampMs: number
+  worldFromLocal: Mat3
+  compassAccuracyDeg?: number
+}
+
+export interface PoseCalibration {
+  offsetQuaternion: Quaternion
+  calibrated: boolean
+  sourceAtCalibration: OrientationSource | null
+  lastCalibratedAtMs: number | null
+}
+
 export interface OrientationSample {
+  source: OrientationSource
+  absolute: boolean
+  needsCalibration: boolean
+  timestampMs: number
   headingDeg: number
   pitchDeg: number
   rollDeg: number
-  timestampMs: number
-  quaternion?: Quaternion
+  quaternion: Quaternion
+  rawQuaternion: Quaternion
+  rawSample: RawOrientationSample
+  compassAccuracyDeg?: number
 }
 
 export interface OrientationOffsets {
   headingDeg: number
   pitchDeg: number
+}
+
+interface OrientationPermissionRequester {
+  requestPermission?: (
+    absolute?: boolean,
+  ) => Promise<'granted' | 'denied'>
+}
+
+interface AbsoluteOrientationSensorLike {
+  start: () => void
+  stop?: () => void
+  addEventListener: (
+    type: 'reading' | 'error',
+    listener: EventListenerOrEventListenerObject,
+  ) => void
+  removeEventListener: (
+    type: 'reading' | 'error',
+    listener: EventListenerOrEventListenerObject,
+  ) => void
+  populateMatrix?: (target: Float32Array | Float64Array | number[]) => ArrayLike<number> | void
+}
+
+interface AbsoluteOrientationSensorConstructor {
+  new (options?: {
+    frequency?: number
+    referenceFrame?: 'device' | 'screen'
+  }): AbsoluteOrientationSensorLike
 }
 
 export interface OrientationRuntime {
@@ -52,12 +113,9 @@ export interface OrientationRuntime {
     }
   }
   orientation?: number
-  DeviceOrientationEvent?: {
-    requestPermission?: () => Promise<'granted' | 'denied'>
-  }
-  DeviceMotionEvent?: {
-    requestPermission?: () => Promise<'granted' | 'denied'>
-  }
+  DeviceOrientationEvent?: OrientationPermissionRequester
+  DeviceMotionEvent?: OrientationPermissionRequester
+  AbsoluteOrientationSensor?: AbsoluteOrientationSensorConstructor
 }
 
 export interface ManualPoseState {
@@ -76,9 +134,10 @@ const DEFAULT_MANUAL_YAW_PER_PIXEL = 0.12
 const DEFAULT_MANUAL_PITCH_PER_PIXEL = 0.12
 const ORIENTATION_PERMISSION_PROBE_TIMEOUT_MS = 250
 const ORIENTATION_STREAM_SELECTION_TIMEOUT_MS = 150
-const SCREEN_CORRECTION_AXIS: Vec3 = [0, 1, 0]
-const WORLD_UP: Vec3 = [0, 0, 1]
 const BASIS_EPSILON = 1e-6
+const WORLD_UP: Vec3 = [0, 0, 1]
+const IDENTITY_QUATERNION: Quaternion = [0, 0, 0, 1]
+const DEFAULT_NEUTRAL_SENSOR_QUATERNION = createCameraQuaternion(0, 0, 0)
 
 export function supportsOrientationEvents(currentWindow: {
   ondeviceorientation?: unknown
@@ -96,6 +155,12 @@ function supportsAbsoluteOrientationEvents(currentWindow: {
   return 'ondeviceorientationabsolute' in currentWindow
 }
 
+function supportsAbsoluteOrientationSensor(
+  currentWindow: Pick<OrientationRuntime, 'AbsoluteOrientationSensor'>,
+) {
+  return typeof currentWindow.AbsoluteOrientationSensor === 'function'
+}
+
 export async function requestOrientationPermission(
   runtime?: OrientationRuntime,
 ): Promise<'granted' | 'denied' | 'unavailable'> {
@@ -105,19 +170,23 @@ export async function requestOrientationPermission(
     return 'unavailable'
   }
 
-  const orientationSupported = supportsOrientationEvents(currentWindow)
+  const orientationSupported =
+    supportsOrientationEvents(currentWindow) ||
+    supportsAbsoluteOrientationSensor(currentWindow)
+
   if (!orientationSupported) {
     return 'unavailable'
   }
 
-  const orientationPermission = await requestEventPermission(currentWindow.DeviceOrientationEvent)
-  const motionPermission = await requestEventPermission(currentWindow.DeviceMotionEvent)
+  const orientationPermission = await requestEventPermission(
+    currentWindow.DeviceOrientationEvent,
+    { absolute: true },
+  )
+  const motionPermission = await requestEventPermission(
+    currentWindow.DeviceMotionEvent,
+  )
 
-  if (orientationPermission === 'denied') {
-    return 'denied'
-  }
-
-  if (motionPermission === 'denied') {
+  if (orientationPermission === 'denied' || motionPermission === 'denied') {
     return 'denied'
   }
 
@@ -125,10 +194,26 @@ export async function requestOrientationPermission(
     return 'granted'
   }
 
-  return (await probeOrientationAvailability(currentWindow)) ? 'granted' : 'unavailable'
+  if (supportsOrientationEvents(currentWindow)) {
+    const orientationEventsAvailable = await probeOrientationAvailability(currentWindow)
+
+    if (orientationEventsAvailable) {
+      return 'granted'
+    }
+  }
+
+  if (supportsAbsoluteOrientationSensor(currentWindow)) {
+    return (await probeAbsoluteOrientationSensorAvailability(currentWindow))
+      ? 'granted'
+      : 'unavailable'
+  }
+
+  return 'unavailable'
 }
 
-export function getScreenOrientationCorrectionDeg(runtime?: Pick<OrientationRuntime, 'screen' | 'orientation'>) {
+export function getScreenOrientationCorrectionDeg(
+  runtime?: Pick<OrientationRuntime, 'screen' | 'orientation'>,
+) {
   const currentWindow = runtime ?? getOrientationWindow()
 
   return (
@@ -138,102 +223,181 @@ export function getScreenOrientationCorrectionDeg(runtime?: Pick<OrientationRunt
   )
 }
 
-export function normalizeDeviceOrientationReading(
-  reading: DeviceOrientationReading,
-  screenOrientationDeg = 0,
-  previousSample: OrientationSample | null = null,
-): OrientationSample | null {
-  const rawHeading =
-    typeof reading.webkitCompassHeading === 'number'
-      ? reading.webkitCompassHeading
-      : reading.alpha
+export function worldFromDeviceOrientation(
+  alphaDeg: number,
+  betaDeg: number,
+  gammaDeg: number,
+): Mat3 {
+  const a = degreesToRadians(alphaDeg)
+  const b = degreesToRadians(betaDeg)
+  const g = degreesToRadians(gammaDeg)
 
-  if (
-    typeof rawHeading !== 'number' ||
-    typeof reading.beta !== 'number' ||
-    typeof reading.gamma !== 'number'
-  ) {
-    return null
-  }
-
-  const correctedQuaternion = applyScreenOrientationCorrection(
-    createCameraQuaternion(
-      normalizeDegrees(rawHeading),
-      clamp(reading.beta, -180, 180),
-      clamp(reading.gamma, -180, 180),
-    ),
-    screenOrientationDeg,
-  )
-
-  const sample = createOrientationSampleFromQuaternion(
-    correctedQuaternion,
-    Date.now(),
-    previousSample,
-    screenOrientationDeg,
-  )
-
-  return sample
-}
-
-function resolveContinuousOrientationSample(
-  sample: OrientationSample,
-  previousSample: OrientationSample | null,
-) {
-  if (!previousSample) {
-    return sample
-  }
-
-  const candidates = createOrientationContinuityCandidates(sample).map((candidate) => {
-    return {
-      headingDeg:
-        previousSample.headingDeg +
-        shortestAngleDeltaDeg(previousSample.headingDeg, candidate.headingDeg),
-      pitchDeg: candidate.pitchDeg,
-      rollDeg:
-        previousSample.rollDeg +
-        shortestAngleDeltaDeg(previousSample.rollDeg, candidate.rollDeg),
-      timestampMs: candidate.timestampMs,
-      quaternion: candidate.quaternion,
-    }
-  })
-
-  return candidates.reduce((best, candidate) => {
-    const bestScore = scoreOrientationSampleDelta(best, previousSample)
-    const candidateScore = scoreOrientationSampleDelta(candidate, previousSample)
-
-    return candidateScore < bestScore ? candidate : best
-  })
-}
-
-function createOrientationContinuityCandidates(sample: OrientationSample) {
-  const mirroredPitchDeg =
-    sample.pitchDeg >= 0 ? 180 - sample.pitchDeg : -180 - sample.pitchDeg
+  const ca = Math.cos(a)
+  const sa = Math.sin(a)
+  const cb = Math.cos(b)
+  const sb = Math.sin(b)
+  const cg = Math.cos(g)
+  const sg = Math.sin(g)
 
   return [
-    sample,
-    {
-      headingDeg: normalizeDegrees(sample.headingDeg + 180),
-      pitchDeg: mirroredPitchDeg,
-      rollDeg: normalizeSignedDegrees(sample.rollDeg + 180),
-      timestampMs: sample.timestampMs,
-      quaternion: sample.quaternion,
-    },
+    [ca * cg - sa * sb * sg, -sa * cb, ca * sg + sa * sb * cg],
+    [sa * cg + ca * sb * sg, ca * cb, sa * sg - ca * sb * cg],
+    [-cb * sg, sb, cb * cg],
   ]
 }
 
-function scoreOrientationSampleDelta(
-  sample: OrientationSample,
-  previousSample: OrientationSample,
-) {
-  const headingDeltaDeg = shortestAngleDeltaDeg(previousSample.headingDeg, sample.headingDeg)
-  const pitchDeltaDeg = sample.pitchDeg - previousSample.pitchDeg
-  const rollDeltaDeg = shortestAngleDeltaDeg(previousSample.rollDeg, sample.rollDeg)
+export function screenBasisInDeviceCoords(screenAngleDeg: number) {
+  switch (normalizeDegrees(screenAngleDeg)) {
+    case 0:
+      return {
+        screenRightDevice: [1, 0, 0] as Vec3,
+        screenUpDevice: [0, 1, 0] as Vec3,
+      }
+    case 90:
+      return {
+        screenRightDevice: [0, 1, 0] as Vec3,
+        screenUpDevice: [-1, 0, 0] as Vec3,
+      }
+    case 180:
+      return {
+        screenRightDevice: [-1, 0, 0] as Vec3,
+        screenUpDevice: [0, -1, 0] as Vec3,
+      }
+    case 270:
+      return {
+        screenRightDevice: [0, -1, 0] as Vec3,
+        screenUpDevice: [1, 0, 0] as Vec3,
+      }
+    default: {
+      const radians = degreesToRadians(screenAngleDeg)
+      const cos = Math.cos(radians)
+      const sin = Math.sin(radians)
 
-  return (
-    headingDeltaDeg * headingDeltaDeg +
-    pitchDeltaDeg * pitchDeltaDeg +
-    rollDeltaDeg * rollDeltaDeg
+      return {
+        screenRightDevice: [cos, sin, 0] as Vec3,
+        screenUpDevice: [-sin, cos, 0] as Vec3,
+      }
+    }
+  }
+}
+
+export function rawPoseQuaternionFromSample(
+  sample: RawOrientationSample,
+  screenAngleDeg = 0,
+): Quaternion {
+  if (sample.localFrame === 'screen') {
+    const rightWorld = getMat3Column(sample.worldFromLocal, 0)
+    const upWorld = getMat3Column(sample.worldFromLocal, 1)
+    const downWorld = negateVec3(upWorld)
+    const forwardWorld = negateVec3(getMat3Column(sample.worldFromLocal, 2))
+
+    return createQuaternionFromBasis(rightWorld, downWorld, forwardWorld)
+  }
+
+  const { screenRightDevice, screenUpDevice } = screenBasisInDeviceCoords(
+    screenAngleDeg,
   )
+  const rightWorld = multiplyMat3Vec3(sample.worldFromLocal, screenRightDevice)
+  const upWorld = multiplyMat3Vec3(sample.worldFromLocal, screenUpDevice)
+  const downWorld = negateVec3(upWorld)
+  const forwardWorld = multiplyMat3Vec3(sample.worldFromLocal, [0, 0, -1])
+
+  return createQuaternionFromBasis(rightWorld, downWorld, forwardWorld)
+}
+
+export function createPoseCalibration(
+  calibration: Partial<PoseCalibration> = {},
+): PoseCalibration {
+  return {
+    offsetQuaternion: normalizeQuaternion(
+      calibration.offsetQuaternion ?? IDENTITY_QUATERNION,
+    ),
+    calibrated: calibration.calibrated ?? false,
+    sourceAtCalibration: calibration.sourceAtCalibration ?? null,
+    lastCalibratedAtMs: calibration.lastCalibratedAtMs ?? null,
+  }
+}
+
+export function createIdentityPoseCalibration() {
+  return createPoseCalibration()
+}
+
+export function resetPoseCalibration() {
+  return createPoseCalibration()
+}
+
+export function createPoseCalibrationFromReferencePose(
+  rawPoseQuaternion: Quaternion,
+  {
+    targetQuaternion = DEFAULT_NEUTRAL_SENSOR_QUATERNION,
+    source,
+    timestampMs = Date.now(),
+  }: {
+    targetQuaternion?: Quaternion
+    source: OrientationSource
+    timestampMs?: number
+  },
+): PoseCalibration {
+  return createPoseCalibration({
+    offsetQuaternion: multiplyQuaternions(
+      normalizeQuaternion(targetQuaternion),
+      invertQuaternion(rawPoseQuaternion),
+    ),
+    calibrated: true,
+    sourceAtCalibration: source,
+    lastCalibratedAtMs: timestampMs,
+  })
+}
+
+export function createPoseCalibrationFromSample(
+  sample: Pick<OrientationSample, 'rawQuaternion' | 'source' | 'timestampMs'>,
+) {
+  return createPoseCalibrationFromReferencePose(sample.rawQuaternion, {
+    source: sample.source,
+    timestampMs: sample.timestampMs,
+  })
+}
+
+export function createSensorCameraPose(
+  sample: RawOrientationSample | OrientationSample,
+  {
+    calibration = createPoseCalibration(),
+    alignmentHealth = 'fair',
+    screenAngleDeg = 0,
+    compatibilityOffsets,
+  }: {
+    calibration?: PoseCalibration
+    alignmentHealth?: CameraPose['alignmentHealth']
+    screenAngleDeg?: number
+    compatibilityOffsets?: OrientationOffsets
+  } = {},
+): CameraPose {
+  const rawSample = 'rawSample' in sample ? sample.rawSample : sample
+  const orientationSample = createOrientationSample(
+    rawSample,
+    calibration,
+    screenAngleDeg,
+    createCompatibilityOffsetQuaternion(compatibilityOffsets),
+  )
+
+  return buildCameraPose(
+    orientationSample,
+    orientationSample.needsCalibration ? 'poor' : alignmentHealth,
+  )
+}
+
+export function normalizeDeviceOrientationReading(
+  reading: DeviceOrientationReading,
+  screenOrientationDeg = 0,
+  calibration = createPoseCalibration(),
+): OrientationSample | null {
+  const rawSample = createRawDeviceOrientationSample(reading)
+
+  if (!rawSample) {
+    return null
+  }
+
+  return createOrientationSample(rawSample, calibration, screenOrientationDeg)
 }
 
 export function smoothOrientationSample(
@@ -241,29 +405,28 @@ export function smoothOrientationSample(
   next: OrientationSample,
   smoothingFactor = DEFAULT_SMOOTHING,
 ): OrientationSample {
-  if (!previous) {
+  if (!previous || previous.source !== next.source) {
     return next
   }
 
-  const smoothedSample: OrientationSample = {
-    headingDeg: interpolateAngle(previous.headingDeg, next.headingDeg, smoothingFactor),
-    pitchDeg: interpolateNumber(previous.pitchDeg, next.pitchDeg, smoothingFactor),
-    rollDeg: interpolateAngle(previous.rollDeg, next.rollDeg, smoothingFactor),
-    timestampMs: next.timestampMs,
-  }
+  const quaternion = slerpQuaternions(
+    previous.quaternion,
+    next.quaternion,
+    smoothingFactor,
+  )
+  const rawQuaternion = slerpQuaternions(
+    previous.rawQuaternion,
+    next.rawQuaternion,
+    smoothingFactor,
+  )
+  const debugAngles = getDebugEulerFromQuaternion(quaternion)
 
-  if (previous.quaternion || next.quaternion) {
-    smoothedSample.quaternion =
-      previous.quaternion && next.quaternion
-        ? slerpQuaternions(previous.quaternion, next.quaternion, smoothingFactor)
-        : createCameraQuaternion(
-            smoothedSample.headingDeg,
-            smoothedSample.pitchDeg,
-            smoothedSample.rollDeg,
-          )
+  return {
+    ...next,
+    ...debugAngles,
+    quaternion,
+    rawQuaternion,
   }
-
-  return smoothedSample
 }
 
 export function computeAlignmentHealth(samples: readonly OrientationSample[]) {
@@ -318,42 +481,6 @@ export function trimOrientationHistory(
   return samples.filter((sample) => newestTimestamp - sample.timestampMs <= windowMs)
 }
 
-export function createSensorCameraPose(
-  sample: OrientationSample,
-  {
-    baseline,
-    offsets = { headingDeg: 0, pitchDeg: 0 },
-    alignmentHealth,
-  }: {
-    baseline?: OrientationSample | null
-    offsets?: OrientationOffsets
-    alignmentHealth: CameraPose['alignmentHealth']
-  },
-): CameraPose {
-  const yawDeg = normalizeDegrees(
-    sample.headingDeg - (baseline?.headingDeg ?? 0) + offsets.headingDeg,
-  )
-  const pitchDeg = sample.pitchDeg - (baseline?.pitchDeg ?? 0) + offsets.pitchDeg
-  const rollDeg = normalizeSignedDegrees(sample.rollDeg - (baseline?.rollDeg ?? 0))
-
-  return {
-    yawDeg,
-    pitchDeg,
-    rollDeg,
-    quaternion: createCameraQuaternion(yawDeg, pitchDeg, rollDeg),
-    alignmentHealth,
-    mode: 'sensor',
-  }
-}
-
-export function getRecenterBaseline(sample: OrientationSample | null) {
-  return sample
-    ? {
-        ...sample,
-      }
-    : null
-}
-
 export function createManualPoseState(
   initialState: Partial<ManualPoseState> = {},
 ): ManualPoseState {
@@ -399,40 +526,178 @@ export function createManualCameraPose(poseState: ManualPoseState): CameraPose {
   }
 }
 
-export function subscribeToOrientationPose(
-  onPose: (state: {
-    pose: CameraPose
-    sample: OrientationSample
-    history: OrientationSample[]
-  }) => void,
+export function startAbsoluteOrientationSensorProvider(
+  onSample: (sample: RawOrientationSample) => void,
   {
     runtime,
-    offsets = { headingDeg: 0, pitchDeg: 0 },
+    onUnavailable,
   }: {
     runtime?: OrientationRuntime
-    offsets?: OrientationOffsets
+    onUnavailable?: () => void
+  } = {},
+) {
+  const currentWindow = runtime ?? getOrientationWindow()
+
+  if (!currentWindow?.AbsoluteOrientationSensor) {
+    return null
+  }
+
+  let sensor: AbsoluteOrientationSensorLike
+
+  try {
+    sensor = new currentWindow.AbsoluteOrientationSensor({
+      frequency: 60,
+      referenceFrame: 'screen',
+    })
+  } catch {
+    onUnavailable?.()
+    return null
+  }
+
+  const handleReading = () => {
+    const worldFromLocal = readOrientationSensorMatrix(sensor)
+
+    if (!worldFromLocal) {
+      return
+    }
+
+    onSample({
+      source: 'absolute-sensor',
+      localFrame: 'screen',
+      absolute: true,
+      timestampMs: Date.now(),
+      worldFromLocal,
+    })
+  }
+
+  const handleError = () => {
+    cleanup()
+    onUnavailable?.()
+  }
+
+  const cleanup = () => {
+    sensor.removeEventListener('reading', handleReading)
+    sensor.removeEventListener('error', handleError)
+    try {
+      sensor.stop?.()
+    } catch {
+      // Non-fatal: teardown must not block fallback providers.
+    }
+  }
+
+  sensor.addEventListener('reading', handleReading)
+  sensor.addEventListener('error', handleError)
+
+  try {
+    sensor.start()
+  } catch {
+    cleanup()
+    onUnavailable?.()
+    return null
+  }
+
+  return {
+    stop() {
+      cleanup()
+    },
+  }
+}
+
+export function startDeviceOrientationProvider(
+  onSample: (sample: RawOrientationSample) => void,
+  {
+    runtime,
+  }: {
+    runtime?: OrientationRuntime
   } = {},
 ) {
   const currentWindow = runtime ?? getOrientationWindow()
 
   if (!currentWindow || !supportsOrientationEvents(currentWindow)) {
+    return null
+  }
+
+  const handleEvent = (event: Event) => {
+    const rawSample = getRawOrientationSample(event)
+
+    if (rawSample) {
+      onSample(rawSample)
+    }
+  }
+
+  currentWindow.addEventListener('deviceorientationabsolute', handleEvent)
+  currentWindow.addEventListener('deviceorientation', handleEvent)
+
+  return {
+    stop() {
+      currentWindow.removeEventListener('deviceorientationabsolute', handleEvent)
+      currentWindow.removeEventListener('deviceorientation', handleEvent)
+    },
+  }
+}
+
+export function subscribeToOrientationPose(
+  onPose: (state: {
+    pose: CameraPose
+    sample: OrientationSample
+    history: OrientationSample[]
+    orientationSource: OrientationSource
+    orientationAbsolute: boolean
+    orientationNeedsCalibration: boolean
+    poseCalibration: PoseCalibration
+  }) => void,
+  {
+    runtime,
+    initialCalibration = createPoseCalibration(),
+    offsets = { headingDeg: 0, pitchDeg: 0 },
+  }: {
+    runtime?: OrientationRuntime
+    initialCalibration?: PoseCalibration
+    offsets?: OrientationOffsets
+  } = {},
+) {
+  const currentWindow = runtime ?? getOrientationWindow()
+
+  if (!currentWindow) {
     return {
       recenter() {},
       stop() {},
     }
   }
 
-  let selectedEvent: 'deviceorientationabsolute' | 'deviceorientation' | null = null
+  let selectedSource: OrientationSource | null = null
   let smoothedSample: OrientationSample | null = null
-  let recenterBaseline: OrientationSample | null = null
   let history: OrientationSample[] = []
-  let pendingRelativeSample: OrientationSample | null = null
-  let lastAbsoluteSample: OrientationSample | null = null
-  let lastRelativeSample: OrientationSample | null = null
+  let calibration = createPoseCalibration(initialCalibration)
+  let pendingRelativeSample: RawOrientationSample | null = null
+  let pendingAbsoluteDeviceSample: RawOrientationSample | null = null
   let relativeSelectionTimeoutId: ReturnType<typeof setTimeout> | null = null
-  const absoluteStreamSupported = supportsAbsoluteOrientationEvents(currentWindow)
+  let sensorSelectionTimeoutId: ReturnType<typeof setTimeout> | null = null
+  let sensorPending = false
+  let sensorProvider: ReturnType<typeof startAbsoluteOrientationSensorProvider> | null = null
 
-  const clearPendingRelativeSelection = () => {
+  const absoluteStreamSupported = supportsAbsoluteOrientationEvents(currentWindow)
+  const compatibilityOffsetQuaternion = createCompatibilityOffsetQuaternion(offsets)
+
+  const deviceProvider = startDeviceOrientationProvider(handleDeviceSample, {
+    runtime: currentWindow,
+  })
+
+  if (!deviceProvider && !supportsAbsoluteOrientationSensor(currentWindow)) {
+    return {
+      recenter() {},
+      stop() {},
+    }
+  }
+
+  function resetSmoothingIfSourceChanged(rawSample: RawOrientationSample) {
+    if (smoothedSample && smoothedSample.source !== rawSample.source) {
+      smoothedSample = null
+      history = []
+    }
+  }
+
+  function clearRelativeSelection() {
     pendingRelativeSample = null
 
     if (relativeSelectionTimeoutId !== null) {
@@ -441,118 +706,198 @@ export function subscribeToOrientationPose(
     }
   }
 
-  const emitSample = (sample: OrientationSample) => {
+  function clearSensorSelection() {
+    if (sensorSelectionTimeoutId !== null) {
+      clearTimeout(sensorSelectionTimeoutId)
+      sensorSelectionTimeoutId = null
+    }
+  }
+
+  function emitRawSample(rawSample: RawOrientationSample) {
+    resetSmoothingIfSourceChanged(rawSample)
+
+    const sample = createOrientationSample(
+      rawSample,
+      calibration,
+      getScreenOrientationCorrectionDeg(currentWindow ?? undefined),
+      compatibilityOffsetQuaternion,
+    )
+
     smoothedSample = smoothOrientationSample(smoothedSample, sample)
     history = trimOrientationHistory([...history, smoothedSample])
-    const alignmentHealth = computeAlignmentHealth(history)
+    const alignmentHealth = smoothedSample.needsCalibration
+      ? 'poor'
+      : computeAlignmentHealth(history)
 
     onPose({
       sample: smoothedSample,
       history,
-      pose: createSensorCameraPose(smoothedSample, {
-        baseline: recenterBaseline,
-        offsets,
-        alignmentHealth,
-      }),
+      orientationSource: smoothedSample.source,
+      orientationAbsolute: smoothedSample.absolute,
+      orientationNeedsCalibration: smoothedSample.needsCalibration,
+      poseCalibration: calibration,
+      pose: buildCameraPose(smoothedSample, alignmentHealth),
     })
   }
 
-  const commitRelativeSelection = () => {
-    if (selectedEvent || !pendingRelativeSample) {
+  function commitBufferedDeviceFallback() {
+    sensorPending = false
+    clearSensorSelection()
+    sensorProvider?.stop()
+    sensorProvider = null
+
+    if (selectedSource === 'absolute-sensor') {
       return
     }
 
-    selectedEvent = 'deviceorientation'
-    const sample = pendingRelativeSample
-    clearPendingRelativeSelection()
-    emitSample(sample)
+    if (pendingAbsoluteDeviceSample) {
+      const rawSample = pendingAbsoluteDeviceSample
+      pendingAbsoluteDeviceSample = null
+      clearRelativeSelection()
+      selectedSource = rawSample.source
+      emitRawSample(rawSample)
+      return
+    }
+
+    if (pendingRelativeSample) {
+      const rawSample = pendingRelativeSample
+      pendingRelativeSample = null
+      selectedSource = rawSample.source
+      emitRawSample(rawSample)
+    }
   }
 
-  const handleEvent = (event: Event) => {
-    const eventType = event.type as 'deviceorientationabsolute' | 'deviceorientation'
-    const normalized = getNormalizedOrientationSample(
-      event,
-      currentWindow,
-      eventType === 'deviceorientationabsolute'
-        ? lastAbsoluteSample
-        : pendingRelativeSample ?? lastRelativeSample,
-    )
+  function handleSensorSample(rawSample: RawOrientationSample) {
+    selectedSource = rawSample.source
+    sensorPending = false
+    clearSensorSelection()
+    clearRelativeSelection()
+    pendingAbsoluteDeviceSample = null
+    emitRawSample(rawSample)
+  }
 
-    if (!normalized) {
+  function handleDeviceSample(rawSample: RawOrientationSample) {
+    if (selectedSource === 'absolute-sensor') {
       return
     }
 
-    if (eventType === 'deviceorientationabsolute') {
-      lastAbsoluteSample = normalized
-    } else {
-      lastRelativeSample = normalized
-    }
+    if (sensorPending) {
+      if (rawSample.absolute) {
+        pendingAbsoluteDeviceSample = rawSample
+      } else {
+        pendingRelativeSample = rawSample
+      }
 
-    if (selectedEvent && eventType !== selectedEvent) {
       return
     }
 
-    if (selectedEvent) {
-      emitSample(normalized)
+    if (rawSample.absolute) {
+      selectedSource = rawSample.source
+      pendingAbsoluteDeviceSample = null
+      clearRelativeSelection()
+      emitRawSample(rawSample)
       return
     }
 
-    if (eventType === 'deviceorientationabsolute') {
-      selectedEvent = eventType
-      clearPendingRelativeSelection()
-      emitSample(normalized)
+    if (selectedSource === 'deviceorientation-absolute') {
+      return
+    }
+
+    if (selectedSource === 'deviceorientation-relative') {
+      emitRawSample(rawSample)
       return
     }
 
     if (!absoluteStreamSupported) {
-      selectedEvent = eventType
-      emitSample(normalized)
+      selectedSource = rawSample.source
+      emitRawSample(rawSample)
       return
     }
 
-    pendingRelativeSample = normalized
+    pendingRelativeSample = rawSample
 
     if (relativeSelectionTimeoutId === null) {
       relativeSelectionTimeoutId = setTimeout(() => {
         relativeSelectionTimeoutId = null
-        commitRelativeSelection()
+
+        if (!pendingRelativeSample || selectedSource === 'absolute-sensor') {
+          return
+        }
+
+        selectedSource = pendingRelativeSample.source
+        const nextSample = pendingRelativeSample
+        pendingRelativeSample = null
+        emitRawSample(nextSample)
       }, ORIENTATION_STREAM_SELECTION_TIMEOUT_MS)
     }
   }
 
-  currentWindow.addEventListener('deviceorientationabsolute', handleEvent)
-  currentWindow.addEventListener('deviceorientation', handleEvent)
+  sensorProvider = startAbsoluteOrientationSensorProvider(handleSensorSample, {
+    runtime: currentWindow,
+    onUnavailable() {
+      if (sensorPending) {
+        commitBufferedDeviceFallback()
+      }
+    },
+  })
+
+  if (sensorProvider) {
+    sensorPending = true
+    sensorSelectionTimeoutId = setTimeout(() => {
+      commitBufferedDeviceFallback()
+    }, ORIENTATION_STREAM_SELECTION_TIMEOUT_MS)
+  }
 
   return {
     recenter() {
-      recenterBaseline = getRecenterBaseline(smoothedSample)
+      if (!smoothedSample) {
+        return
+      }
+
+      calibration = createPoseCalibrationFromSample(smoothedSample)
+      const rawSample = smoothedSample.rawSample
+      smoothedSample = null
+      history = []
+      emitRawSample(rawSample)
+    },
+    setCalibration(nextCalibration: PoseCalibration) {
+      calibration = createPoseCalibration(nextCalibration)
+
+      if (!smoothedSample) {
+        return
+      }
+
+      const rawSample = smoothedSample.rawSample
+      smoothedSample = null
+      history = []
+      emitRawSample(rawSample)
     },
     stop() {
-      clearPendingRelativeSelection()
-      currentWindow.removeEventListener('deviceorientationabsolute', handleEvent)
-      currentWindow.removeEventListener('deviceorientation', handleEvent)
+      clearSensorSelection()
+      clearRelativeSelection()
+      sensorProvider?.stop()
+      deviceProvider?.stop()
     },
   }
 }
 
 function requestEventPermission(
-  eventType:
-    | {
-        requestPermission?: () => Promise<'granted' | 'denied'>
-      }
-    | undefined,
+  eventType: OrientationPermissionRequester | undefined,
+  options: {
+    absolute?: boolean
+  } = {},
 ) {
   if (!eventType?.requestPermission) {
     return Promise.resolve<'granted' | 'unavailable'>('unavailable')
   }
 
-  return eventType.requestPermission().catch(() => 'denied')
+  return eventType.requestPermission(options.absolute).catch(() => 'denied')
 }
 
 async function probeOrientationAvailability(runtime: OrientationRuntime) {
   return new Promise<boolean>((resolve) => {
     const handleEvent = (event: Event) => {
-      if (!getNormalizedOrientationSample(event, runtime)) {
+      if (!getRawOrientationSample(event)) {
         return
       }
 
@@ -576,95 +921,171 @@ async function probeOrientationAvailability(runtime: OrientationRuntime) {
   })
 }
 
-function getNormalizedOrientationSample(
-  event: Event,
-  runtime: Pick<OrientationRuntime, 'screen' | 'orientation'>,
-  previousSample: OrientationSample | null = null,
+async function probeAbsoluteOrientationSensorAvailability(
+  runtime: OrientationRuntime,
 ) {
-  const orientationEvent = event as DeviceOrientationEvent
+  return new Promise<boolean>((resolve) => {
+    let settled = false
+    let controller: ReturnType<typeof startAbsoluteOrientationSensorProvider> | null = null
 
-  return normalizeDeviceOrientationReading(
-    {
-      alpha: orientationEvent.alpha,
-      beta: orientationEvent.beta,
-      gamma: orientationEvent.gamma,
-      absolute: orientationEvent.absolute,
-      webkitCompassHeading: (orientationEvent as DeviceOrientationEvent & {
-        webkitCompassHeading?: number
-      }).webkitCompassHeading,
-    },
-    getScreenOrientationCorrectionDeg(runtime),
-    previousSample,
-  )
+    const settle = (result: boolean) => {
+      if (settled) {
+        return
+      }
+
+      settled = true
+      clearTimeout(timeoutId)
+      controller?.stop()
+      controller = null
+      resolve(result)
+    }
+
+    const timeoutId = setTimeout(() => {
+      settle(false)
+    }, ORIENTATION_PERMISSION_PROBE_TIMEOUT_MS)
+
+    controller = startAbsoluteOrientationSensorProvider(
+      () => {
+        settle(true)
+      },
+      {
+        runtime,
+        onUnavailable() {
+          settle(false)
+        },
+      },
+    )
+
+    if (!controller) {
+      settle(false)
+    }
+  })
 }
 
-function applyScreenOrientationCorrection(
-  quaternion: Quaternion,
-  screenOrientationDeg: number,
-) {
-  const screenCorrectionDeg = normalizeSignedDegrees(
-    normalizeDegrees(screenOrientationDeg),
-  )
-
-  if (screenCorrectionDeg === 0) {
-    return quaternion
+function createRawDeviceOrientationSample(
+  reading: DeviceOrientationReading,
+): RawOrientationSample | null {
+  if (
+    typeof reading.alpha !== 'number' ||
+    typeof reading.beta !== 'number' ||
+    typeof reading.gamma !== 'number'
+  ) {
+    return null
   }
 
-  return multiplyQuaternions(
-    quaternion,
-    createAxisAngleQuaternion(SCREEN_CORRECTION_AXIS, screenCorrectionDeg),
-  )
-}
-
-function createOrientationSampleFromQuaternion(
-  quaternion: Quaternion,
-  timestampMs: number,
-  previousSample: OrientationSample | null,
-  screenOrientationDeg: number,
-): OrientationSample {
-  const basis = getCameraBasisVectors(quaternion)
-  const headingDeg = getQuaternionHeadingDeg(basis, previousSample)
-  const extractedSample = {
-    headingDeg,
-    pitchDeg: radiansToDegrees(Math.asin(clamp(basis.forward[2], -1, 1))),
-    rollDeg: getQuaternionRollDeg(basis, headingDeg),
-    timestampMs,
-    quaternion,
-  }
-  const sample = resolveContinuousOrientationSample(
-    extractedSample,
-    previousSample,
-  )
-
-  return orientLandscapeSampleForPoseContract(sample, screenOrientationDeg)
-}
-
-function orientLandscapeSampleForPoseContract(
-  sample: OrientationSample,
-  screenOrientationDeg: number,
-) {
-  const normalizedScreenDeg = Math.abs(
-    normalizeSignedDegrees(normalizeDegrees(screenOrientationDeg)),
-  )
-
-  if (normalizedScreenDeg !== 90 || Math.abs(sample.pitchDeg) > 90) {
-    return sample
-  }
-
-  const pitchDeg = -sample.pitchDeg
-  const rollDeg = normalizeSignedDegrees(-sample.rollDeg)
+  const absolute = reading.absolute === true
 
   return {
-    ...sample,
+    source: absolute
+      ? 'deviceorientation-absolute'
+      : 'deviceorientation-relative',
+    localFrame: 'device',
+    absolute,
+    timestampMs: Date.now(),
+    worldFromLocal: worldFromDeviceOrientation(
+      reading.alpha,
+      reading.beta,
+      reading.gamma,
+    ),
+  }
+}
+
+function getRawOrientationSample(event: Event) {
+  const orientationEvent = event as DeviceOrientationEvent
+
+  return createRawDeviceOrientationSample({
+    alpha: orientationEvent.alpha,
+    beta: orientationEvent.beta,
+    gamma: orientationEvent.gamma,
+    absolute: orientationEvent.absolute,
+    webkitCompassHeading: (orientationEvent as DeviceOrientationEvent & {
+      webkitCompassHeading?: number
+    }).webkitCompassHeading,
+  })
+}
+
+function createOrientationSample(
+  rawSample: RawOrientationSample,
+  calibration: PoseCalibration,
+  screenAngleDeg: number,
+  compatibilityOffsetQuaternion: Quaternion = IDENTITY_QUATERNION,
+): OrientationSample {
+  const rawQuaternion = rawPoseQuaternionFromSample(rawSample, screenAngleDeg)
+  const calibratedQuaternion = multiplyQuaternions(
+    compatibilityOffsetQuaternion,
+    multiplyQuaternions(calibration.offsetQuaternion, rawQuaternion),
+  )
+  const debugAngles = getDebugEulerFromQuaternion(calibratedQuaternion)
+
+  return {
+    source: rawSample.source,
+    absolute: rawSample.absolute,
+    needsCalibration: !rawSample.absolute && !calibration.calibrated,
+    timestampMs: rawSample.timestampMs,
+    rawSample,
+    rawQuaternion,
+    quaternion: calibratedQuaternion,
+    compassAccuracyDeg: rawSample.compassAccuracyDeg,
+    ...debugAngles,
+  }
+}
+
+function buildCameraPose(
+  sample: OrientationSample,
+  alignmentHealth: CameraPose['alignmentHealth'],
+): CameraPose {
+  return {
+    yawDeg: sample.headingDeg,
+    pitchDeg: sample.pitchDeg,
+    rollDeg: sample.rollDeg,
+    quaternion: sample.quaternion,
+    alignmentHealth,
+    mode: 'sensor',
+  }
+}
+
+function createCompatibilityOffsetQuaternion(offsets?: OrientationOffsets) {
+  if (!offsets) {
+    return IDENTITY_QUATERNION
+  }
+
+  if (offsets.headingDeg === 0 && offsets.pitchDeg === 0) {
+    return IDENTITY_QUATERNION
+  }
+
+  return createCameraQuaternion(offsets.headingDeg, offsets.pitchDeg, 0)
+}
+
+function getDebugEulerFromQuaternion(quaternion: Quaternion) {
+  const basis = getCameraBasisVectors(quaternion)
+  const headingDeg = getQuaternionHeadingDeg(basis)
+  const pitchDeg = radiansToDegrees(Math.asin(clamp(basis.forward[2], -1, 1)))
+  const horizontalMagnitude = Math.hypot(basis.forward[0], basis.forward[1])
+  const referenceRight =
+    horizontalMagnitude > BASIS_EPSILON
+      ? normalizeVec3(crossVec3(basis.forward, WORLD_UP))
+      : ([
+          Math.cos(degreesToRadians(headingDeg)),
+          Math.sin(degreesToRadians(headingDeg)),
+          0,
+        ] as Vec3)
+
+  return {
+    headingDeg,
     pitchDeg,
-    rollDeg,
-    quaternion: createCameraQuaternion(sample.headingDeg, pitchDeg, rollDeg),
+    rollDeg: normalizeSignedDegrees(
+      radiansToDegrees(
+        Math.atan2(
+          dotVec3(crossVec3(referenceRight, basis.right), basis.forward),
+          dotVec3(referenceRight, basis.right),
+        ),
+      ),
+    ),
   }
 }
 
 function getQuaternionHeadingDeg(
   basis: ReturnType<typeof getCameraBasisVectors>,
-  previousSample: OrientationSample | null,
 ) {
   const horizontalMagnitude = Math.hypot(basis.forward[0], basis.forward[1])
 
@@ -672,10 +1093,6 @@ function getQuaternionHeadingDeg(
     return normalizeDegrees(
       radiansToDegrees(Math.atan2(basis.forward[0], basis.forward[1])),
     )
-  }
-
-  if (previousSample) {
-    return previousSample.headingDeg
   }
 
   if (basis.forward[2] >= 0) {
@@ -689,28 +1106,44 @@ function getQuaternionHeadingDeg(
   )
 }
 
-function getQuaternionRollDeg(
-  basis: ReturnType<typeof getCameraBasisVectors>,
-  headingDeg: number,
-) {
-  const horizontalMagnitude = Math.hypot(basis.forward[0], basis.forward[1])
-  const referenceRight =
-    horizontalMagnitude > BASIS_EPSILON
-      ? normalizeVec3(crossVec3(basis.forward, WORLD_UP))
-      : ([
-          Math.cos((headingDeg * Math.PI) / 180),
-          Math.sin((headingDeg * Math.PI) / 180),
-          0,
-        ] as Vec3)
+function getMat3Column(matrix: Mat3, columnIndex: 0 | 1 | 2): [number, number, number] {
+  return [
+    matrix[0][columnIndex],
+    matrix[1][columnIndex],
+    matrix[2][columnIndex],
+  ]
+}
 
-  return normalizeSignedDegrees(
-    radiansToDegrees(
-      Math.atan2(
-        dotVec3(crossVec3(referenceRight, basis.right), basis.forward),
-        dotVec3(referenceRight, basis.right),
-      ),
-    ),
-  )
+function readOrientationSensorMatrix(sensor: AbsoluteOrientationSensorLike): Mat3 | null {
+  if (!sensor.populateMatrix) {
+    return null
+  }
+
+  const matrixBuffer = new Float32Array(16)
+  const populated = sensor.populateMatrix(matrixBuffer) ?? matrixBuffer
+
+  if (populated.length >= 16) {
+    return [
+      [populated[0], populated[4], populated[8]],
+      [populated[1], populated[5], populated[9]],
+      [populated[2], populated[6], populated[10]],
+    ]
+  }
+
+  if (populated.length >= 9) {
+    return [
+      [populated[0], populated[1], populated[2]],
+      [populated[3], populated[4], populated[5]],
+      [populated[6], populated[7], populated[8]],
+    ]
+  }
+
+  return null
+}
+
+function invertQuaternion(quaternion: Quaternion): Quaternion {
+  const normalized = normalizeQuaternion(quaternion)
+  return [-normalized[0], -normalized[1], -normalized[2], normalized[3]]
 }
 
 function getOrientationWindow() {
@@ -721,12 +1154,8 @@ function getOrientationWindow() {
   return window as unknown as OrientationRuntime
 }
 
-function interpolateNumber(previous: number, next: number, factor: number) {
-  return previous + (next - previous) * factor
-}
-
-function interpolateAngle(previous: number, next: number, factor: number) {
-  return normalizeDegrees(previous + shortestAngleDeltaDeg(previous, next) * factor)
+function degreesToRadians(value: number) {
+  return (value * Math.PI) / 180
 }
 
 function shortestAngleDeltaDeg(fromDeg: number, toDeg: number) {
@@ -736,7 +1165,7 @@ function shortestAngleDeltaDeg(fromDeg: number, toDeg: number) {
 function getCircularMeanDeg(values: readonly number[]) {
   const vector = values.reduce(
     (total, value) => {
-      const radians = (value * Math.PI) / 180
+      const radians = degreesToRadians(value)
 
       return {
         x: total.x + Math.cos(radians),

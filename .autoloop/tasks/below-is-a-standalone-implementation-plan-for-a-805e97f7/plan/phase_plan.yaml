@@ -1,0 +1,169 @@
+version: 1
+task_id: below-is-a-standalone-implementation-plan-for-a-805e97f7
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/below-is-a-standalone-implementation-plan-for-a-805e97f7/runs/run-20260327T101915Z-adbc606c/request.md
+phases:
+  - phase_id: projection-foundations
+    title: Projection And Basis Foundations
+    objective: Replace viewport-only projection with source-frame-aware projection and add the matrix/basis helpers required by the new pose pipeline.
+    status: planned
+    in_scope:
+      - Refactor projection math around image-plane coordinates and CameraFrameLayout for object-fit cover video.
+      - Export Mat3 and basis helpers needed by sensor pose construction.
+      - Widen FOV calibration limits and preserve manual-mode quaternion helpers.
+    out_of_scope:
+      - Startup UI changes.
+      - Camera picker UX.
+      - Final sensor-provider integration in the viewer shell.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: projectWorldPointToScreen produces correct x/y placement when source and viewport aspect ratios differ under object-fit cover.
+      - id: AC-2
+        text: Projection helpers consume real source frame dimensions without breaking center-locked selection or overscan semantics.
+      - id: AC-3
+        text: Quaternion/basis helpers are available for later orientation phases without changing manual drag behavior.
+    deliverables:
+      - Updated projection and quaternion helper interfaces in lib/projection/camera.ts
+      - Projection unit tests covering cover-crop mapping and FOV range changes
+    risks:
+      - Existing callers may assume viewport size equals visible camera content.
+      - FOV widening can affect marker sizing and center-lock expectations.
+    rollback:
+      - Restore viewport-only mapping while keeping additive helper exports if downstream integration is not ready.
+      - Clamp FOV back to current limits if broader calibration range causes unexpected UI regressions.
+  - phase_id: orientation-pipeline
+    title: Raw Orientation And Calibration Pipeline
+    objective: Replace the Euler-first sensor path with provider-driven raw orientation samples, quaternion pose construction, and persistent quaternion calibration.
+    status: planned
+    in_scope:
+      - Add RawOrientationSample, OrientationSource, LocalFrame, and PoseCalibration contracts.
+      - Implement AbsoluteOrientationSensor and deviceorientation provider selection with exact W3C matrix math.
+      - Update permission helpers so iOS/WebKit uses DeviceOrientationEvent.requestPermission(true) and DeviceMotionEvent.requestPermission() from the Start AR activation path.
+      - Build qRawPose from basis vectors, apply quaternion calibration, and expose relative-vs-absolute status.
+      - Remove legacy screen-correction and landscape-compensation runtime logic once replacements are covered by tests.
+    out_of_scope:
+      - Camera selection UI.
+      - Manual observer form.
+      - Final startup-state presentation copy.
+    dependencies:
+      - projection-foundations
+    acceptance_criteria:
+      - id: AC-1
+        text: The active provider reports absolute truth from the sample/provider path, not from event-name assumptions or webkitCompassHeading.
+      - id: AC-2
+        text: Portrait and landscape screen angles preserve the same physical forward vector for a fixed pose.
+      - id: AC-3
+        text: Relative orientation requires calibration before live overlay labels are treated as aligned.
+      - id: AC-4
+        text: The permission-helper contract explicitly covers the iOS/WebKit requestPermission(true) path instead of silently preserving the current no-argument behavior.
+    deliverables:
+      - Rewritten lib/sensors/orientation.ts provider pipeline and calibration model
+      - Orientation unit tests for W3C sample cases, screen-angle invariance, calibration behavior, and the explicit iOS/WebKit permission-helper path
+    risks:
+      - Axis or handedness mistakes can invert overlays or cause 180-degree jumps near vertical.
+      - Device/browser support differences can break provider startup if the fallback order is not strict.
+    rollback:
+      - Temporarily keep the old subscription path behind a narrow fallback while preserving new helper exports.
+      - Disable Generic Sensor startup independently if it proves unstable on supported browsers.
+  - phase_id: viewer-startup-and-camera
+    title: Viewer Startup, Camera, And Observer Flow
+    objective: Move live startup into the viewer, keep camera startup inline, add manual observer fallback, and persist selected rear camera choice.
+    status: planned
+    in_scope:
+      - Replace landing-page permission preflight with an in-view Start AR controller and runtime startup states.
+      - Preserve the required startup order of motion/orientation permission, then camera start, then location request/manual observer fallback.
+      - Rework permission coordination so location failure falls back to manual observer entry instead of blocking live mode.
+      - Add camera open retry order with persisted deviceId and optional enumerateDevices-based rear-camera picker.
+      - Store and surface camera frame layout metadata from live video frames.
+    out_of_scope:
+      - Final calibration overlay polish.
+      - Optional zoom UI beyond capability-gated exposure.
+    dependencies:
+      - projection-foundations
+      - orientation-pipeline
+    acceptance_criteria:
+      - id: AC-1
+        text: Start AR requests motion/orientation permissions first, starts inline rear camera second, and requests location third from the same viewer-owned activation path.
+      - id: AC-2
+        text: Camera failure still allows non-camera sky rendering, and motion failure still allows camera-backed manual mode.
+      - id: AC-3
+        text: Geolocation denial or timeout no longer blocks startup forever and presents manual observer entry with retry.
+      - id: AC-4
+        text: Selected rear camera deviceId persists across reloads and falls back safely if the stored device becomes unavailable.
+    deliverables:
+      - Updated landing/viewer startup flow and permission coordination
+      - Camera picker and persistence support
+      - Observer fallback state, inline video configuration, and related tests
+    risks:
+      - Moving the startup gesture can break autoplay or motion-permission timing.
+      - Existing tests and query-param seeded flows may become stale quickly.
+    rollback:
+      - Keep demo entry routing intact regardless of live-startup changes.
+      - Re-enable a minimal blocked fallback if manual observer flow proves incomplete, without reverting camera/orientation foundations.
+  - phase_id: overlay-ui-and-render-loop
+    title: Overlay UI And Render Loop Integration
+    objective: Connect the new pose/calibration/runtime state to the live overlay, calibration reticle, settings controls, and per-frame rendering loop.
+    status: planned
+    in_scope:
+      - Drive overlay updates from requestVideoFrameCallback when available, else requestAnimationFrame.
+      - Implement the required calibration target priority using the existing astronomy pipeline and keep the manual north-marker fallback available.
+      - Add center reticle, align/reset/fine-adjust controls, sensor badges, relative-mode warning, and permission failure screens.
+      - Replace scalar heading/pitch nudge UI with quaternion-calibration-aware controls while preserving FOV adjustment.
+      - Keep astronomy object recompute cadence separate from projection/render cadence.
+    out_of_scope:
+      - New astronomy data sources.
+      - Cross-repo design-system refactors.
+    dependencies:
+      - viewer-startup-and-camera
+    acceptance_criteria:
+      - id: AC-1
+        text: Labels render against the visible video region using the calibrated quaternion pose and current camera frame layout.
+      - id: AC-2
+        text: The UI clearly distinguishes absolute sensor mode, relative mode needing calibration, manual mode, and failure states.
+      - id: AC-3
+        text: Align, reset, and fine-adjust controls update the stored calibration without reintroducing Euler offset dependencies.
+      - id: AC-4
+        text: Calibration target selection follows Sun, Moon, brightest visible planet, brightest visible star, then manual north marker when no sky body qualifies.
+    deliverables:
+      - Updated viewer shell and settings/calibration UI
+      - Render-loop integration using per-frame video metadata when available
+      - Calibration target-selection and north-marker fallback behavior
+    risks:
+      - Viewer shell churn can introduce cleanup bugs or stale subscriptions.
+      - UI copy/test expectations around blocked/manual/non-camera modes will change substantially.
+    rollback:
+      - Fall back to requestAnimationFrame-only rendering if requestVideoFrameCallback integration regresses.
+      - Keep FOV-only calibration exposed even if fine-adjust UI needs to be staged separately.
+  - phase_id: validation-and-device-qa
+    title: Validation And Device QA
+    objective: Prove the new sensor overlay path against the required math invariants, startup fallbacks, and real-device acceptance criteria.
+    status: planned
+    in_scope:
+      - Refresh unit, integration, and e2e coverage for new projection/orientation/startup contracts.
+      - Validate the deployment contract for HTTPS or localhost, Permissions-Policy delegation, and iframe allow handling when embedded.
+      - Execute the specified device/browser QA matrix and capture any remaining browser-specific constraints.
+      - Confirm all requested acceptance criteria and rollback paths.
+    out_of_scope:
+      - Post-launch analytics or telemetry additions.
+      - Browser-family heuristics beyond the feature-detection strategy already planned.
+    dependencies:
+      - overlay-ui-and-render-loop
+    acceptance_criteria:
+      - id: AC-1
+        text: Automated tests cover W3C orientation math cases, object-fit cover projection mapping, and startup fallback transitions.
+      - id: AC-2
+        text: Device QA confirms no 180-degree inversion through vertical crossing and no wild overlay jump on portrait-landscape rotation.
+      - id: AC-3
+        text: Device QA confirms calibration holds centered targets through modest pans and that manual/camera/location fallbacks remain usable.
+      - id: AC-4
+        text: Deployment validation confirms the feature is tested under secure-context hosting and with the required permissions-policy and iframe delegation rules when embedded.
+    deliverables:
+      - Updated automated test suite
+      - Documented device QA outcomes against the requested browser matrix
+      - Documented deployment and embed policy requirements for the shipped AR path
+    risks:
+      - Browser/device-only issues may surface late and require narrow compatibility guards.
+      - Existing automated tests may need broad rewrites because the startup contract changes.
+    rollback:
+      - Keep the manual mode and demo mode available as safe fallbacks during QA.
+      - Gate any late browser-specific fixes narrowly so validated paths remain intact.
