@@ -189,7 +189,9 @@ describe('ViewerShell settings integration', () => {
     expect(fovSlider?.value).toBe('6')
     expect(container.textContent).toContain('North marker')
     expect(container.textContent).toContain('Alignment steps')
-    expect(container.textContent).toContain('Choose the Sun or Moon target for this alignment pass.')
+    expect(container.textContent).toContain(
+      'Choose Sun or Moon as your preferred target. SkyLens is currently resolved to North marker.',
+    )
     expect(sunTargetButton?.disabled).toBe(false)
     expect(moonTargetButton?.disabled).toBe(false)
     expect(sunTargetButton?.getAttribute('aria-pressed')).toBe('false')

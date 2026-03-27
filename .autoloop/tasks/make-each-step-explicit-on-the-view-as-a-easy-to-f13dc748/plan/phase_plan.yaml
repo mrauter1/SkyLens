@@ -1,0 +1,40 @@
+version: 1
+task_id: make-each-step-explicit-on-the-view-as-a-easy-to-f13dc748
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/make-each-step-explicit-on-the-view-as-a-easy-to-f13dc748/runs/run-20260327T220245Z-fdc6ab51/request.md
+phases:
+  - phase_id: explicit-alignment-tutorial-panel
+    title: Explicit alignment tutorial and blockers
+    objective: Make the live alignment panel explain each alignment step in order, explicitly include the manual fine-adjust stage in the tutorial, surface blocker states inline, and expose manual fine-adjust nudges without changing calibration persistence or target resolution behavior.
+    status: planned
+    in_scope:
+      - Target-aware alignment tutorial copy on the live alignment panel
+      - Inline blocker and status messaging for unavailable alignment actions
+      - Manual fine-adjust nudges and reset affordances on the on-view alignment panel
+      - Settings-sheet/tutorial parity where shared derivation prevents copy drift
+      - Alignment-related regression tests for desktop and mobile flows
+    out_of_scope:
+      - Changing the persisted pose calibration schema
+      - Adding a new manual alignment target value
+      - Reworking the broader viewer layout outside alignment-related surfaces
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: The live alignment panel presents explicit numbered steps whose wording matches the resolved calibration target instead of generic Sun/Moon-only copy.
+      - id: AC-2
+        text: The numbered tutorial explicitly includes the manual nudge/fine-adjust step after alignment, without introducing a third manual target.
+      - id: AC-3
+        text: When Align cannot run or a fallback target is in use, the alignment panel surfaces clear blocker/status messaging that tells the user what will happen next.
+      - id: AC-4
+        text: The on-view alignment panel exposes manual nudge controls wired to the existing fine-adjust calibration path, and reset remains gated by current availability rules.
+      - id: AC-5
+        text: Existing alignment target selection, fallback resolution, persistence, and mobile Align-button visibility remain covered by updated unit tests.
+    deliverables:
+      - Updated alignment tutorial/blocker UX for viewer and settings alignment surfaces
+      - Alignment-focused regression test coverage for step copy, blockers, and nudges
+    risks:
+      - Compact mobile layout may become crowded once nudges and blocker copy are added.
+      - Generic copy can still drift if viewer and settings derive their steps separately.
+      - Mis-scoped control enablement could imply live alignment is available in manual or unsupported states.
+    rollback:
+      - Remove the on-view manual nudge controls and restore the previous live alignment panel rendering.
+      - Revert any shared-copy changes that destabilize settings-sheet or mobile alignment behavior.
