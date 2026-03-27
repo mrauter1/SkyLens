@@ -183,6 +183,13 @@ type CalibrationTargetResolution = {
   preferredTargetUnavailable: boolean
 }
 
+type VisibleCalibrationTargetCandidates = {
+  sunTarget: CalibrationTarget | null
+  moonTarget: CalibrationTarget | null
+  planetTarget: CalibrationTarget | null
+  starTarget: CalibrationTarget | null
+}
+
 const DEFAULT_VIEWPORT = {
   width: 390,
   height: 844,
@@ -286,8 +293,9 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   )
   const [showAlignmentGuidance, setShowAlignmentGuidance] = useState(false)
   const [calibrationBanner, setCalibrationBanner] = useState<string | null>(null)
-  const [alignmentTargetPreference, setAlignmentTargetPreference] =
-    useState<AlignmentTargetPreference>('sun')
+  const [manualAlignmentTargetPreference, setManualAlignmentTargetPreference] =
+    useState<AlignmentTargetPreference | null>(null)
+  const [hasManualAlignmentTargetOverride, setHasManualAlignmentTargetOverride] = useState(false)
   const [lastAppliedCalibrationTarget, setLastAppliedCalibrationTarget] =
     useState<CalibrationTarget | null>(null)
   const [healthStatus, setHealthStatus] = useState<HealthApiResponse | null>(null)
@@ -438,6 +446,14 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const sceneObjects = sceneSnapshot.error
     ? EMPTY_SCENE_SNAPSHOT.objects
     : [...sceneSnapshot.objects, ...constellationScene.objects]
+  const defaultAlignmentTargetPreference = resolveDefaultAlignmentTargetPreference(
+    sceneObjects,
+    sceneSnapshot.sunAltitudeDeg,
+  )
+  const alignmentTargetPreference =
+    hasManualAlignmentTargetOverride && manualAlignmentTargetPreference
+      ? manualAlignmentTargetPreference
+      : defaultAlignmentTargetPreference
   const projectedObjects: ProjectedSkyObject[] = sceneObjects.map((object) => ({
     ...object,
     projection: projectWorldPointToScreen(
@@ -566,6 +582,14 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     (state.camera !== 'granted' || state.orientation !== 'granted')
   const showMobileAlignAction = state.entry === 'live'
   const mobilePermissionActionLabel = getMobilePermissionActionLabel(state)
+
+  const handleAlignmentTargetPreferenceChange = useCallback(
+    (target: AlignmentTargetPreference) => {
+      setHasManualAlignmentTargetOverride(true)
+      setManualAlignmentTargetPreference(target)
+    },
+    [],
+  )
 
   const enterMobileAlignmentFocus = () => {
     setShowAlignmentGuidance(true)
@@ -1794,7 +1818,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     alignmentTargetFallbackLabel: calibrationTargetResolution.preferredTargetUnavailable
       ? calibrationTarget.label
       : null,
-    onAlignmentTargetPreferenceChange: setAlignmentTargetPreference,
+    onAlignmentTargetPreferenceChange: handleAlignmentTargetPreferenceChange,
     verticalFovAdjustmentDeg: viewerSettings.verticalFovAdjustmentDeg,
     cameraDevices,
     selectedCameraDeviceId: viewerSettings.selectedCameraDeviceId,
@@ -2311,7 +2335,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                       ? calibrationTarget.label
                       : null
                   }
-                  onSelectTarget={setAlignmentTargetPreference}
+                  onSelectTarget={handleAlignmentTargetPreferenceChange}
                 />
               ) : null}
               <section className="pointer-events-auto shell-panel rounded-[2rem] p-5 sm:p-6">
@@ -2623,7 +2647,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                               ? calibrationTarget.label
                               : null
                           }
-                          onSelectTarget={setAlignmentTargetPreference}
+                          onSelectTarget={handleAlignmentTargetPreferenceChange}
                         />
                       ) : null}
                       <section className="rounded-[1.25rem] border border-sky-100/10 bg-white/5 p-4">
@@ -2762,7 +2786,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                       ? calibrationTarget.label
                       : null
                   }
-                  onSelectTarget={setAlignmentTargetPreference}
+                  onSelectTarget={handleAlignmentTargetPreferenceChange}
                   compact
                 />
               </div>
@@ -3015,36 +3039,8 @@ function resolveCalibrationTarget(
   objects: readonly SkyObject[],
   preferredTarget: AlignmentTargetPreference,
 ): CalibrationTargetResolution {
-  const visibleCelestialTargets = objects.filter((object) => {
-    if (
-      object.type !== 'sun' &&
-      object.type !== 'moon' &&
-      object.type !== 'planet' &&
-      object.type !== 'star'
-    ) {
-      return false
-    }
-
-    return !isCelestialDaylightLabelSuppressed(object)
-  })
-
-  const sun = visibleCelestialTargets.find((object) => object.type === 'sun')
-  const sunTarget = sun ? createCalibrationTarget(sun, 'sun') : null
-
-  const moon = visibleCelestialTargets.find((object) => object.type === 'moon')
-  const moonTarget = moon ? createCalibrationTarget(moon, 'moon') : null
-
-  const brightestPlanet = [...visibleCelestialTargets]
-    .filter((object) => object.type === 'planet')
-    .sort(compareCalibrationBrightness)[0]
-  const planetTarget = brightestPlanet
-    ? createCalibrationTarget(brightestPlanet, 'planet')
-    : null
-
-  const brightestStar = [...visibleCelestialTargets]
-    .filter((object) => object.type === 'star')
-    .sort(compareCalibrationBrightness)[0]
-  const starTarget = brightestStar ? createCalibrationTarget(brightestStar, 'star') : null
+  const { sunTarget, moonTarget, planetTarget, starTarget } =
+    resolveVisibleCalibrationTargetCandidates(objects)
   const northTarget: CalibrationTarget = {
     id: 'north-marker',
     label: 'North marker',
@@ -3065,6 +3061,60 @@ function resolveCalibrationTarget(
     target: requestedTarget ?? autoTarget,
     preferredTarget,
     preferredTargetUnavailable: requestedTarget === null,
+  }
+}
+
+function resolveDefaultAlignmentTargetPreference(
+  objects: readonly SkyObject[],
+  sunAltitudeDeg: number,
+): AlignmentTargetPreference {
+  const { sunTarget, moonTarget } = resolveVisibleCalibrationTargetCandidates(objects)
+
+  if (sunTarget && moonTarget) {
+    return sunTarget.elevationDeg >= moonTarget.elevationDeg ? 'sun' : 'moon'
+  }
+
+  if (sunTarget) {
+    return 'sun'
+  }
+
+  if (moonTarget) {
+    return 'moon'
+  }
+
+  return sunAltitudeDeg < 0 ? 'moon' : 'sun'
+}
+
+function resolveVisibleCalibrationTargetCandidates(
+  objects: readonly SkyObject[],
+): VisibleCalibrationTargetCandidates {
+  const visibleCelestialTargets = objects.filter((object) => {
+    if (
+      object.type !== 'sun' &&
+      object.type !== 'moon' &&
+      object.type !== 'planet' &&
+      object.type !== 'star'
+    ) {
+      return false
+    }
+
+    return !isCelestialDaylightLabelSuppressed(object)
+  })
+
+  const sun = visibleCelestialTargets.find((object) => object.type === 'sun')
+  const moon = visibleCelestialTargets.find((object) => object.type === 'moon')
+  const brightestPlanet = [...visibleCelestialTargets]
+    .filter((object) => object.type === 'planet')
+    .sort(compareCalibrationBrightness)[0]
+  const brightestStar = [...visibleCelestialTargets]
+    .filter((object) => object.type === 'star')
+    .sort(compareCalibrationBrightness)[0]
+
+  return {
+    sunTarget: sun ? createCalibrationTarget(sun, 'sun') : null,
+    moonTarget: moon ? createCalibrationTarget(moon, 'moon') : null,
+    planetTarget: brightestPlanet ? createCalibrationTarget(brightestPlanet, 'planet') : null,
+    starTarget: brightestStar ? createCalibrationTarget(brightestStar, 'star') : null,
   }
 }
 
@@ -3389,7 +3439,6 @@ function AlignmentTargetButton({
   label,
   target,
   selected,
-  available,
   onSelect,
 }: {
   label: 'Sun' | 'Moon'
@@ -3402,14 +3451,13 @@ function AlignmentTargetButton({
     <button
       type="button"
       onClick={() => onSelect(target)}
-      disabled={!available}
       aria-pressed={selected}
       aria-label={`Use ${label} for alignment`}
       className={`flex min-h-11 items-center justify-center gap-2 rounded-2xl border px-3 py-3 text-sm ${
         selected
           ? 'border-amber-200/45 bg-amber-200/12 text-amber-50'
           : 'border-sky-100/10 bg-white/5 text-sky-50'
-      } disabled:cursor-not-allowed disabled:border-sky-100/5 disabled:text-sky-100/40`}
+      }`}
     >
       <AlignmentTargetIcon target={target} />
       <span>{label}</span>

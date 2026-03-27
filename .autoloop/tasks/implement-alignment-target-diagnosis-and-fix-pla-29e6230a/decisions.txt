@@ -1,0 +1,6 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260327T211249Z-40fb6f11" ts="2026-03-27T21:12:49.498415+00:00" />
+Alignment target availability remains an informational/fallback signal only; it must not disable the Sun or Moon selection controls.
+Automatic default-target selection should run only until the user explicitly selects Sun or Moon in the current mounted viewer session; scene and day/night updates must not overwrite that manual choice.
+The default-target heuristic should use the same visibility-filtered Sun/Moon candidates as calibration resolution, with higher elevation breaking visible ties and sunAltitudeDeg deciding the neither-visible fallback.
+<autoloop-decisions-header version="1" block_seq="2" owner="implementer" phase_id="align-target-default-and-override-fix" pair="implement" turn_seq="1" run_id="run-20260327T211249Z-40fb6f11" ts="2026-03-27T21:15:31.293288+00:00" />
+When visible Sun and Moon have the same elevation, the session-default preference stays on Sun to keep the heuristic deterministic without changing the requested fallback chain.

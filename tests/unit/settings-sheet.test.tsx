@@ -158,12 +158,15 @@ describe('SettingsSheet', () => {
     expect(onMotionQualityChange).toHaveBeenCalledWith('high')
   })
 
-  it('shows disabled fallback copy when the selected target is unavailable', async () => {
+  it('keeps unavailable targets selectable while showing fallback copy', async () => {
+    const onAlignmentTargetPreferenceChange = vi.fn()
+
     await act(async () => {
       root.render(
         React.createElement(SettingsSheet, {
           onEnterDemoMode: vi.fn(),
           onFixAlignment: vi.fn(),
+          onAlignmentTargetPreferenceChange,
           onRecenter: vi.fn(),
           canFixAlignment: true,
           canRecenter: true,
@@ -215,8 +218,14 @@ describe('SettingsSheet', () => {
       'button[aria-label="Use Moon for alignment"]',
     ) as HTMLButtonElement | null
 
-    expect(moonTargetButton?.disabled).toBe(true)
+    expect(moonTargetButton?.disabled).toBe(false)
     expect(container.textContent).toContain('Moon is unavailable. SkyLens will use Sun.')
+
+    await act(async () => {
+      moonTargetButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(onAlignmentTargetPreferenceChange).toHaveBeenCalledWith('moon')
   })
 
   it('traps focus and exposes demo scenario switching controls when open', async () => {

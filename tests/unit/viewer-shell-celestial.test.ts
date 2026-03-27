@@ -292,7 +292,93 @@ describe('ViewerShell celestial behavior', () => {
     expect(container.textContent).toContain('Target North marker')
   })
 
-  it('prefers calibration targets in the required celestial priority order', async () => {
+  it('defaults the selected alignment target to Sun when only Sun is visible', async () => {
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: 14,
+      objects: [
+        {
+          id: 'sun',
+          type: 'sun',
+          label: 'Sun',
+          azimuthDeg: 0,
+          elevationDeg: 18,
+          importance: 95,
+          metadata: {
+            detail: {
+              typeLabel: 'Sun',
+              elevationDeg: 18,
+              azimuthDeg: 0,
+            },
+          },
+        },
+      ],
+    })
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
+
+    const latestSettingsProps = () =>
+      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+        | {
+            alignmentTargetPreference?: 'sun' | 'moon'
+          }
+        | undefined
+
+    expect(container.textContent).toContain('Target Sun')
+    expect(latestSettingsProps()?.alignmentTargetPreference).toBe('sun')
+  })
+
+  it('defaults the selected alignment target to Moon when only Moon is visible', async () => {
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -12,
+      objects: [
+        {
+          id: 'moon',
+          type: 'moon',
+          label: 'Moon',
+          azimuthDeg: 12,
+          elevationDeg: 28,
+          importance: 88,
+          metadata: {
+            detail: {
+              typeLabel: 'Moon',
+              elevationDeg: 28,
+              azimuthDeg: 12,
+            },
+          },
+        },
+      ],
+    })
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
+
+    const initialSettingsProps = mockSettingsSheetProps.mock.calls[0]?.[0] as
+      | {
+          alignmentTargetPreference?: 'sun' | 'moon'
+        }
+      | undefined
+    const latestSettingsProps = () =>
+      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+        | {
+            alignmentTargetPreference?: 'sun' | 'moon'
+          }
+        | undefined
+
+    expect(initialSettingsProps?.alignmentTargetPreference).toBe('moon')
+    expect(container.textContent).toContain('Target Moon')
+    expect(latestSettingsProps()?.alignmentTargetPreference).toBe('moon')
+  })
+
+  it('defaults to the higher-elevation body when Sun and Moon are both visible', async () => {
     mockNormalizeCelestialObjects.mockReturnValue({
       sunAltitudeDeg: -12,
       objects: [
@@ -369,12 +455,118 @@ describe('ViewerShell celestial behavior', () => {
       orientation: 'denied',
     })
 
+    const initialSettingsProps = mockSettingsSheetProps.mock.calls[0]?.[0] as
+      | {
+          alignmentTargetPreference?: 'sun' | 'moon'
+        }
+      | undefined
+    const latestSettingsProps = () =>
+      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+        | {
+            alignmentTargetPreference?: 'sun' | 'moon'
+            onAlignmentTargetPreferenceChange?: (target: 'sun' | 'moon') => void
+          }
+        | undefined
+
+    expect(initialSettingsProps?.alignmentTargetPreference).toBe('moon')
+    expect(container.textContent).toContain('Target Moon')
+    expect(latestSettingsProps()?.alignmentTargetPreference).toBe('moon')
+
+    await act(async () => {
+      latestSettingsProps()?.onAlignmentTargetPreferenceChange?.('sun')
+    })
+
     expect(container.textContent).toContain('Target Sun')
+  })
+
+  it('falls back to day or night defaults when neither Sun nor Moon is visible', async () => {
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: 14,
+      objects: [],
+    })
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
 
     const latestSettingsProps = () =>
       mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
         | {
             alignmentTargetPreference?: 'sun' | 'moon'
+          }
+        | undefined
+
+    expect(container.textContent).toContain('Target North marker')
+    expect(latestSettingsProps()?.alignmentTargetPreference).toBe('sun')
+
+    await act(async () => {
+      root.unmount()
+    })
+
+    root = createRoot(container)
+    mockSettingsSheetProps.mockClear()
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -12,
+      objects: [],
+    })
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
+
+    const initialNightSettingsProps = mockSettingsSheetProps.mock.calls[0]?.[0] as
+      | {
+          alignmentTargetPreference?: 'sun' | 'moon'
+        }
+      | undefined
+
+    expect(initialNightSettingsProps?.alignmentTargetPreference).toBe('moon')
+    expect(container.textContent).toContain('Target North marker')
+    expect(latestSettingsProps()?.alignmentTargetPreference).toBe('moon')
+  })
+
+  it('preserves a manual alignment target override across rerenders and scene changes', async () => {
+    const initialState: ViewerRouteState = {
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    }
+
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: 14,
+      objects: [
+        {
+          id: 'sun',
+          type: 'sun',
+          label: 'Sun',
+          azimuthDeg: 0,
+          elevationDeg: 18,
+          importance: 95,
+          metadata: {
+            detail: {
+              typeLabel: 'Sun',
+              elevationDeg: 18,
+              azimuthDeg: 0,
+            },
+          },
+        },
+      ],
+    })
+
+    await renderViewer(initialState)
+
+    const latestSettingsProps = () =>
+      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+        | {
+            alignmentTargetPreference?: 'sun' | 'moon'
+            alignmentTargetFallbackLabel?: string | null
             onAlignmentTargetPreferenceChange?: (target: 'sun' | 'moon') => void
           }
         | undefined
@@ -385,7 +577,37 @@ describe('ViewerShell celestial behavior', () => {
       latestSettingsProps()?.onAlignmentTargetPreferenceChange?.('moon')
     })
 
-    expect(container.textContent).toContain('Target Moon')
+    expect(latestSettingsProps()?.alignmentTargetPreference).toBe('moon')
+
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: 14,
+      objects: [
+        {
+          id: 'sun',
+          type: 'sun',
+          label: 'Sun',
+          azimuthDeg: 0,
+          elevationDeg: 26,
+          importance: 95,
+          metadata: {
+            detail: {
+              typeLabel: 'Sun',
+              elevationDeg: 26,
+              azimuthDeg: 0,
+            },
+          },
+        },
+      ],
+    })
+
+    await act(async () => {
+      root.render(React.createElement(ViewerShell, { initialState }))
+    })
+    await flushEffects()
+
+    expect(container.textContent).toContain('Target Sun')
+    expect(latestSettingsProps()?.alignmentTargetPreference).toBe('moon')
+    expect(latestSettingsProps()?.alignmentTargetFallbackLabel).toBe('Sun')
   })
 
   it('falls back from suppressed sun to moon, then brightest planet, then brightest star', async () => {
@@ -645,7 +867,7 @@ describe('ViewerShell celestial behavior', () => {
     expect(latestSettingsProps()?.alignmentTargetFallbackLabel).toBe('Sun')
   })
 
-  it('switches the live on-screen alignment panel target when the user taps Moon', async () => {
+  it('switches the live on-screen alignment panel target when the user taps Sun', async () => {
     mockNormalizeCelestialObjects.mockReturnValue({
       sunAltitudeDeg: -12,
       objects: [
@@ -735,6 +957,18 @@ describe('ViewerShell celestial behavior', () => {
       orientation: 'granted',
     })
 
+    const latestSettingsProps = () =>
+      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+        | {
+            onFixAlignment?: () => void
+          }
+        | undefined
+
+    await act(async () => {
+      latestSettingsProps()?.onFixAlignment?.()
+    })
+    await flushEffects()
+
     const sunButton = container.querySelector(
       'button[aria-label="Use Sun for alignment"]',
     ) as HTMLButtonElement | null
@@ -744,16 +978,18 @@ describe('ViewerShell celestial behavior', () => {
 
     expect(sunButton).not.toBeNull()
     expect(moonButton).not.toBeNull()
-    expect(container.textContent).toContain('Current target Sun')
-    expect(container.textContent).toContain('Target Sun')
+    expect(sunButton?.disabled).toBe(false)
+    expect(moonButton?.disabled).toBe(false)
+    expect(container.textContent).toContain('Current target Moon')
+    expect(container.textContent).toContain('Center Moon in the reticle.')
 
     await act(async () => {
-      moonButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      sunButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
     await flushEffects()
 
-    expect(container.textContent).toContain('Current target Moon')
-    expect(container.textContent).toContain('Target Moon')
+    expect(container.textContent).toContain('Current target Sun')
+    expect(container.textContent).toContain('Center Sun in the reticle.')
   })
 
   it('defaults to center-only overlay copy for the center-locked object', async () => {

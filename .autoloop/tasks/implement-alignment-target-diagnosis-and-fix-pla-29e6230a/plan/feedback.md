@@ -1,0 +1,3 @@
+# Plan ↔ Plan Verifier Feedback
+- 2026-03-27: Replaced the placeholder artifacts with one implementation-ready phase that keeps alignment-target changes local to `ViewerShell`, both alignment button renderers, and the existing unit suites while making the visibility heuristic, sticky manual override, fallback preservation, validation, and rollback boundaries explicit.
+- PLAN-001 non-blocking: No blocking verification findings remain. The plan matches the request and the supplied diagnosis/fix spec, keeps the fallback-resolution contract explicit, defines a coherent single implementation phase, and covers the required regression tests for selectable buttons, heuristic defaults, and sticky user override behavior.

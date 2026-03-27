@@ -1,0 +1,36 @@
+{
+  "task_id": "implement-alignment-target-diagnosis-and-fix-pla-29e6230a",
+  "created_at": "2026-03-27T21:12:49.375910+00:00",
+  "request_text": "Implement ALIGNMENT_TARGET_DIAGNOSIS_AND_FIX_PLAN.md: keep Sun/Moon alignment buttons always selectable, choose default selected target by visibility likelihood, preserve user override, and add/adjust tests.",
+  "request_updated_at": "2026-03-27T21:12:49.375989+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/implement-alignment-target-diagnosis-and-fix-pla-29e6230a/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260327T211249Z-40fb6f11",
+    "mode": "single",
+    "phase_ids": [
+      "align-target-default-and-override-fix"
+    ],
+    "explicit": true,
+    "current_phase_index": 1,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "align-target-default-and-override-fix": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "align-target-default-and-override-fix",
+      "run_id": "run-20260327T211249Z-40fb6f11",
+      "status": "in_progress",
+      "ts": "2026-03-27T21:15:31.233246+00:00"
+    },
+    {
+      "phase_id": "align-target-default-and-override-fix",
+      "run_id": "run-20260327T211249Z-40fb6f11",
+      "status": "completed",
+      "ts": "2026-03-27T21:26:47.040247+00:00",
+      "pair": "test"
+    }
+  ]
+}
