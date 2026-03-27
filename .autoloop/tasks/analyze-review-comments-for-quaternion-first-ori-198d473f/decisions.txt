@@ -1,0 +1,10 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260327T001750Z-cc169aab" ts="2026-03-27T00:17:50.206947+00:00" />
+Quaternion interpolation in this task must remain auxiliary metadata smoothing only; continuous heading/pitch/roll smoothing stays authoritative because full quaternion-driven smoothing previously regressed zenith/nadir continuity.
+Landscape pose-contract adjustments must keep OrientationSample quaternion and Euler fields in sync; fixing the inconsistency must not change the established +/-90-degree branch-selection rule.
+Vector utility deduplication should reuse minimal exports from lib/projection/camera.ts rather than introducing a new shared math module or changing viewer-facing interfaces.
+<autoloop-decisions-header version="1" block_seq="2" owner="implementer" phase_id="remediate-orientation-review-comments" pair="implement" turn_seq="1" run_id="run-20260327T001750Z-cc169aab" ts="2026-03-27T00:20:36.380478+00:00" />
+When both smoothing endpoints include quaternion metadata, smoothOrientationSample now slerps only that metadata; when either endpoint lacks quaternion data, the smoothed sample rebuilds quaternion metadata from the already-authoritative smoothed Euler pose.
+Landscape pose-contract flips now regenerate sample.quaternion from the adjusted heading/pitch/roll under the existing +/-90-degree branch gate so normalized landscape samples remain internally self-consistent.
+<autoloop-decisions-header version="1" block_seq="3" owner="test_author" phase_id="remediate-orientation-review-comments" pair="test" turn_seq="1" run_id="run-20260327T001750Z-cc169aab" ts="2026-03-27T00:25:11.151445+00:00" />
+Quaternion regression tests compare orientations using absolute quaternion dot-product similarity so equivalent `q` and `-q` encodings do not create false failures.
+Smoothed-stream tests assert preserved Euler continuity and normalized quaternion metadata, but they intentionally do not require exact quaternion/Euler equality after smoothing because quaternion interpolation is auxiliary metadata under the accepted plan.

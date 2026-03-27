@@ -1,0 +1,13 @@
+# Implement ↔ Code Reviewer Feedback
+
+- Task ID: implement-the-ios-safari-orientation-remediation-b4dcb3c9
+- Pair: implement
+- Phase ID: remediate-ios-safari-orientation
+- Phase Directory Key: remediate-ios-safari-orientation
+- Phase Title: Remediate the iOS Safari orientation pipeline
+- Scope: phase-local authoritative verifier artifact
+
+- IMP-001 `blocking` — [lib/sensors/orientation.ts](/workspace/SkyLens/lib/sensors/orientation.ts): `normalizeDeviceOrientationReading()` applies the landscape sign fix only when `previousSample` is `null`, so the same quaternion normalizes to opposite pitch signs depending only on call history. Repro: `normalizeDeviceOrientationReading({ alpha: 0, beta: 0, gamma: 89 }, 90)` returns `pitchDeg ≈ +89`, but passing the same reading with any non-null previous sample (for example a prior portrait sample) returns `pitchDeg ≈ -89` for the identical quaternion. That means an active portrait→landscape transition can still invert the live sample stream and recenter baseline, which violates AC-2/AC-3. Minimal fix: remove the `previousSample === null` special case and centralize the quaternion-to-sample representation choice in one continuity/extraction path so equivalent quaternions normalize consistently regardless of stream history.
+- IMP-002 `non-blocking` — [tests/unit/orientation-foundation.test.ts](/workspace/SkyLens/tests/unit/orientation-foundation.test.ts) and [tests/unit/orientation-permission-and-subscription.test.ts](/workspace/SkyLens/tests/unit/orientation-permission-and-subscription.test.ts): the updated tests were relaxed to `Math.abs(pitchDeg)` for the first landscape zenith/nadir samples, so they no longer assert that portrait→landscape transitions preserve the corrected sign/continuity behavior. Add an explicit regression that feeds the same landscape reading both as the first sample and after a prior portrait sample (or an actual screen-rotation transition) to keep IMP-001 from recurring.
+
+- Review pass (2026-03-26, verifier): no new findings. IMP-001 is resolved by moving the `±90°` landscape pose-contract sign selection into the shared quaternion extraction path after continuity resolution, and IMP-002 is resolved by the added same-reading history regression in [tests/unit/orientation-foundation.test.ts](/workspace/SkyLens/tests/unit/orientation-foundation.test.ts) plus the repeated-landscape-branch subscription regression in [tests/unit/orientation-permission-and-subscription.test.ts](/workspace/SkyLens/tests/unit/orientation-permission-and-subscription.test.ts). The remaining manual iPhone Safari validation gap is explicitly recorded in the implementation notes, which satisfies AC-5 for this environment.

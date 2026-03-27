@@ -136,6 +136,22 @@ export function normalizeQuaternion(quaternion: Quaternion): Quaternion {
   return quaternion.map((value) => value / magnitude) as Quaternion
 }
 
+export function createAxisAngleQuaternion(
+  axis: Vec3,
+  angleDeg: number,
+): Quaternion {
+  const [ax, ay, az] = normalizeVec3(axis)
+  const halfAngleRad = degreesToRadians(angleDeg) / 2
+  const sinHalfAngle = Math.sin(halfAngleRad)
+
+  return normalizeQuaternion([
+    ax * sinHalfAngle,
+    ay * sinHalfAngle,
+    az * sinHalfAngle,
+    Math.cos(halfAngleRad),
+  ])
+}
+
 export function createCameraQuaternion(
   yawDeg: number,
   pitchDeg: number,
@@ -177,6 +193,69 @@ export function createCameraQuaternion(
       [right[2], down[2], forward[2]],
     ]),
   )
+}
+
+export function multiplyQuaternions(
+  left: Quaternion,
+  right: Quaternion,
+): Quaternion {
+  return normalizeQuaternion(multiplyQuaternionRaw(left, right))
+}
+
+export function slerpQuaternions(
+  from: Quaternion,
+  to: Quaternion,
+  factor: number,
+): Quaternion {
+  const clampedFactor = clamp(factor, 0, 1)
+  const start = normalizeQuaternion(from)
+  let end = normalizeQuaternion(to)
+  let cosineHalfTheta =
+    start[0] * end[0] +
+    start[1] * end[1] +
+    start[2] * end[2] +
+    start[3] * end[3]
+
+  if (cosineHalfTheta < 0) {
+    end = [-end[0], -end[1], -end[2], -end[3]]
+    cosineHalfTheta = -cosineHalfTheta
+  }
+
+  if (cosineHalfTheta > 0.9995) {
+    return normalizeQuaternion([
+      start[0] + (end[0] - start[0]) * clampedFactor,
+      start[1] + (end[1] - start[1]) * clampedFactor,
+      start[2] + (end[2] - start[2]) * clampedFactor,
+      start[3] + (end[3] - start[3]) * clampedFactor,
+    ])
+  }
+
+  const halfTheta = Math.acos(clamp(cosineHalfTheta, -1, 1))
+  const sinHalfTheta = Math.sin(halfTheta)
+
+  if (Math.abs(sinHalfTheta) < 1e-6) {
+    return start
+  }
+
+  const startWeight = Math.sin((1 - clampedFactor) * halfTheta) / sinHalfTheta
+  const endWeight = Math.sin(clampedFactor * halfTheta) / sinHalfTheta
+
+  return normalizeQuaternion([
+    start[0] * startWeight + end[0] * endWeight,
+    start[1] * startWeight + end[1] * endWeight,
+    start[2] * startWeight + end[2] * endWeight,
+    start[3] * startWeight + end[3] * endWeight,
+  ])
+}
+
+export function getCameraBasisVectors(quaternion: Quaternion) {
+  const normalizedQuaternion = normalizeQuaternion(quaternion)
+
+  return {
+    right: rotateVectorByQuaternion([1, 0, 0], normalizedQuaternion),
+    down: rotateVectorByQuaternion([0, 1, 0], normalizedQuaternion),
+    forward: rotateVectorByQuaternion([0, 0, 1], normalizedQuaternion),
+  }
 }
 
 export function worldToCameraVector(
@@ -290,7 +369,7 @@ export function radiansToDegrees(value: number) {
   return (value * 180) / Math.PI
 }
 
-function clamp(value: number, min: number, max: number) {
+export function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max)
 }
 
@@ -298,7 +377,7 @@ function magnitudeVec3(vector: Vec3) {
   return Math.hypot(vector[0], vector[1], vector[2])
 }
 
-function normalizeVec3(vector: Vec3): [number, number, number] {
+export function normalizeVec3(vector: Vec3): [number, number, number] {
   const magnitude = magnitudeVec3(vector)
 
   if (magnitude === 0) {
@@ -306,6 +385,18 @@ function normalizeVec3(vector: Vec3): [number, number, number] {
   }
 
   return [vector[0] / magnitude, vector[1] / magnitude, vector[2] / magnitude]
+}
+
+export function crossVec3(left: Vec3, right: Vec3): [number, number, number] {
+  return [
+    left[1] * right[2] - left[2] * right[1],
+    left[2] * right[0] - left[0] * right[2],
+    left[0] * right[1] - left[1] * right[0],
+  ]
+}
+
+export function dotVec3(left: Vec3, right: Vec3) {
+  return left[0] * right[0] + left[1] * right[1] + left[2] * right[2]
 }
 
 function rotateAroundAxis(
@@ -376,7 +467,18 @@ function conjugateQuaternion(quaternion: Quaternion): Quaternion {
   return [-quaternion[0], -quaternion[1], -quaternion[2], quaternion[3]]
 }
 
-function multiplyQuaternion(left: Quaternion, right: Quaternion): Quaternion {
+function rotateVectorByQuaternion(vector: Vec3, quaternion: Quaternion): [number, number, number] {
+  const q = normalizeQuaternion(quaternion)
+  const vectorQuat: Quaternion = [vector[0], vector[1], vector[2], 0]
+  const rotated = multiplyQuaternionRaw(
+    multiplyQuaternionRaw(q, vectorQuat),
+    conjugateQuaternion(q),
+  )
+
+  return [rotated[0], rotated[1], rotated[2]]
+}
+
+function multiplyQuaternionRaw(left: Quaternion, right: Quaternion): Quaternion {
   return [
     left[3] * right[0] +
       left[0] * right[3] +
@@ -395,15 +497,4 @@ function multiplyQuaternion(left: Quaternion, right: Quaternion): Quaternion {
       left[1] * right[1] -
       left[2] * right[2],
   ]
-}
-
-function rotateVectorByQuaternion(vector: Vec3, quaternion: Quaternion): [number, number, number] {
-  const q = normalizeQuaternion(quaternion)
-  const vectorQuat: Quaternion = [vector[0], vector[1], vector[2], 0]
-  const rotated = multiplyQuaternion(
-    multiplyQuaternion(q, vectorQuat),
-    conjugateQuaternion(q),
-  )
-
-  return [rotated[0], rotated[1], rotated[2]]
 }

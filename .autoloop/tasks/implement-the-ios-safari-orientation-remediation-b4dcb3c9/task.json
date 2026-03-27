@@ -1,0 +1,36 @@
+{
+  "task_id": "implement-the-ios-safari-orientation-remediation-b4dcb3c9",
+  "created_at": "2026-03-26T21:31:44.361069+00:00",
+  "request_text": "Implement the iOS Safari orientation remediation: quaternion-first orientation pipeline, fix >90 degree inversion, improve real-world alignment, add regression tests",
+  "request_updated_at": "2026-03-26T21:31:44.361143+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/implement-the-ios-safari-orientation-remediation-b4dcb3c9/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260326T220259Z-d167eedb",
+    "mode": "single",
+    "phase_ids": [
+      "remediate-ios-safari-orientation"
+    ],
+    "explicit": true,
+    "current_phase_index": 1,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "remediate-ios-safari-orientation": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "remediate-ios-safari-orientation",
+      "run_id": "run-20260326T213144Z-91b0386a",
+      "status": "in_progress",
+      "ts": "2026-03-26T21:36:01.393339+00:00"
+    },
+    {
+      "phase_id": "remediate-ios-safari-orientation",
+      "run_id": "run-20260326T220259Z-d167eedb",
+      "status": "completed",
+      "ts": "2026-03-26T22:12:51.837447+00:00",
+      "pair": "test"
+    }
+  ]
+}

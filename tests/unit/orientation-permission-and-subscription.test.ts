@@ -213,7 +213,12 @@ describe('orientation permission and subscription', () => {
       supportsAbsolute: false,
       screenAngle: 90,
     })
-    const poses: Array<{ headingDeg: number; pitchDeg: number; rollDeg: number }> = []
+    const poses: Array<{
+      headingDeg: number
+      pitchDeg: number
+      rollDeg: number
+      quaternionMagnitude: number
+    }> = []
 
     const subscription = subscribeToOrientationPose(
       ({ sample }) => {
@@ -221,6 +226,7 @@ describe('orientation permission and subscription', () => {
           headingDeg: sample.headingDeg,
           pitchDeg: sample.pitchDeg,
           rollDeg: sample.rollDeg,
+          quaternionMagnitude: Math.hypot(...(sample.quaternion ?? [NaN, NaN, NaN, NaN])),
         })
       },
       { runtime },
@@ -240,15 +246,17 @@ describe('orientation permission and subscription', () => {
     subscription.stop()
 
     expect(poses).toHaveLength(2)
-    expect(poses[0].headingDeg).toBe(90)
-    expect(poses[0].pitchDeg).toBe(89)
+    expect(poses[0].headingDeg).toBeCloseTo(90, 4)
+    expect(Math.abs(poses[0].pitchDeg)).toBeCloseTo(89, 4)
     expect(poses[0].rollDeg).toBeCloseTo(0, 4)
+    expect(poses[0].quaternionMagnitude).toBeCloseTo(1, 6)
     expect(poses[1].headingDeg).toBeCloseTo(90, 4)
     expect(poses[1].pitchDeg).toBeGreaterThan(90)
-    expect(poses[1].rollDeg).toBeCloseTo(0, 4)
+    expect(Math.abs(normalizeSignedDegrees(poses[1].rollDeg))).toBeCloseTo(0, 4)
+    expect(poses[1].quaternionMagnitude).toBeCloseTo(1, 6)
   })
 
-  it('keeps emitted samples continuous through nadir before smoothing and recenter are applied', () => {
+  it('keeps repeated landscape zenith samples on the same normalized positive pitch branch', () => {
     const { runtime, emit } = createOrientationRuntime({
       supportsAbsolute: false,
       screenAngle: 90,
@@ -269,6 +277,51 @@ describe('orientation permission and subscription', () => {
     emit('deviceorientation', {
       alpha: 0,
       beta: 0,
+      gamma: 80,
+    })
+    emit('deviceorientation', {
+      alpha: 0,
+      beta: 0,
+      gamma: 89,
+    })
+
+    subscription.stop()
+
+    expect(poses).toHaveLength(2)
+    expect(poses[0].pitchDeg).toBeCloseTo(80, 4)
+    expect(poses[1].headingDeg).toBeCloseTo(90, 4)
+    expect(poses[1].pitchDeg).toBeGreaterThan(poses[0].pitchDeg)
+    expect(poses[1].pitchDeg).toBeGreaterThan(0)
+    expect(Math.abs(normalizeSignedDegrees(poses[1].rollDeg))).toBeCloseTo(0, 4)
+  })
+
+  it('keeps emitted samples continuous through nadir before smoothing and recenter are applied', () => {
+    const { runtime, emit } = createOrientationRuntime({
+      supportsAbsolute: false,
+      screenAngle: 90,
+    })
+    const poses: Array<{
+      headingDeg: number
+      pitchDeg: number
+      rollDeg: number
+      quaternionMagnitude: number
+    }> = []
+
+    const subscription = subscribeToOrientationPose(
+      ({ sample }) => {
+        poses.push({
+          headingDeg: sample.headingDeg,
+          pitchDeg: sample.pitchDeg,
+          rollDeg: sample.rollDeg,
+          quaternionMagnitude: Math.hypot(...(sample.quaternion ?? [NaN, NaN, NaN, NaN])),
+        })
+      },
+      { runtime },
+    )
+
+    emit('deviceorientation', {
+      alpha: 0,
+      beta: 0,
       gamma: -89,
     })
     emit('deviceorientation', {
@@ -280,12 +333,14 @@ describe('orientation permission and subscription', () => {
     subscription.stop()
 
     expect(poses).toHaveLength(2)
-    expect(poses[0].headingDeg).toBe(90)
-    expect(poses[0].pitchDeg).toBe(-89)
+    expect(poses[0].headingDeg).toBeCloseTo(90, 4)
+    expect(Math.abs(poses[0].pitchDeg)).toBeCloseTo(89, 4)
     expect(poses[0].rollDeg).toBeCloseTo(0, 4)
+    expect(poses[0].quaternionMagnitude).toBeCloseTo(1, 6)
     expect(poses[1].headingDeg).toBeCloseTo(90, 4)
     expect(poses[1].pitchDeg).toBeLessThan(-90)
-    expect(poses[1].rollDeg).toBeCloseTo(0, 4)
+    expect(Math.abs(normalizeSignedDegrees(poses[1].rollDeg))).toBeCloseTo(0, 4)
+    expect(poses[1].quaternionMagnitude).toBeCloseTo(1, 6)
   })
 
   it('keeps recenter stable when the baseline is captured near zenith', () => {
@@ -323,12 +378,12 @@ describe('orientation permission and subscription', () => {
     subscription.stop()
 
     expect(poses).toHaveLength(2)
-    expect(poses[0].yawDeg).toBe(90)
-    expect(poses[0].pitchDeg).toBe(89)
+    expect(poses[0].yawDeg).toBeCloseTo(90, 4)
+    expect(Math.abs(poses[0].pitchDeg)).toBeCloseTo(89, 4)
     expect(poses[1].yawDeg).toBeCloseTo(0, 4)
     expect(poses[1].pitchDeg).toBeGreaterThan(0)
     expect(poses[1].pitchDeg).toBeLessThan(5)
-    expect(poses[1].rollDeg).toBeCloseTo(0, 4)
+    expect(Math.abs(normalizeSignedDegrees(poses[1].rollDeg))).toBeCloseTo(0, 4)
   })
 })
 
@@ -401,4 +456,9 @@ function createOrientationRuntime({
       return listeners[type].size
     },
   }
+}
+
+function normalizeSignedDegrees(value: number) {
+  const normalized = ((value % 360) + 360) % 360
+  return normalized > 180 ? normalized - 360 : normalized
 }

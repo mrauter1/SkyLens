@@ -1,0 +1,41 @@
+version: 1
+task_id: implement-the-ios-safari-orientation-remediation-b4dcb3c9
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/implement-the-ios-safari-orientation-remediation-b4dcb3c9/runs/run-20260326T213144Z-91b0386a/request.md
+phases:
+  - phase_id: remediate-ios-safari-orientation
+    title: Remediate the iOS Safari orientation pipeline
+    objective: Replace Euler-first device-orientation normalization with quaternion-first pose derivation so Safari stays aligned through screen rotation and pitch beyond 90 degrees without changing the existing viewer pose contract.
+    status: planned
+    in_scope:
+      - Update sensor normalization in lib/sensors/orientation.ts so quaternions become the canonical orientation state before heading/pitch/roll are derived.
+      - Compose screen-orientation correction and Safari heading handling in quaternion math instead of raw alpha/beta/gamma remapping.
+      - Preserve recenter, smoothing, offsets, alignment health, and one-stream subscription behavior while adapting them to the corrected pose pipeline.
+      - Add focused unit regression coverage for >90-degree continuity, real-world alignment invariants, and Safari-specific heading/screen-orientation cases.
+    out_of_scope:
+      - Changing viewer-shell UX, permission enums, route/query contracts, or persisted viewer-settings shape.
+      - Reworking manual-pan fallback behavior or unrelated projection/rendering features.
+      - Introducing broad new math abstraction layers beyond minimal shared quaternion helpers.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: Raw orientation events are normalized through a quaternion-first path that keeps the existing CameraPose contract intact for consumers.
+      - id: AC-2
+        text: Sensor poses remain continuous and do not invert heading or roll when pitch crosses above +90 degrees or below -90 degrees, including recenter-near-zenith/nadir cases.
+      - id: AC-3
+        text: Screen-orientation correction and Safari heading handling improve real-world alignment without regressing current deviceorientationabsolute versus deviceorientation stream selection and permission behavior.
+      - id: AC-4
+        text: Unit tests lock the Safari remediation behavior with explicit coverage for screen rotation, heading-source precedence, >90-degree continuity, and projection/alignment invariants.
+      - id: AC-5
+        text: Manual iPhone Safari smoke validation covers portrait and landscape alignment, >90-degree transitions, and recenter/offset behavior before closeout, or the remaining device-validation gap is explicitly recorded if that environment is unavailable.
+    deliverables:
+      - Updated quaternion-first orientation normalization and pose derivation in lib/sensors/orientation.ts.
+      - Minimal shared quaternion helper updates in lib/projection/camera.ts if the remediation requires them.
+      - Expanded unit regression coverage in orientation and projection test suites.
+      - A recorded iPhone Safari smoke-validation result or an explicit unresolved device-validation note if that environment is unavailable.
+    risks:
+      - Quaternion frame-conversion mistakes can introduce global yaw offsets or mirrored axes.
+      - Recenter and smoothing may regress if canonical quaternion state and derived angle state diverge.
+      - Safari-specific heading precedence may accidentally change non-Safari behavior if it is not isolated and tested.
+    rollback:
+      - Revert the quaternion-first orientation slice if validation shows systemic live-alignment regression on supported sensor browsers.
+      - Revert any new shared quaternion helper exports if they destabilize unrelated projection behavior.
