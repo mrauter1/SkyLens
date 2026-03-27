@@ -1,0 +1,50 @@
+version: 1
+task_id: fix-viewer-and-alignment-overlays-on-mobile-1-op-f01d6bdb
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/fix-viewer-and-alignment-overlays-on-mobile-1-op-f01d6bdb/runs/run-20260327T174636Z-3c0373c6/request.md
+phases:
+- phase_id: mobile-viewer-overlay-and-alignment-actions
+  title: Fix mobile viewer overlay scrolling and first-use alignment actions
+  objective: Update the mobile ViewerShell chrome so the expanded overlay scrolls
+    correctly, explicit alignment hides nonessential overlay content, and first-time
+    live use exposes direct permission and align actions.
+  status: planned
+  in_scope:
+  - Mobile overlay wrapper and scroll-container behavior in the viewer shell
+  - Mobile-only alignment-focus visibility rules during explicit alignment flows
+  - Closed mobile action row visibility for permission enablement and first-time alignment
+  - Viewer-shell regression tests covering the new mobile contracts
+  out_of_scope:
+  - Desktop viewer layout changes
+  - Permission ordering or permission-coordinator behavior changes
+  - Persisted settings schema changes
+  - Broader settings-sheet redesign
+  dependencies: []
+  acceptance_criteria:
+  - id: AC-1
+    text: Opening the mobile viewer overlay no longer clips the top content and the
+      overlay can scroll back to its top within the safe viewport.
+  - id: AC-2
+    text: During explicit mobile alignment flow, overlay chrome is hidden so the reticle
+      stays visible and the closed footer leaves only the align action available.
+  - id: AC-3
+    text: In live mobile first-use states with missing camera and/or motion access
+      and incomplete calibration, the closed action row surfaces a permission CTA
+      and an align CTA, with align remaining visible per the requested flow even
+      before a live sample makes calibration actionable.
+  - id: AC-4
+    text: Existing desktop composition, settings-sheet behavior, and ordered startup
+      logic remain covered by tests and unchanged in contract.
+  deliverables:
+  - Updated mobile overlay and footer logic in ViewerShell
+  - Regression tests for overlay scrolling, alignment focus, and first-use action
+    visibility
+  risks:
+  - Mobile overlay layout changes could regress backdrop dismissal or safe-area containment.
+  - Alignment-focus state could hide too much UI if tied to passive warning banners
+    instead of explicit alignment actions.
+  - Permission CTA changes could accidentally bypass the existing startup handler
+    ordering.
+  rollback:
+  - Revert the mobile-only overlay wrapper and footer action changes in ViewerShell.
+  - Restore the previous single-button closed mobile footer if the new state-aware
+    action row regresses startup reachability.

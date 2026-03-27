@@ -681,6 +681,191 @@ describe('ViewerShell startup gating', () => {
     expect(mobileOverlay?.textContent).toContain('Try demo mode')
   })
 
+  it('shows first-use mobile actions for permissions and alignment while keeping viewer access', async () => {
+    await renderViewer({
+      entry: 'live',
+      location: 'unknown',
+      camera: 'unknown',
+      orientation: 'unknown',
+    })
+
+    const quickActions = container.querySelector(
+      '[data-testid="mobile-viewer-quick-actions"]',
+    ) as HTMLElement | null
+    const openViewerButton = container.querySelector(
+      '[data-testid="mobile-viewer-overlay-trigger"]',
+    ) as HTMLButtonElement | null
+    const permissionButton = container.querySelector(
+      '[data-testid="mobile-permission-action"]',
+    ) as HTMLButtonElement | null
+    const alignButton = container.querySelector(
+      '[data-testid="mobile-align-action"]',
+    ) as HTMLButtonElement | null
+
+    expect(quickActions).not.toBeNull()
+    expect(openViewerButton?.textContent).toContain('Open viewer')
+    expect(permissionButton?.textContent).toContain('Enable camera and motion')
+    expect(alignButton?.textContent).toContain('Align')
+    expect(alignButton?.disabled).toBe(true)
+    expect(container.querySelector('[data-testid="mobile-viewer-overlay"]')).toBeNull()
+  })
+
+  it('keeps align visible but disabled before a live sample exists even after permissions are granted', async () => {
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'granted',
+    })
+
+    const openViewerButton = container.querySelector(
+      '[data-testid="mobile-viewer-overlay-trigger"]',
+    ) as HTMLButtonElement | null
+    const permissionButton = container.querySelector(
+      '[data-testid="mobile-permission-action"]',
+    ) as HTMLButtonElement | null
+    const alignButton = container.querySelector(
+      '[data-testid="mobile-align-action"]',
+    ) as HTMLButtonElement | null
+
+    expect(openViewerButton?.textContent).toContain('Open viewer')
+    expect(permissionButton).toBeNull()
+    expect(alignButton?.textContent).toContain('Align')
+    expect(alignButton?.disabled).toBe(true)
+    expect(container.querySelector('[data-testid="mobile-viewer-overlay"]')).toBeNull()
+  })
+
+  it('routes the closed mobile align action into alignment focus once calibration can run', async () => {
+    mockSubscribeToOrientationPose.mockImplementationOnce((onPose: (state: unknown) => void) => {
+      onPose({
+        pose: {
+          yawDeg: 0,
+          pitchDeg: 0,
+          rollDeg: 0,
+          quaternion: [0, 0, 0, 1],
+          alignmentHealth: 'fair',
+          mode: 'sensor',
+        },
+        sample: {
+          source: 'absolute-sensor',
+          absolute: true,
+          needsCalibration: false,
+          timestampMs: Date.UTC(2026, 2, 26, 0, 45, 6),
+          headingDeg: 0,
+          pitchDeg: 0,
+          rollDeg: 0,
+          quaternion: [0, 0, 0, 1],
+          rawQuaternion: [0, 0, 0, 1],
+          rawSample: {
+            source: 'absolute-sensor',
+            localFrame: 'screen',
+            absolute: true,
+            timestampMs: Date.UTC(2026, 2, 26, 0, 45, 6),
+            worldFromLocal: [
+              [1, 0, 0],
+              [0, 1, 0],
+              [0, 0, 1],
+            ],
+          },
+        },
+        history: [],
+        orientationSource: 'absolute-sensor',
+        orientationAbsolute: true,
+        orientationNeedsCalibration: false,
+        poseCalibration: {
+          offsetQuaternion: [0, 0, 0, 1],
+          calibrated: false,
+          sourceAtCalibration: null,
+          lastCalibratedAtMs: null,
+        },
+      })
+
+      return SENSOR_CONTROLLER
+    })
+
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'granted',
+    })
+
+    const permissionButton = container.querySelector(
+      '[data-testid="mobile-permission-action"]',
+    ) as HTMLButtonElement | null
+    const alignButton = container.querySelector(
+      '[data-testid="mobile-align-action"]',
+    ) as HTMLButtonElement | null
+
+    expect(permissionButton).toBeNull()
+    expect(alignButton).not.toBeNull()
+    expect(alignButton?.disabled).toBe(false)
+    expect(readViewerSettings().poseCalibration.calibrated).toBe(false)
+
+    const calibrationCallsBefore = SENSOR_CONTROLLER.setCalibration.mock.calls.length
+
+    await act(async () => {
+      alignButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    const focusedAlignButton = container.querySelector(
+      '[data-testid="mobile-align-action"]',
+    ) as HTMLButtonElement | null
+
+    expect(container.querySelector('[data-testid="mobile-viewer-overlay"]')).toBeNull()
+    expect(container.querySelector('[data-testid="mobile-viewer-overlay-trigger"]')).toBeNull()
+    expect(container.querySelector('[data-testid="mobile-permission-action"]')).toBeNull()
+    expect(readViewerSettings().poseCalibration.calibrated).toBe(false)
+    expect(SENSOR_CONTROLLER.setCalibration.mock.calls.length).toBe(calibrationCallsBefore)
+    expect(focusedAlignButton).not.toBeNull()
+    expect(focusedAlignButton?.disabled).toBe(false)
+  })
+
+  it('hides mobile overlay chrome during explicit alignment focus and leaves only align visible', async () => {
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'granted',
+    })
+
+    const openViewerButton = container.querySelector(
+      '[data-testid="mobile-viewer-overlay-trigger"]',
+    ) as HTMLButtonElement | null
+
+    expect(openViewerButton).not.toBeNull()
+
+    await act(async () => {
+      openViewerButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const latestSettingsProps = () =>
+      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+        | {
+            onFixAlignment?: () => void
+          }
+        | undefined
+
+    await act(async () => {
+      latestSettingsProps()?.onFixAlignment?.()
+    })
+
+    const quickActions = container.querySelector(
+      '[data-testid="mobile-viewer-quick-actions"]',
+    ) as HTMLElement | null
+    const alignButton = container.querySelector(
+      '[data-testid="mobile-align-action"]',
+    ) as HTMLButtonElement | null
+
+    expect(container.querySelector('[data-testid="mobile-viewer-overlay"]')).toBeNull()
+    expect(container.querySelector('[data-testid="mobile-viewer-overlay-trigger"]')).toBeNull()
+    expect(container.querySelector('[data-testid="mobile-permission-action"]')).toBeNull()
+    expect(quickActions).not.toBeNull()
+    expect(alignButton).not.toBeNull()
+    expect(alignButton?.disabled).toBe(true)
+  })
+
   it('shows the secure-context failure screen when live AR is unavailable on this origin', async () => {
     Object.defineProperty(window, 'isSecureContext', {
       configurable: true,
@@ -725,18 +910,20 @@ describe('ViewerShell startup gating', () => {
     const mobileOverlay = container.querySelector(
       '[data-testid="mobile-viewer-overlay"]',
     ) as HTMLElement | null
-    const mobileOverlayWrapper = mobileOverlay?.parentElement as HTMLElement | null
+    const mobileOverlayScrollRegion = container.querySelector(
+      '[data-testid="mobile-viewer-overlay-scroll-region"]',
+    ) as HTMLElement | null
 
     expect(mobileOverlay).not.toBeNull()
-    expect(mobileOverlayWrapper).not.toBeNull()
-    expect(mobileOverlayWrapper?.className).toContain(
+    expect(mobileOverlayScrollRegion).not.toBeNull()
+    expect(mobileOverlayScrollRegion?.className).toContain(
       'pt-[calc(1rem+env(safe-area-inset-top))]',
     )
-    expect(mobileOverlayWrapper?.className).toContain(
+    expect(mobileOverlayScrollRegion?.className).toContain(
       'pb-[calc(1rem+env(safe-area-inset-bottom))]',
     )
-    expect(mobileOverlayWrapper?.className).not.toContain('sm:hidden')
-    expect(mobileOverlay?.className).toContain('max-h-full')
+    expect(mobileOverlayScrollRegion?.className).toContain('overflow-y-auto')
+    expect(mobileOverlayScrollRegion?.className).not.toContain('sm:hidden')
   })
 
   it('surfaces motion recovery guidance and retries orientation permission', async () => {

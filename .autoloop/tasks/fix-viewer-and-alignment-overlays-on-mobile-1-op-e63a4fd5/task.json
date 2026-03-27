@@ -1,0 +1,7 @@
+{
+  "task_id": "fix-viewer-and-alignment-overlays-on-mobile-1-op-e63a4fd5",
+  "created_at": "2026-03-27T17:12:14.189762+00:00",
+  "request_text": "Fix viewer and alignment overlays on mobile: (1) open viewer overlay top is clipped and user cannot scroll back to top; (2) during alignment process overlay should hide so only target center and align button remain visible; (3) when AR is disabled and calibration not done, show clear buttons: one to enable camera and motion (only when not enabled) and one to align for first-time use; keep align button visible.",
+  "request_updated_at": "2026-03-27T17:13:24.268058+00:00",
+  "phase_plan_path": ".autoloop/tasks/fix-viewer-and-alignment-overlays-on-mobile-1-op-e63a4fd5/plan/phase_plan.yaml"
+}
