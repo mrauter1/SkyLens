@@ -1,0 +1,36 @@
+{
+  "task_id": "implement-alignment-ui-requirements-md-keep-alig-0a608ab4",
+  "created_at": "2026-03-27T19:10:53.529154+00:00",
+  "request_text": "Implement ALIGNMENT_UI_REQUIREMENTS.md: keep Align button visible even after successful alignment; add explicit on-screen step instructions for calibration flow; add a Sun/Moon icon toggle to select alignment target.",
+  "request_updated_at": "2026-03-27T19:10:53.529208+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/implement-alignment-ui-requirements-md-keep-alig-0a608ab4/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260327T191053Z-0b07ad7b",
+    "mode": "single",
+    "phase_ids": [
+      "alignment-ui-updates"
+    ],
+    "explicit": true,
+    "current_phase_index": 1,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "alignment-ui-updates": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "alignment-ui-updates",
+      "run_id": "run-20260327T191053Z-0b07ad7b",
+      "status": "in_progress",
+      "ts": "2026-03-27T19:14:25.646202+00:00"
+    },
+    {
+      "phase_id": "alignment-ui-updates",
+      "run_id": "run-20260327T191053Z-0b07ad7b",
+      "status": "completed",
+      "ts": "2026-03-27T19:24:32.302913+00:00",
+      "pair": "test"
+    }
+  ]
+}

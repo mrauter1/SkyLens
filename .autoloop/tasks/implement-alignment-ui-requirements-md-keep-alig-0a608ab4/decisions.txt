@@ -1,0 +1,9 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260327T191053Z-0b07ad7b" ts="2026-03-27T19:10:53.638538+00:00" />
+Keep Sun/Moon target selection session-scoped in ViewerShell; do not expand the persisted viewer-settings schema for this UI request.
+If the selected Sun or Moon target is unavailable, preserve the existing automatic fallback order instead of blocking alignment.
+Post-alignment success and calibrated-status copy should use the target actually applied during alignment, not the latest auto-selected scene target.
+<autoloop-decisions-header version="1" block_seq="2" owner="implementer" phase_id="alignment-ui-updates" pair="implement" turn_seq="1" run_id="run-20260327T191053Z-0b07ad7b" ts="2026-03-27T19:14:25.689730+00:00" />
+Show the new on-screen alignment instructions and Sun/Moon target toggle only during calibration-relevant live states (relative-sensor warning, explicit align focus, or alignment guidance) while always rendering the controls inside the settings calibration panel.
+Treat unavailable Sun/Moon selections as disabled UI affordances but keep the session preference so fallback messaging can explain which effective target from the existing resolver chain will be used instead.
+<autoloop-decisions-header version="1" block_seq="3" owner="test_author" phase_id="alignment-ui-updates" pair="test" turn_seq="1" run_id="run-20260327T191053Z-0b07ad7b" ts="2026-03-27T19:20:51.546643+00:00" />
+Use mocked `SettingsSheet` props in the celestial viewer-shell unit suite to assert session target preference, availability, and fallback-label wiring without depending on full settings-sheet rendering for resolver behavior.

@@ -30,6 +30,7 @@ describe('SettingsSheet', () => {
     const onFixAlignment = vi.fn()
     const onAlignCalibration = vi.fn()
     const onFineAdjustCalibration = vi.fn()
+    const onAlignmentTargetPreferenceChange = vi.fn()
     const onLabelDisplayModeChange = vi.fn()
 
     await act(async () => {
@@ -38,13 +39,26 @@ describe('SettingsSheet', () => {
           onEnterDemoMode: vi.fn(),
           onFixAlignment,
           onAlignCalibration,
+          onAlignmentTargetPreferenceChange,
           onFineAdjustCalibration,
           onRecenter: vi.fn(),
           canFixAlignment: true,
           canAlignCalibration: true,
           canRecenter: true,
           calibrationTargetLabel: 'Venus',
+          calibrationTargetDescription: 'Center Venus in the reticle, then align.',
           calibrationStatus: 'Relative sensors need Venus before labels can lock.',
+          calibrationInstructions: [
+            'Choose the Sun or Moon target for this alignment pass.',
+            'Center Venus in the reticle.',
+            'Tap Align to lock labels to Venus.',
+            'If labels still drift, fine-adjust or reset calibration.',
+          ],
+          alignmentTargetPreference: 'sun',
+          alignmentTargetAvailability: {
+            sun: true,
+            moon: true,
+          },
           layers: {
             aircraft: true,
             satellites: true,
@@ -93,20 +107,27 @@ describe('SettingsSheet', () => {
     const nudgeRightButton = Array.from(container.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Nudge right'),
     )
+    const moonTargetButton = container.querySelector(
+      'button[aria-label="Use Moon for alignment"]',
+    ) as HTMLButtonElement | null
 
     expect(onFixAlignment).toHaveBeenCalledTimes(1)
     expect(container.textContent).toContain('Venus')
     expect(container.textContent).toContain('Relative sensors need Venus before labels can lock.')
+    expect(container.textContent).toContain('Alignment steps')
+    expect(container.textContent).toContain('Choose the Sun or Moon target for this alignment pass.')
     expect(
       (container.querySelector('input[aria-label="Center only"]') as HTMLInputElement | null)
         ?.checked,
     ).toBe(true)
 
     await act(async () => {
+      moonTargetButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
       alignButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
       nudgeRightButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
+    expect(onAlignmentTargetPreferenceChange).toHaveBeenCalledWith('moon')
     expect(onAlignCalibration).toHaveBeenCalledTimes(1)
     expect(onFineAdjustCalibration).toHaveBeenCalledWith({
       axis: 'yaw',
@@ -122,6 +143,67 @@ describe('SettingsSheet', () => {
     })
 
     expect(onLabelDisplayModeChange).toHaveBeenCalledWith('top_list')
+  })
+
+  it('shows disabled fallback copy when the selected target is unavailable', async () => {
+    await act(async () => {
+      root.render(
+        React.createElement(SettingsSheet, {
+          onEnterDemoMode: vi.fn(),
+          onFixAlignment: vi.fn(),
+          onRecenter: vi.fn(),
+          canFixAlignment: true,
+          canRecenter: true,
+          calibrationTargetLabel: 'Sun',
+          calibrationStatus: 'Relative sensors need Sun before labels can lock.',
+          alignmentTargetPreference: 'moon',
+          alignmentTargetAvailability: {
+            sun: true,
+            moon: false,
+          },
+          alignmentTargetFallbackLabel: 'Sun',
+          layers: {
+            aircraft: true,
+            satellites: true,
+            planets: true,
+            stars: true,
+            constellations: true,
+          },
+          likelyVisibleOnly: true,
+          labelDisplayMode: 'center_only',
+          onLayerToggle: vi.fn(),
+          onLikelyVisibleOnlyChange: vi.fn(),
+          onLabelDisplayModeChange: vi.fn(),
+        }),
+      )
+    })
+
+    const settingsButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Settings'),
+    )
+
+    expect(settingsButton).toBeDefined()
+
+    await act(async () => {
+      settingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const alignmentButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Alignment'),
+    )
+
+    expect(alignmentButton).toBeDefined()
+
+    await act(async () => {
+      alignmentButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const moonTargetButton = container.querySelector(
+      'button[aria-label="Use Moon for alignment"]',
+    ) as HTMLButtonElement | null
+
+    expect(moonTargetButton?.disabled).toBe(true)
+    expect(container.textContent).toContain('Moon is unavailable. SkyLens will use Sun.')
   })
 
   it('traps focus and exposes demo scenario switching controls when open', async () => {

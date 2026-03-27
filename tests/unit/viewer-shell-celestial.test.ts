@@ -6,6 +6,7 @@ import type { ViewerRouteState } from '../../lib/permissions/coordinator'
 
 const {
   mockRouterReplace,
+  mockSettingsSheetProps,
   mockRequestStartupObserverState,
   mockStartObserverTracking,
   mockSubscribeToOrientationPose,
@@ -19,6 +20,7 @@ const {
   mockNormalizeSatelliteObjects,
 } = vi.hoisted(() => ({
   mockRouterReplace: vi.fn(),
+  mockSettingsSheetProps: vi.fn(),
   mockRequestStartupObserverState: vi.fn(),
   mockStartObserverTracking: vi.fn(),
   mockSubscribeToOrientationPose: vi.fn(),
@@ -48,7 +50,11 @@ vi.mock('next/link', () => ({
 }))
 
 vi.mock('../../components/settings/settings-sheet', () => ({
-  SettingsSheet: () => React.createElement('div', { 'data-testid': 'settings-sheet' }),
+  SettingsSheet: (props: unknown) => {
+    mockSettingsSheetProps(props)
+
+    return React.createElement('div', { 'data-testid': 'settings-sheet' })
+  },
 }))
 
 vi.mock('../../lib/sensors/location', async () => {
@@ -142,6 +148,7 @@ describe('ViewerShell celestial behavior', () => {
     root = createRoot(container)
 
     mockRouterReplace.mockReset()
+    mockSettingsSheetProps.mockReset()
     mockRequestStartupObserverState.mockReset()
     mockStartObserverTracking.mockReset()
     mockSubscribeToOrientationPose.mockReset()
@@ -353,6 +360,22 @@ describe('ViewerShell celestial behavior', () => {
     })
 
     expect(container.textContent).toContain('Target Sun')
+
+    const latestSettingsProps = () =>
+      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+        | {
+            alignmentTargetPreference?: 'sun' | 'moon'
+            onAlignmentTargetPreferenceChange?: (target: 'sun' | 'moon') => void
+          }
+        | undefined
+
+    expect(latestSettingsProps()?.alignmentTargetPreference).toBe('sun')
+
+    await act(async () => {
+      latestSettingsProps()?.onAlignmentTargetPreferenceChange?.('moon')
+    })
+
+    expect(container.textContent).toContain('Target Moon')
   })
 
   it('falls back from suppressed sun to moon, then brightest planet, then brightest star', async () => {
@@ -398,6 +421,19 @@ describe('ViewerShell celestial behavior', () => {
       location: 'granted',
       camera: 'denied',
       orientation: 'denied',
+    })
+
+    expect(container.textContent).toContain('Target Moon')
+
+    const latestSettingsProps = () =>
+      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+        | {
+            onAlignmentTargetPreferenceChange?: (target: 'sun' | 'moon') => void
+          }
+        | undefined
+
+    await act(async () => {
+      latestSettingsProps()?.onAlignmentTargetPreferenceChange?.('moon')
     })
 
     expect(container.textContent).toContain('Target Moon')
@@ -473,6 +509,19 @@ describe('ViewerShell celestial behavior', () => {
 
     expect(container.textContent).toContain('Target Jupiter')
 
+    const latestSettingsPropsAfterPlanetFallback = () =>
+      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+        | {
+            onAlignmentTargetPreferenceChange?: (target: 'sun' | 'moon') => void
+          }
+        | undefined
+
+    await act(async () => {
+      latestSettingsPropsAfterPlanetFallback()?.onAlignmentTargetPreferenceChange?.('moon')
+    })
+
+    expect(container.textContent).toContain('Target Jupiter')
+
     await act(async () => {
       root.unmount()
     })
@@ -525,6 +574,176 @@ describe('ViewerShell celestial behavior', () => {
     })
 
     expect(container.textContent).toContain('Target Sirius')
+  })
+
+  it('passes fallback target metadata into settings when the preferred body is unavailable', async () => {
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -12,
+      objects: [
+        {
+          id: 'sun',
+          type: 'sun',
+          label: 'Sun',
+          azimuthDeg: 0,
+          elevationDeg: 18,
+          importance: 95,
+          metadata: {
+            detail: {
+              typeLabel: 'Sun',
+              elevationDeg: 18,
+              azimuthDeg: 0,
+            },
+          },
+        },
+      ],
+    })
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
+
+    const latestSettingsProps = () =>
+      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+        | {
+            alignmentTargetAvailability?: {
+              sun: boolean
+              moon: boolean
+            }
+            alignmentTargetFallbackLabel?: string | null
+            onAlignmentTargetPreferenceChange?: (target: 'sun' | 'moon') => void
+          }
+        | undefined
+
+    expect(latestSettingsProps()?.alignmentTargetAvailability).toEqual({
+      sun: true,
+      moon: false,
+    })
+    expect(latestSettingsProps()?.alignmentTargetFallbackLabel).toBeNull()
+
+    await act(async () => {
+      latestSettingsProps()?.onAlignmentTargetPreferenceChange?.('moon')
+    })
+
+    expect(container.textContent).toContain('Target Sun')
+    expect(latestSettingsProps()?.alignmentTargetAvailability).toEqual({
+      sun: true,
+      moon: false,
+    })
+    expect(latestSettingsProps()?.alignmentTargetFallbackLabel).toBe('Sun')
+  })
+
+  it('switches the live on-screen alignment panel target when the user taps Moon', async () => {
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -12,
+      objects: [
+        {
+          id: 'sun',
+          type: 'sun',
+          label: 'Sun',
+          azimuthDeg: 0,
+          elevationDeg: 18,
+          importance: 95,
+          metadata: {
+            detail: {
+              typeLabel: 'Sun',
+              elevationDeg: 18,
+              azimuthDeg: 0,
+            },
+          },
+        },
+        {
+          id: 'moon',
+          type: 'moon',
+          label: 'Moon',
+          azimuthDeg: 12,
+          elevationDeg: 24,
+          importance: 88,
+          metadata: {
+            detail: {
+              typeLabel: 'Moon',
+              elevationDeg: 24,
+              azimuthDeg: 12,
+            },
+          },
+        },
+      ],
+    })
+    mockSubscribeToOrientationPose.mockImplementationOnce((onPose: (state: unknown) => void) => {
+      onPose({
+        pose: {
+          yawDeg: 0,
+          pitchDeg: 0,
+          rollDeg: 0,
+          quaternion: [0, 0, 0, 1],
+          alignmentHealth: 'poor',
+          mode: 'sensor',
+        },
+        sample: {
+          source: 'deviceorientation-relative',
+          absolute: false,
+          needsCalibration: true,
+          timestampMs: Date.UTC(2026, 2, 26, 0, 45, 6),
+          headingDeg: 0,
+          pitchDeg: 0,
+          rollDeg: 0,
+          quaternion: [0, 0, 0, 1],
+          rawQuaternion: [0, 0, 0, 1],
+          rawSample: {
+            source: 'deviceorientation-relative',
+            localFrame: 'device',
+            absolute: false,
+            timestampMs: Date.UTC(2026, 2, 26, 0, 45, 6),
+            worldFromLocal: [
+              [1, 0, 0],
+              [0, 1, 0],
+              [0, 0, 1],
+            ],
+          },
+        },
+        history: [],
+        orientationSource: 'deviceorientation-relative',
+        orientationAbsolute: false,
+        orientationNeedsCalibration: true,
+        poseCalibration: {
+          offsetQuaternion: [0, 0, 0, 1],
+          calibrated: false,
+          sourceAtCalibration: null,
+          lastCalibratedAtMs: null,
+        },
+      })
+
+      return SENSOR_CONTROLLER
+    })
+
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'granted',
+    })
+
+    const sunButton = container.querySelector(
+      'button[aria-label="Use Sun for alignment"]',
+    ) as HTMLButtonElement | null
+    const moonButton = container.querySelector(
+      'button[aria-label="Use Moon for alignment"]',
+    ) as HTMLButtonElement | null
+
+    expect(sunButton).not.toBeNull()
+    expect(moonButton).not.toBeNull()
+    expect(container.textContent).toContain('Current target Sun')
+    expect(container.textContent).toContain('Target Sun')
+
+    await act(async () => {
+      moonButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(container.textContent).toContain('Current target Moon')
+    expect(container.textContent).toContain('Target Moon')
   })
 
   it('defaults to center-only overlay copy for the center-locked object', async () => {

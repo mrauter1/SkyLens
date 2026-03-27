@@ -1,0 +1,39 @@
+version: 1
+task_id: implement-alignment-ui-requirements-md-keep-alig-0a608ab4
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/implement-alignment-ui-requirements-md-keep-alig-0a608ab4/runs/run-20260327T191053Z-0b07ad7b/request.md
+phases:
+  - phase_id: alignment-ui-updates
+    title: Alignment UI updates
+    objective: Keep alignment controls visible after success and add explicit calibration guidance plus Sun/Moon target selection without regressing existing calibration fallback behavior.
+    status: planned
+    in_scope:
+      - Update live viewer alignment action visibility so re-alignment remains available after calibration succeeds.
+      - Add explicit step-by-step calibration instructions in the alignment UI surfaces.
+      - Add Sun/Moon target selection controls wired into the viewer-shell calibration target resolver.
+      - Update focused unit coverage for alignment visibility, target selection, and fallback behavior.
+    out_of_scope:
+      - Changing astronomy calculations or pose calibration math.
+      - Persisting alignment target preference to local storage.
+      - Broader settings-sheet redesign outside the calibration section.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: The live mobile Align action remains visible after successful calibration and still allows the user to re-enter alignment flow.
+      - id: AC-2
+        text: The calibration flow shows explicit on-screen steps that tell the user how to choose a target, center it, and align.
+      - id: AC-3
+        text: Sun/Moon selection changes the effective calibration target when available, while unavailable selections preserve the existing fallback priority chain.
+      - id: AC-4
+        text: Unit coverage exercises the new visibility, instruction, and target-selection behavior without weakening existing alignment regressions.
+    deliverables:
+      - Viewer-shell plan for alignment visibility, target resolution, and status-copy updates.
+      - Settings-sheet plan for calibration instructions and Sun/Moon toggle props/rendering.
+      - Targeted test update plan for viewer-shell and celestial alignment behavior.
+    risks:
+      - Status text may drift if it follows the latest scene target instead of the target used during calibration.
+      - Adding explicit target selection may accidentally break current auto-fallback behavior for planet, star, or north-marker alignment.
+      - Mobile alignment focus could regress if quick-action visibility and overlay state changes are coupled incorrectly.
+    rollback:
+      - Restore the previous quick-action visibility gate tied to calibration completion.
+      - Remove the Sun/Moon override path and return to the existing auto-selected calibration target logic.
+      - Remove the added instruction/toggle UI while keeping the original calibration controls intact.

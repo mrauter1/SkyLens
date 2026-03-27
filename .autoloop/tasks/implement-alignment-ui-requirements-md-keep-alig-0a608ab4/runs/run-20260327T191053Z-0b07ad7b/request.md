@@ -1,0 +1,1 @@
+Implement ALIGNMENT_UI_REQUIREMENTS.md: keep Align button visible even after successful alignment; add explicit on-screen step instructions for calibration flow; add a Sun/Moon icon toggle to select alignment target.
