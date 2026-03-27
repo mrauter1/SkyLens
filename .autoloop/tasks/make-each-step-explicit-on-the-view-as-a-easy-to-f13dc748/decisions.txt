@@ -1,0 +1,19 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260327T220245Z-fdc6ab51" ts="2026-03-27T22:02:45.135254+00:00" />
+<autoloop-decisions-header version="1" block_seq="2" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260327T220359Z-666a8b93" ts="2026-03-27T22:03:59.652593+00:00" />
+Interpret “manual” in this task as exposing the existing fine-adjust/reset alignment controls on the live panel, not as introducing a third persisted alignment target beside Sun and Moon.
+Alignment tutorial copy must be derived from the resolved calibration target and blocker state so fallback targets do not show misleading Sun-or-Moon-only instructions.
+<autoloop-decisions-header version="1" block_seq="3" owner="runtime" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260327T220359Z-666a8b93" ts="2026-03-27T22:05:10.530994+00:00" entry="questions" qa_seq="1" />
+1. In "add the manual nudges on the alignment panel with sun and moon and manual," do you want `manual` to be a third selectable alignment option alongside Sun and Moon, or do you want Sun/Moon to stay the only targets and `manual` to mean the existing fine-adjust nudge step with clearer copy? Best supposition: keep Sun and Moon as the only selectable targets, and make the tutorial explicitly show a manual nudge/fine-adjust step plus blocker messages when alignment cannot proceed.
+Best supposition: Keep `sun | moon` as the only selectable targets, and treat `manual` as the explicit fine-adjust/nudge step with blocker-aware tutorial copy.
+<autoloop-decisions-header version="1" block_seq="4" owner="runtime" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260327T220359Z-666a8b93" ts="2026-03-27T22:05:10.531507+00:00" entry="answers" qa_seq="1" source="human" />
+Keep sun and moon as selectable targets. Treat manual as explicit nudge/fine-adjust tutorial step.
+<autoloop-decisions-header version="1" block_seq="5" owner="planner" phase_id="task-global" pair="plan" turn_seq="2" run_id="run-20260327T220359Z-666a8b93" ts="2026-03-27T22:05:10.615726+00:00" />
+<autoloop-decisions-header version="1" block_seq="6" owner="planner" phase_id="task-global" pair="plan" turn_seq="2" run_id="run-20260327T220245Z-fdc6ab51" ts="2026-03-27T22:06:24.289347+00:00" />
+Keep the canonical phase contract explicit that manual fine-adjustment is part of the numbered tutorial sequence, not merely a control present on the panel.
+Limit this correction to plan narrative, `phases:` payload, and feedback; do not touch runtime-owned `phase_plan.yaml` metadata keys during this turn.
+<autoloop-decisions-header version="1" block_seq="7" owner="implementer" phase_id="explicit-alignment-tutorial-panel" pair="implement" turn_seq="1" run_id="run-20260327T220359Z-666a8b93" ts="2026-03-27T22:07:59.795989+00:00" />
+<autoloop-decisions-header version="1" block_seq="8" owner="implementer" phase_id="explicit-alignment-tutorial-panel" pair="implement" turn_seq="1" run_id="run-20260327T220245Z-fdc6ab51" ts="2026-03-27T22:08:23.134788+00:00" />
+Use `lib/viewer/alignment-tutorial.ts` as the single source for numbered steps, inline notices, and align CTA labels so the live panel and settings sheet stay copy-synchronized for fallback and blocked states.
+Reuse the existing fine-adjust deltas (`yaw ±0.75`, `pitch ±0.5`) on the live alignment panel rather than introducing a separate manual-alignment path or new persisted target state.
+<autoloop-decisions-header version="1" block_seq="9" owner="test_author" phase_id="explicit-alignment-tutorial-panel" pair="test" turn_seq="1" run_id="run-20260327T220359Z-666a8b93" ts="2026-03-27T22:18:24.760140+00:00" />
+Force `window.isSecureContext = true` in the live fallback-target viewer test so the suite exercises the alignment-panel path deterministically instead of the secure-context gate.

@@ -10,9 +10,13 @@ import {
 
 import type { EnabledLayer } from '../../lib/config'
 import type { DemoScenarioId } from '../../lib/demo/scenarios'
+import {
+  ALIGNMENT_FINE_ADJUST_CONTROLS,
+  buildAlignmentTutorialModel,
+  type AlignmentTargetPreference,
+  type AlignmentTutorialNotice,
+} from '../../lib/viewer/alignment-tutorial'
 import type { LabelDisplayMode, MotionQuality } from '../../lib/viewer/settings'
-
-type AlignmentTargetPreference = 'sun' | 'moon'
 
 type SettingsSheetProps = {
   onEnterDemoMode: () => void
@@ -34,6 +38,8 @@ type SettingsSheetProps = {
   calibrationTargetDescription?: string
   calibrationStatus?: string
   calibrationInstructions?: string[]
+  alignmentNotices?: AlignmentTutorialNotice[]
+  alignActionLabel?: string
   alignmentTargetPreference?: AlignmentTargetPreference
   alignmentTargetAvailability?: {
     sun: boolean
@@ -132,12 +138,9 @@ export function SettingsSheet({
   calibrationTargetLabel = 'North marker',
   calibrationTargetDescription = 'Use north on the horizon when no sky body is suitable.',
   calibrationStatus = 'Calibration is off.',
-  calibrationInstructions = [
-    'Choose the Sun or Moon target for this alignment pass.',
-    'Center the current target in the reticle.',
-    'Tap Align to lock labels to the target.',
-    'If labels still drift, fine-adjust or reset calibration.',
-  ],
+  calibrationInstructions,
+  alignmentNotices,
+  alignActionLabel,
   alignmentTargetPreference = 'sun',
   alignmentTargetAvailability = {
     sun: false,
@@ -161,6 +164,20 @@ export function SettingsSheet({
   demoScenarioId,
   demoScenarioOptions = [],
 }: SettingsSheetProps) {
+  const alignmentTutorialModel = buildAlignmentTutorialModel({
+    resolvedTargetLabel: calibrationTargetLabel,
+    selectedTarget: alignmentTargetPreference,
+    calibrationStatus,
+    canFixAlignment,
+    canAlignCalibration,
+    canResetCalibration,
+    manualMode: false,
+    preferredTargetUnavailable: alignmentTargetFallbackLabel !== null,
+  })
+  const resolvedCalibrationInstructions =
+    calibrationInstructions ?? alignmentTutorialModel.instructions
+  const resolvedAlignmentNotices = alignmentNotices ?? alignmentTutorialModel.notices
+  const resolvedAlignActionLabel = alignActionLabel ?? alignmentTutorialModel.alignActionLabel
   const [isOpen, setIsOpen] = useState(false)
   const [showCalibrationPanel, setShowCalibrationPanel] = useState(false)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
@@ -436,28 +453,27 @@ export function SettingsSheet({
                   <p className="mt-1 text-sm leading-6 text-sky-100/75">
                     {calibrationTargetDescription}
                   </p>
-                  {alignmentTargetFallbackLabel ? (
-                    <p className="mt-3 text-sm leading-6 text-amber-100/80">
-                      {alignmentTargetPreference === 'sun' ? 'Sun' : 'Moon'} is unavailable.
-                      SkyLens will use {alignmentTargetFallbackLabel}.
-                    </p>
-                  ) : null}
-                  <p className="mt-3 text-xs uppercase tracking-[0.16em] text-amber-100/75">
-                    {calibrationStatus}
-                  </p>
-                  {!canFixAlignment ? (
-                    <p className="mt-3 text-sm leading-6 text-sky-100/70">
-                      Live sensor alignment is unavailable in the current mode. Field-of-view
-                      calibration still applies.
-                    </p>
-                  ) : null}
+                  <div className="mt-3 grid gap-2">
+                    {resolvedAlignmentNotices.map((notice) => (
+                      <p
+                        key={notice.id}
+                        className={`rounded-2xl border px-4 py-3 text-sm leading-6 ${
+                          notice.tone === 'warning'
+                            ? 'border-amber-200/15 bg-amber-300/10 text-amber-50/85'
+                            : 'border-sky-100/10 bg-slate-950/35 text-sky-100/80'
+                        }`}
+                      >
+                        {notice.text}
+                      </p>
+                    ))}
+                  </div>
                 </div>
                 <div className="grid gap-2 rounded-[1.25rem] border border-sky-100/10 bg-slate-950/30 p-4">
                   <p className="text-xs uppercase tracking-[0.18em] text-sky-200/60">
                     Alignment steps
                   </p>
                   <ol className="grid gap-2 text-sm leading-6 text-sky-100/80">
-                    {calibrationInstructions.map((instruction, index) => (
+                    {resolvedCalibrationInstructions.map((instruction, index) => (
                       <li
                         key={`${instruction}-${index}`}
                         className="rounded-2xl border border-sky-100/10 bg-white/5 px-4 py-3"
@@ -475,7 +491,7 @@ export function SettingsSheet({
                     disabled={!canAlignCalibration}
                     className="min-h-11 rounded-2xl bg-amber-300 px-4 py-3 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:bg-amber-100"
                   >
-                    Align to target
+                    {resolvedAlignActionLabel}
                   </button>
                   <button
                     type="button"
@@ -491,42 +507,21 @@ export function SettingsSheet({
                     Fine adjust
                   </p>
                   <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onFineAdjustCalibration?.({ axis: 'yaw', deltaDeg: -0.75 })
-                      }
-                      className="min-h-11 rounded-2xl border border-sky-100/10 bg-white/5 px-4 py-3 text-sm text-sky-50"
-                    >
-                      Nudge left
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onFineAdjustCalibration?.({ axis: 'yaw', deltaDeg: 0.75 })
-                      }
-                      className="min-h-11 rounded-2xl border border-sky-100/10 bg-white/5 px-4 py-3 text-sm text-sky-50"
-                    >
-                      Nudge right
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onFineAdjustCalibration?.({ axis: 'pitch', deltaDeg: 0.5 })
-                      }
-                      className="min-h-11 rounded-2xl border border-sky-100/10 bg-white/5 px-4 py-3 text-sm text-sky-50"
-                    >
-                      Nudge up
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onFineAdjustCalibration?.({ axis: 'pitch', deltaDeg: -0.5 })
-                      }
-                      className="min-h-11 rounded-2xl border border-sky-100/10 bg-white/5 px-4 py-3 text-sm text-sky-50"
-                    >
-                      Nudge down
-                    </button>
+                    {ALIGNMENT_FINE_ADJUST_CONTROLS.map((control) => (
+                      <button
+                        key={control.label}
+                        type="button"
+                        onClick={() =>
+                          onFineAdjustCalibration?.({
+                            axis: control.axis,
+                            deltaDeg: control.deltaDeg,
+                          })
+                        }
+                        className="min-h-11 rounded-2xl border border-sky-100/10 bg-white/5 px-4 py-3 text-sm text-sky-50"
+                      >
+                        {control.label}
+                      </button>
+                    ))}
                   </div>
                 </div>
                 <RangeControl

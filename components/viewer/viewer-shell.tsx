@@ -103,6 +103,12 @@ import {
 } from '../../lib/sensors/orientation'
 import type { CameraPose, ObserverState, SkyObject } from '../../lib/viewer/contracts'
 import {
+  ALIGNMENT_FINE_ADJUST_CONTROLS,
+  buildAlignmentTutorialModel,
+  type AlignmentTargetPreference,
+  type AlignmentTutorialNotice,
+} from '../../lib/viewer/alignment-tutorial'
+import {
   markViewerOnboardingCompleted,
   readViewerSettings,
   writeViewerSettings,
@@ -169,8 +175,6 @@ type CalibrationTarget = {
   elevationDeg: number
   sourceType: SkyObject['type'] | 'north-marker'
 }
-
-type AlignmentTargetPreference = 'sun' | 'moon'
 
 type CalibrationTargetResolution = {
   availability: {
@@ -556,7 +560,6 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     alignmentTargetPreference,
   )
   const calibrationTarget = calibrationTargetResolution.target
-  const calibrationInstructions = buildCalibrationInstructions(calibrationTarget)
   const shouldShowAlignmentInstructions =
     !manualMode &&
     (startupState === 'sensor-relative-needs-calibration' ||
@@ -571,6 +574,23 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   })
   const canFixAlignment = experience.mode !== 'blocked'
   const canAlignCalibration = cameraPose.mode === 'sensor' && latestOrientationSample !== null
+  const canResetCalibration =
+    cameraPose.mode === 'sensor' &&
+    (viewerSettings.poseCalibration.calibrated ||
+      !quaternionsApproximatelyEqual(
+        viewerSettings.poseCalibration.offsetQuaternion,
+        createIdentityPoseCalibration().offsetQuaternion,
+      ))
+  const alignmentTutorial = buildAlignmentTutorialModel({
+    resolvedTargetLabel: calibrationTarget.label,
+    selectedTarget: alignmentTargetPreference,
+    calibrationStatus,
+    canFixAlignment,
+    canAlignCalibration,
+    canResetCalibration,
+    manualMode,
+    preferredTargetUnavailable: calibrationTargetResolution.preferredTargetUnavailable,
+  })
   const sensorStatusValue = getSensorStatusValue({
     startupState,
     orientationSource,
@@ -1801,18 +1821,14 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     onRecenter: recenter,
     canFixAlignment,
     canAlignCalibration,
-    canResetCalibration:
-      cameraPose.mode === 'sensor' &&
-      (viewerSettings.poseCalibration.calibrated ||
-        !quaternionsApproximatelyEqual(
-          viewerSettings.poseCalibration.offsetQuaternion,
-          createIdentityPoseCalibration().offsetQuaternion,
-        )),
+    canResetCalibration,
     canRecenter: manualMode,
     calibrationTargetLabel: calibrationTarget.label,
     calibrationTargetDescription: calibrationTarget.description,
     calibrationStatus,
-    calibrationInstructions,
+    calibrationInstructions: alignmentTutorial.instructions,
+    alignmentNotices: alignmentTutorial.notices,
+    alignActionLabel: alignmentTutorial.alignActionLabel,
     alignmentTargetPreference,
     alignmentTargetAvailability: calibrationTargetResolution.availability,
     alignmentTargetFallbackLabel: calibrationTargetResolution.preferredTargetUnavailable
@@ -2327,15 +2343,17 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
               {shouldShowAlignmentInstructions ? (
                 <AlignmentInstructionsPanel
                   targetLabel={calibrationTarget.label}
-                  instructions={calibrationInstructions}
+                  instructions={alignmentTutorial.instructions}
+                  notices={alignmentTutorial.notices}
                   selectedTarget={alignmentTargetPreference}
                   availability={calibrationTargetResolution.availability}
-                  fallbackLabel={
-                    calibrationTargetResolution.preferredTargetUnavailable
-                      ? calibrationTarget.label
-                      : null
-                  }
                   onSelectTarget={handleAlignmentTargetPreferenceChange}
+                  onAlignCalibration={alignCalibrationTarget}
+                  onResetCalibration={resetCalibration}
+                  onFineAdjustCalibration={fineAdjustCalibration}
+                  canAlignCalibration={canAlignCalibration}
+                  canResetCalibration={canResetCalibration}
+                  alignActionLabel={alignmentTutorial.alignActionLabel}
                 />
               ) : null}
               <section className="pointer-events-auto shell-panel rounded-[2rem] p-5 sm:p-6">
@@ -2639,15 +2657,17 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                       {shouldShowAlignmentInstructions ? (
                         <AlignmentInstructionsPanel
                           targetLabel={calibrationTarget.label}
-                          instructions={calibrationInstructions}
+                          instructions={alignmentTutorial.instructions}
+                          notices={alignmentTutorial.notices}
                           selectedTarget={alignmentTargetPreference}
                           availability={calibrationTargetResolution.availability}
-                          fallbackLabel={
-                            calibrationTargetResolution.preferredTargetUnavailable
-                              ? calibrationTarget.label
-                              : null
-                          }
                           onSelectTarget={handleAlignmentTargetPreferenceChange}
+                          onAlignCalibration={alignCalibrationTarget}
+                          onResetCalibration={resetCalibration}
+                          onFineAdjustCalibration={fineAdjustCalibration}
+                          canAlignCalibration={canAlignCalibration}
+                          canResetCalibration={canResetCalibration}
+                          alignActionLabel={alignmentTutorial.alignActionLabel}
                         />
                       ) : null}
                       <section className="rounded-[1.25rem] border border-sky-100/10 bg-white/5 p-4">
@@ -2778,15 +2798,17 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
               <div className="pointer-events-auto">
                 <AlignmentInstructionsPanel
                   targetLabel={calibrationTarget.label}
-                  instructions={calibrationInstructions}
+                  instructions={alignmentTutorial.instructions}
+                  notices={alignmentTutorial.notices}
                   selectedTarget={alignmentTargetPreference}
                   availability={calibrationTargetResolution.availability}
-                  fallbackLabel={
-                    calibrationTargetResolution.preferredTargetUnavailable
-                      ? calibrationTarget.label
-                      : null
-                  }
                   onSelectTarget={handleAlignmentTargetPreferenceChange}
+                  onAlignCalibration={alignCalibrationTarget}
+                  onResetCalibration={resetCalibration}
+                  onFineAdjustCalibration={fineAdjustCalibration}
+                  canAlignCalibration={canAlignCalibration}
+                  canResetCalibration={canResetCalibration}
+                  alignActionLabel={alignmentTutorial.alignActionLabel}
                   compact
                 />
               </div>
@@ -3214,15 +3236,6 @@ function describeCalibrationStatus({
   return 'Absolute sensors are active, but manual alignment is still available.'
 }
 
-function buildCalibrationInstructions(calibrationTarget: CalibrationTarget) {
-  return [
-    'Choose the Sun or Moon target for this alignment pass.',
-    `Center ${calibrationTarget.label} in the reticle.`,
-    `Tap Align to lock labels to ${calibrationTarget.label}.`,
-    'If labels still drift, fine-adjust or reset calibration.',
-  ]
-}
-
 function getSensorStatusValue({
   startupState,
   orientationSource,
@@ -3372,21 +3385,36 @@ function resolveSceneClock({
 function AlignmentInstructionsPanel({
   targetLabel,
   instructions,
+  notices,
   selectedTarget,
   availability,
-  fallbackLabel,
   onSelectTarget,
+  onAlignCalibration,
+  onResetCalibration,
+  onFineAdjustCalibration,
+  canAlignCalibration,
+  canResetCalibration,
+  alignActionLabel,
   compact = false,
 }: {
   targetLabel: string
   instructions: string[]
+  notices: AlignmentTutorialNotice[]
   selectedTarget: AlignmentTargetPreference
   availability: {
     sun: boolean
     moon: boolean
   }
-  fallbackLabel: string | null
   onSelectTarget: (target: AlignmentTargetPreference) => void
+  onAlignCalibration: () => void
+  onResetCalibration: () => void
+  onFineAdjustCalibration: (adjustment: {
+    axis: 'yaw' | 'pitch'
+    deltaDeg: number
+  }) => void
+  canAlignCalibration: boolean
+  canResetCalibration: boolean
+  alignActionLabel: string
   compact?: boolean
 }) {
   return (
@@ -3414,12 +3442,20 @@ function AlignmentInstructionsPanel({
           onSelect={onSelectTarget}
         />
       </div>
-      {fallbackLabel ? (
-        <p className="mt-3 text-sm text-amber-100/80">
-          {selectedTarget === 'sun' ? 'Sun' : 'Moon'} is unavailable. SkyLens will use{' '}
-          {fallbackLabel}.
-        </p>
-      ) : null}
+      <div className="mt-3 grid gap-2">
+        {notices.map((notice) => (
+          <p
+            key={notice.id}
+            className={`rounded-2xl border px-4 py-3 text-sm leading-6 ${
+              notice.tone === 'warning'
+                ? 'border-amber-200/15 bg-amber-300/10 text-amber-50/85'
+                : 'border-sky-100/10 bg-white/5 text-sky-100/80'
+            }`}
+          >
+            {notice.text}
+          </p>
+        ))}
+      </div>
       <ol className="mt-3 grid gap-2 text-sm leading-6 text-sky-100/80">
         {instructions.map((instruction, index) => (
           <li
@@ -3431,6 +3467,41 @@ function AlignmentInstructionsPanel({
           </li>
         ))}
       </ol>
+      <div className={`mt-3 grid gap-2 ${compact ? 'grid-cols-2' : 'sm:grid-cols-2'}`}>
+        <button
+          type="button"
+          onClick={onAlignCalibration}
+          disabled={!canAlignCalibration}
+          className="min-h-11 rounded-2xl bg-amber-300 px-4 py-3 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:bg-amber-100"
+        >
+          {alignActionLabel}
+        </button>
+        <button
+          type="button"
+          onClick={onResetCalibration}
+          disabled={!canResetCalibration}
+          className="min-h-11 rounded-2xl border border-sky-100/10 bg-slate-950/35 px-4 py-3 text-sm text-sky-50 disabled:cursor-not-allowed disabled:text-sky-100/45"
+        >
+          Reset calibration
+        </button>
+      </div>
+      <div className={`mt-2 grid grid-cols-2 gap-2 ${compact ? '' : ''}`}>
+        {ALIGNMENT_FINE_ADJUST_CONTROLS.map((control) => (
+          <button
+            key={control.label}
+            type="button"
+            onClick={() =>
+              onFineAdjustCalibration({
+                axis: control.axis,
+                deltaDeg: control.deltaDeg,
+              })
+            }
+            className="min-h-11 rounded-2xl border border-sky-100/10 bg-white/5 px-4 py-3 text-sm text-sky-50"
+          >
+            {control.label}
+          </button>
+        ))}
+      </div>
     </section>
   )
 }

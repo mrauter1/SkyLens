@@ -867,6 +867,99 @@ describe('ViewerShell celestial behavior', () => {
     expect(latestSettingsProps()?.alignmentTargetFallbackLabel).toBe('Sun')
   })
 
+  it('renders target-aware fallback instructions in the live alignment panel', async () => {
+    Object.defineProperty(window, 'isSecureContext', {
+      configurable: true,
+      value: true,
+    })
+
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -12,
+      objects: [
+        {
+          id: 'planet-venus',
+          type: 'planet',
+          label: 'Venus',
+          azimuthDeg: 14,
+          elevationDeg: 22,
+          importance: 82,
+          metadata: {
+            detail: {
+              typeLabel: 'Planet',
+              elevationDeg: 22,
+              azimuthDeg: 14,
+              magnitude: -4.3,
+            },
+          },
+        },
+      ],
+    })
+
+    mockSubscribeToOrientationPose.mockImplementationOnce((onPose: (state: unknown) => void) => {
+      onPose({
+        pose: {
+          yawDeg: 0,
+          pitchDeg: 0,
+          rollDeg: 0,
+          quaternion: [0, 0, 0, 1],
+          alignmentHealth: 'poor',
+          mode: 'sensor',
+        },
+        sample: {
+          source: 'deviceorientation-relative',
+          absolute: false,
+          needsCalibration: true,
+          timestampMs: Date.UTC(2026, 2, 26, 0, 45, 6),
+          headingDeg: 0,
+          pitchDeg: 0,
+          rollDeg: 0,
+          quaternion: [0, 0, 0, 1],
+          rawQuaternion: [0, 0, 0, 1],
+          rawSample: {
+            source: 'deviceorientation-relative',
+            localFrame: 'device',
+            absolute: false,
+            timestampMs: Date.UTC(2026, 2, 26, 0, 45, 6),
+            worldFromLocal: [
+              [1, 0, 0],
+              [0, 1, 0],
+              [0, 0, 1],
+            ],
+          },
+        },
+        history: [],
+        orientationSource: 'deviceorientation-relative',
+        orientationAbsolute: false,
+        orientationNeedsCalibration: true,
+        poseCalibration: {
+          offsetQuaternion: [0, 0, 0, 1],
+          calibrated: false,
+          sourceAtCalibration: null,
+          lastCalibratedAtMs: null,
+        },
+      })
+
+      return SENSOR_CONTROLLER
+    })
+
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'granted',
+    })
+
+    expect(container.textContent).toContain('Current target Venus')
+    expect(container.textContent).toContain(
+      'Moon is unavailable. SkyLens will use Venus if you align now.',
+    )
+    expect(container.textContent).toContain(
+      'Choose Sun or Moon as your preferred target. SkyLens is currently resolved to Venus.',
+    )
+    expect(container.textContent).toContain('Tap Align to lock labels to Venus.')
+    expect(container.textContent).toContain('Align to Venus')
+  })
+
   it('switches the live on-screen alignment panel target when the user taps Sun', async () => {
     mockNormalizeCelestialObjects.mockReturnValue({
       sunAltitudeDeg: -12,

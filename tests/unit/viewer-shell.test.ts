@@ -754,6 +754,35 @@ describe('ViewerShell startup gating', () => {
     expect(container.querySelector('[data-testid="mobile-viewer-overlay"]')).toBeNull()
   })
 
+  it('surfaces live-panel blocker copy when alignment focus opens before the first motion sample', async () => {
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'granted',
+    })
+
+    const latestSettingsProps = () =>
+      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+        | {
+            onFixAlignment?: () => void
+          }
+        | undefined
+
+    await act(async () => {
+      latestSettingsProps()?.onFixAlignment?.()
+    })
+    await flushEffects()
+
+    expect(container.textContent).toContain('Waiting for motion sample')
+    expect(container.textContent).toMatch(
+      /Align stays disabled until live motion data is ready\. SkyLens will keep .* as the next target\./,
+    )
+    expect(container.textContent).toMatch(
+      /Wait for live motion data, then tap Align to lock labels to .*?\./,
+    )
+  })
+
   it('routes the closed mobile align action into alignment focus once calibration can run', async () => {
     mockSubscribeToOrientationPose.mockImplementationOnce((onPose: (state: unknown) => void) => {
       onPose({
@@ -957,6 +986,95 @@ describe('ViewerShell startup gating', () => {
     expect(container.querySelector('[data-testid="alignment-instructions-panel"]')).not.toBeNull()
   })
 
+  it('exposes on-view manual nudges and gated reset controls in the alignment panel', async () => {
+    mockSubscribeToOrientationPose.mockImplementationOnce((onPose: (state: unknown) => void) => {
+      onPose({
+        pose: {
+          yawDeg: 0,
+          pitchDeg: 0,
+          rollDeg: 0,
+          quaternion: [0, 0, 0, 1],
+          alignmentHealth: 'fair',
+          mode: 'sensor',
+        },
+        sample: {
+          source: 'deviceorientation-absolute',
+          absolute: true,
+          needsCalibration: false,
+          timestampMs: Date.UTC(2026, 2, 26, 0, 45, 6),
+          headingDeg: 0,
+          pitchDeg: 0,
+          rollDeg: 0,
+          quaternion: [0, 0, 0, 1],
+          rawQuaternion: [0, 0, 0, 1],
+          rawSample: {
+            source: 'deviceorientation-absolute',
+            localFrame: 'device',
+            absolute: true,
+            timestampMs: Date.UTC(2026, 2, 26, 0, 45, 6),
+            worldFromLocal: [
+              [1, 0, 0],
+              [0, 1, 0],
+              [0, 0, 1],
+            ],
+          },
+        },
+        history: [],
+        orientationSource: 'deviceorientation-absolute',
+        orientationAbsolute: true,
+        orientationNeedsCalibration: false,
+        poseCalibration: {
+          offsetQuaternion: [0, 0, 0, 1],
+          calibrated: false,
+          sourceAtCalibration: null,
+          lastCalibratedAtMs: null,
+        },
+      })
+
+      return SENSOR_CONTROLLER
+    })
+
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'granted',
+    })
+
+    const alignButton = container.querySelector(
+      '[data-testid="mobile-align-action"]',
+    ) as HTMLButtonElement | null
+
+    expect(alignButton?.disabled).toBe(false)
+
+    await act(async () => {
+      alignButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    const resetButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Reset calibration'),
+    ) as HTMLButtonElement | undefined
+    const nudgeRightButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Nudge right'),
+    ) as HTMLButtonElement | undefined
+
+    expect(resetButton?.disabled).toBe(true)
+    expect(nudgeRightButton).toBeDefined()
+
+    const calibrationCallsBefore = SENSOR_CONTROLLER.setCalibration.mock.calls.length
+
+    await act(async () => {
+      nudgeRightButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(SENSOR_CONTROLLER.setCalibration.mock.calls.length).toBe(
+      calibrationCallsBefore + 1,
+    )
+    expect(readViewerSettings().poseCalibration.calibrated).toBe(true)
+  })
+
   it('shows the secure-context failure screen when live AR is unavailable on this origin', async () => {
     Object.defineProperty(window, 'isSecureContext', {
       configurable: true,
@@ -1149,7 +1267,9 @@ describe('ViewerShell startup gating', () => {
       /Center .* in the reticle, then align before trusting label placement\./,
     )
     expect(container.textContent).toContain('Alignment steps')
-    expect(container.textContent).toContain('Choose the Sun or Moon target for this alignment pass.')
+    expect(container.textContent).toMatch(
+      /Choose Sun or Moon as your preferred target\. SkyLens is currently resolved to .*?\./,
+    )
     expect(container.textContent).toMatch(/Tap Align to lock labels to .*?\./)
     expect(container.textContent).toContain('Motion: Align first')
     expect(container.textContent).toContain('Sensor: Relative')
@@ -1864,6 +1984,98 @@ describe('ViewerShell startup gating', () => {
     },
     10_000,
   )
+
+  it('wires live-panel fine-adjust and reset controls into the existing calibration path', async () => {
+    mockSubscribeToOrientationPose.mockImplementationOnce((onPose: (state: unknown) => void) => {
+      onPose({
+        pose: {
+          yawDeg: 0,
+          pitchDeg: 0,
+          rollDeg: 0,
+          quaternion: [0, 0, 0, 1],
+          alignmentHealth: 'poor',
+          mode: 'sensor',
+        },
+        sample: {
+          source: 'deviceorientation-relative',
+          absolute: false,
+          needsCalibration: true,
+          timestampMs: Date.UTC(2026, 2, 26, 0, 45, 6),
+          headingDeg: 0,
+          pitchDeg: 0,
+          rollDeg: 0,
+          quaternion: [0, 0, 0, 1],
+          rawQuaternion: [0, 0, 0, 1],
+          rawSample: {
+            source: 'deviceorientation-relative',
+            localFrame: 'device',
+            absolute: false,
+            timestampMs: Date.UTC(2026, 2, 26, 0, 45, 6),
+            worldFromLocal: [
+              [1, 0, 0],
+              [0, 1, 0],
+              [0, 0, 1],
+            ],
+          },
+        },
+        history: [],
+        orientationSource: 'deviceorientation-relative',
+        orientationAbsolute: false,
+        orientationNeedsCalibration: true,
+        poseCalibration: {
+          offsetQuaternion: [0, 0, 0, 1],
+          calibrated: false,
+          sourceAtCalibration: null,
+          lastCalibratedAtMs: null,
+        },
+      })
+
+      return SENSOR_CONTROLLER
+    })
+
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'granted',
+    })
+
+    const nudgeLeftButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Nudge left'),
+    ) as HTMLButtonElement | undefined
+
+    expect(nudgeLeftButton).toBeDefined()
+
+    const calibrationCallsBefore = SENSOR_CONTROLLER.setCalibration.mock.calls.length
+
+    await act(async () => {
+      nudgeLeftButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(SENSOR_CONTROLLER.setCalibration.mock.calls.length).toBe(
+      calibrationCallsBefore + 1,
+    )
+    expect(readViewerSettings().poseCalibration.calibrated).toBe(true)
+
+    const resetCalibrationButton = Array.from(container.querySelectorAll('button')).find(
+      (button) =>
+        button.textContent?.includes('Reset calibration') &&
+        !(button as HTMLButtonElement).disabled,
+    ) as HTMLButtonElement | undefined
+
+    expect(resetCalibrationButton).toBeDefined()
+
+    await act(async () => {
+      resetCalibrationButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(SENSOR_CONTROLLER.setCalibration.mock.calls.length).toBe(
+      calibrationCallsBefore + 2,
+    )
+    expect(readViewerSettings().poseCalibration.calibrated).toBe(false)
+  })
 
   it('uses video-frame metadata when requestVideoFrameCallback is available', async () => {
     let videoFrameCallback:
