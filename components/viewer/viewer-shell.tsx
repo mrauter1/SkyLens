@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactElement,
   useCallback,
   useEffect,
   useRef,
@@ -3379,7 +3380,7 @@ function getDetailRows(object: SkyObject) {
 
 function renderObjectBadges(object: SkyObject) {
   const motionBadge = getMovingObjectMotionBadge(object)
-  const badges: JSX.Element[] = []
+  const badges: ReactElement[] = []
 
   if (motionBadge) {
     badges.push(
