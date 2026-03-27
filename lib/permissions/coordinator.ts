@@ -42,19 +42,9 @@ type ExperienceDescription = {
 export async function runStartFlow(
   runtime: PermissionRuntime = defaultRuntime,
 ): Promise<ViewerRouteState> {
-  const location = await runtime.requestLocation()
-
-  if (location !== 'granted') {
-    return {
-      entry: 'live',
-      location,
-      camera: 'unavailable',
-      orientation: 'unavailable',
-    }
-  }
-
-  const camera = await runtime.requestCamera()
   const orientation = await runtime.requestOrientation()
+  const camera = await runtime.requestCamera()
+  const location = await runtime.requestLocation()
 
   return {
     entry: 'live',
@@ -135,16 +125,8 @@ export function describeViewerExperience(state: ViewerRouteState): ExperienceDes
   if (hasUnknownPermissions(state)) {
     return {
       mode: 'blocked',
-      title: 'Start SkyLens first',
-      body: 'Open the landing screen to begin the permission flow, or retry permissions here if you landed on the viewer route directly.',
-    }
-  }
-
-  if (state.location !== 'granted') {
-    return {
-      mode: 'blocked',
-      title: 'Location required',
-      body: 'Location stays mandatory because the app cannot calculate what is above you without it.',
+      title: 'Start AR to continue',
+      body: 'Open the live viewer startup controller to request motion, camera, and location from the same in-view flow.',
     }
   }
 
@@ -172,10 +154,7 @@ export function describeViewerExperience(state: ViewerRouteState): ExperienceDes
 }
 
 export function hasVerifiedLiveViewerState(state: ViewerRouteState) {
-  return (
-    state.entry === 'live' &&
-    describeViewerExperience(state).mode !== 'blocked'
-  )
+  return state.entry === 'live' && !hasUnknownPermissions(state)
 }
 
 const defaultRuntime: PermissionRuntime = {

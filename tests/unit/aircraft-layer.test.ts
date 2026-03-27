@@ -114,11 +114,13 @@ describe('aircraft layer', () => {
       const lamax = Number(url.searchParams.get('lamax'))
       const lomin = Number(url.searchParams.get('lomin'))
       const lomax = Number(url.searchParams.get('lomax'))
+      const targetLat = Number(targetAircraft.states[0][6])
+      const targetLon = Number(targetAircraft.states[0][5])
       const includesTarget =
-        targetAircraft.states[0][6] >= lamin &&
-        targetAircraft.states[0][6] <= lamax &&
-        targetAircraft.states[0][5] >= lomin &&
-        targetAircraft.states[0][5] <= lomax
+        targetLat >= lamin &&
+        targetLat <= lamax &&
+        targetLon >= lomin &&
+        targetLon <= lomax
 
       return new Response(
         JSON.stringify(

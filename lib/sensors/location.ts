@@ -46,7 +46,7 @@ export async function requestLocationPermission(
   try {
     await getCurrentPosition(geolocation, {
       enableHighAccuracy: true,
-      maximumAge: 0,
+      maximumAge: 30_000,
       timeout: 10_000,
     })
     return 'granted'
@@ -66,7 +66,7 @@ export async function requestStartupObserverState(
 
   const position = await getCurrentPosition(geolocation, {
     enableHighAccuracy: true,
-    maximumAge: 0,
+    maximumAge: 30_000,
     timeout: 10_000,
   })
 

@@ -141,8 +141,8 @@ describe('ViewerShell settings integration', () => {
     expect(planesToggle.checked).toBe(false)
     expect(likelyVisibleToggle.checked).toBe(false)
 
-    const fixAlignmentButton = Array.from(container.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('Fix alignment'),
+    const alignmentButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Alignment'),
     )
     const recenterButton = Array.from(container.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Recenter'),
@@ -151,27 +151,20 @@ describe('ViewerShell settings integration', () => {
       button.textContent?.includes('Enter demo mode'),
     )
 
-    expect(fixAlignmentButton).toBeDefined()
+    expect(alignmentButton).toBeDefined()
     expect(recenterButton).toBeDefined()
     expect(enterDemoModeButton).toBeDefined()
 
     await act(async () => {
-      fixAlignmentButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      alignmentButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    const headingSlider = container.querySelector(
-      'input[aria-label="Heading nudge"]',
-    ) as HTMLInputElement | null
-    const pitchSlider = container.querySelector(
-      'input[aria-label="Pitch nudge"]',
-    ) as HTMLInputElement | null
     const fovSlider = container.querySelector(
       'input[aria-label="Field of view"]',
     ) as HTMLInputElement | null
 
-    expect(headingSlider?.value).toBe('7')
-    expect(pitchSlider?.value).toBe('-3')
     expect(fovSlider?.value).toBe('6')
+    expect(container.textContent).toContain('North marker')
     expect(
       (container.querySelector('input[aria-label="On objects"]') as HTMLInputElement | null)
         ?.checked,
@@ -183,10 +176,9 @@ describe('ViewerShell settings integration', () => {
 
     expect(readViewerSettings()).toMatchObject({
       labelDisplayMode: 'on_objects',
-      headingOffsetDeg: 7,
-      pitchOffsetDeg: -3,
       verticalFovAdjustmentDeg: 6,
     })
+    expect(readViewerSettings().poseCalibration.calibrated).toBe(false)
 
     await act(async () => {
       enterDemoModeButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
@@ -229,25 +221,22 @@ describe('ViewerShell settings integration', () => {
     const satellitesToggle = checkboxes[1]
     const likelyVisibleToggle = checkboxes[5]
 
-    const fixAlignmentButton = Array.from(container.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('Fix alignment'),
+    const alignmentButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Alignment'),
     )
 
-    expect(fixAlignmentButton).toBeDefined()
+    expect(alignmentButton).toBeDefined()
 
     await act(async () => {
-      fixAlignmentButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      alignmentButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    const headingSlider = container.querySelector(
-      'input[aria-label="Heading nudge"]',
-    ) as HTMLInputElement | null
-    const pitchSlider = container.querySelector(
-      'input[aria-label="Pitch nudge"]',
-    ) as HTMLInputElement | null
     const fovSlider = container.querySelector(
       'input[aria-label="Field of view"]',
     ) as HTMLInputElement | null
+    const nudgeLeftButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Nudge left'),
+    )
     const topListRadio = container.querySelector(
       'input[aria-label="Top list"]',
     ) as HTMLInputElement | null
@@ -255,8 +244,6 @@ describe('ViewerShell settings integration', () => {
     expect(planesToggle.checked).toBe(false)
     expect(satellitesToggle.checked).toBe(true)
     expect(likelyVisibleToggle.checked).toBe(false)
-    expect(headingSlider?.value).toBe('7')
-    expect(pitchSlider?.value).toBe('-3')
     expect(fovSlider?.value).toBe('6')
 
     await act(async () => {
@@ -264,8 +251,7 @@ describe('ViewerShell settings integration', () => {
       satellitesToggle.click()
       likelyVisibleToggle.click()
       topListRadio?.click()
-      setInputValue(headingSlider!, '-8')
-      setInputValue(pitchSlider!, '5')
+      nudgeLeftButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
       setInputValue(fovSlider!, '-4')
     })
 
@@ -279,10 +265,9 @@ describe('ViewerShell settings integration', () => {
       },
       likelyVisibleOnly: true,
       labelDisplayMode: 'top_list',
-      headingOffsetDeg: -8,
-      pitchOffsetDeg: 5,
       verticalFovAdjustmentDeg: -4,
     })
+    expect(readViewerSettings().poseCalibration.calibrated).toBe(false)
 
     await act(async () => {
       root.unmount()
@@ -323,29 +308,22 @@ describe('ViewerShell settings integration', () => {
     expect(reloadedCheckboxes[1].checked).toBe(false)
     expect(reloadedCheckboxes[5].checked).toBe(true)
 
-    const reloadedFixAlignmentButton = Array.from(container.querySelectorAll('button')).find(
-      (button) => button.textContent?.includes('Fix alignment'),
+    const reloadedAlignmentButton = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.includes('Alignment'),
     )
 
-    expect(reloadedFixAlignmentButton).toBeDefined()
+    expect(reloadedAlignmentButton).toBeDefined()
 
     await act(async () => {
-      reloadedFixAlignmentButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      reloadedAlignmentButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    const reloadedHeadingSlider = container.querySelector(
-      'input[aria-label="Heading nudge"]',
-    ) as HTMLInputElement | null
-    const reloadedPitchSlider = container.querySelector(
-      'input[aria-label="Pitch nudge"]',
-    ) as HTMLInputElement | null
     const reloadedFovSlider = container.querySelector(
       'input[aria-label="Field of view"]',
     ) as HTMLInputElement | null
 
-    expect(reloadedHeadingSlider?.value).toBe('-8')
-    expect(reloadedPitchSlider?.value).toBe('5')
     expect(reloadedFovSlider?.value).toBe('-4')
+    expect(container.textContent).toContain('North marker')
     expect(
       (container.querySelector('input[aria-label="Top list"]') as HTMLInputElement | null)
         ?.checked,

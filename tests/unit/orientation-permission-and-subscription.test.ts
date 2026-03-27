@@ -1,55 +1,52 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { DeviceOrientationReading, OrientationRuntime } from '../../lib/sensors/orientation'
+import type {
+  DeviceOrientationReading,
+  OrientationRuntime,
+} from '../../lib/sensors/orientation'
 import {
   requestOrientationPermission,
   subscribeToOrientationPose,
 } from '../../lib/sensors/orientation'
+import { getCameraBasisVectors } from '../../lib/projection/camera'
 
 describe('orientation permission and subscription', () => {
   afterEach(() => {
     vi.useRealTimers()
   })
 
-  it('returns denied when an explicit orientation permission request is denied', async () => {
+  it('requests iOS/WebKit orientation permission with absolute=true and motion permission in the same flow', async () => {
+    const orientationPermission = vi.fn(async () => 'granted' as const)
+    const motionPermission = vi.fn(async () => 'granted' as const)
     const { runtime } = createOrientationRuntime({
-      orientationPermission: vi.fn(async () => 'denied'),
-    })
-
-    await expect(requestOrientationPermission(runtime)).resolves.toBe('denied')
-  })
-
-  it('returns granted after an explicit orientation permission grant without waiting for a probe', async () => {
-    const { runtime, listenerCount } = createOrientationRuntime({
-      orientationPermission: vi.fn(async () => 'granted'),
+      orientationPermission,
+      motionPermission,
     })
 
     await expect(requestOrientationPermission(runtime)).resolves.toBe('granted')
-    expect(listenerCount('deviceorientationabsolute')).toBe(0)
-    expect(listenerCount('deviceorientation')).toBe(0)
+    expect(orientationPermission).toHaveBeenCalledWith(true)
+    expect(motionPermission).toHaveBeenCalledWith(undefined)
   })
 
-  it('returns denied when motion permission denies even if orientation permission grants', async () => {
+  it('returns denied when an explicit motion permission request denies', async () => {
     const { runtime } = createOrientationRuntime({
-      orientationPermission: vi.fn(async () => 'granted'),
-      motionPermission: vi.fn(async () => 'denied'),
+      orientationPermission: vi.fn(
+        async (): Promise<'granted' | 'denied'> => 'granted',
+      ),
+      motionPermission: vi.fn(
+        async (): Promise<'granted' | 'denied'> => 'denied',
+      ),
     })
 
     await expect(requestOrientationPermission(runtime)).resolves.toBe('denied')
   })
 
-  it('returns granted after a live orientation probe on platforms without permission APIs', async () => {
-    vi.useFakeTimers()
-
-    const { runtime, emit, listenerCount } = createOrientationRuntime()
+  it('returns granted after a live probe on platforms without permission APIs', async () => {
+    const { runtime, emit } = createOrientationRuntime()
     const permissionPromise = requestOrientationPermission(runtime)
 
     await Promise.resolve()
     await Promise.resolve()
-
-    expect(listenerCount('deviceorientationabsolute')).toBe(1)
-    expect(listenerCount('deviceorientation')).toBe(1)
-
     emit('deviceorientation', {
       alpha: 12,
       beta: 4,
@@ -57,333 +54,285 @@ describe('orientation permission and subscription', () => {
     })
 
     await expect(permissionPromise).resolves.toBe('granted')
-    expect(listenerCount('deviceorientationabsolute')).toBe(0)
-    expect(listenerCount('deviceorientation')).toBe(0)
+  })
+
+  it('returns granted when only AbsoluteOrientationSensor is available and produces a reading', async () => {
+    const { runtime, triggerSensorReading } = createOrientationRuntime({
+      supportsEvents: false,
+      sensorMatrix: [
+        [1, 0, 0],
+        [0, 0, -1],
+        [0, 1, 0],
+      ],
+    })
+    const permissionPromise = requestOrientationPermission(runtime)
+
+    await Promise.resolve()
+    await Promise.resolve()
+    triggerSensorReading()
+
+    await expect(permissionPromise).resolves.toBe('granted')
+  })
+
+  it('falls back from a silent orientation-event probe to AbsoluteOrientationSensor permission success', async () => {
+    vi.useFakeTimers()
+
+    const { runtime, triggerSensorReading } = createOrientationRuntime({
+      sensorMatrix: [
+        [1, 0, 0],
+        [0, 0, -1],
+        [0, 1, 0],
+      ],
+    })
+    const permissionPromise = requestOrientationPermission(runtime)
+
+    await Promise.resolve()
+    await Promise.resolve()
+    await vi.advanceTimersByTimeAsync(250)
+    triggerSensorReading()
+
+    await expect(permissionPromise).resolves.toBe('granted')
+  })
+
+  it('returns unavailable when only AbsoluteOrientationSensor is available and no reading arrives', async () => {
+    vi.useFakeTimers()
+
+    const { runtime } = createOrientationRuntime({
+      supportsEvents: false,
+      sensorMatrix: [
+        [1, 0, 0],
+        [0, 0, -1],
+        [0, 1, 0],
+      ],
+    })
+    const permissionPromise = requestOrientationPermission(runtime)
+
+    await Promise.resolve()
+    await Promise.resolve()
+    await vi.runAllTimersAsync()
+
+    await expect(permissionPromise).resolves.toBe('unavailable')
   })
 
   it('returns unavailable when no usable orientation sample arrives before the probe timeout', async () => {
     vi.useFakeTimers()
 
-    const { runtime, emit, listenerCount } = createOrientationRuntime()
+    const { runtime } = createOrientationRuntime()
     const permissionPromise = requestOrientationPermission(runtime)
 
     await Promise.resolve()
     await Promise.resolve()
-
-    emit('deviceorientationabsolute', {
-      alpha: null,
-      beta: 4,
-      gamma: 1,
-    })
-
     await vi.runAllTimersAsync()
 
     await expect(permissionPromise).resolves.toBe('unavailable')
-    expect(listenerCount('deviceorientationabsolute')).toBe(0)
-    expect(listenerCount('deviceorientation')).toBe(0)
   })
 
-  it('falls back to deviceorientation after a short delay when absolute never becomes usable', async () => {
+  it('uses event.absolute truth instead of the event name when choosing relative vs absolute mode', async () => {
     vi.useFakeTimers()
 
     const { runtime, emit } = createOrientationRuntime()
-    const poses: Array<{ headingDeg: number }> = []
+    const states: Array<{
+      source: string
+      absolute: boolean
+      needsCalibration: boolean
+    }> = []
 
     const subscription = subscribeToOrientationPose(
-      ({ sample }) => {
-        poses.push({ headingDeg: sample.headingDeg })
+      ({
+        orientationSource,
+        orientationAbsolute,
+        orientationNeedsCalibration,
+      }) => {
+        states.push({
+          source: orientationSource,
+          absolute: orientationAbsolute,
+          needsCalibration: orientationNeedsCalibration,
+        })
       },
       { runtime },
     )
 
     emit('deviceorientationabsolute', {
-      alpha: null,
-      beta: 0,
-      gamma: 0,
-    })
-    emit('deviceorientation', {
-      alpha: 10,
-      beta: 0,
-      gamma: 0,
-    })
-    emit('deviceorientation', {
-      alpha: 20,
-      beta: 0,
-      gamma: 0,
-    })
-
-    expect(poses).toHaveLength(0)
-
-    await vi.runAllTimersAsync()
-
-    emit('deviceorientationabsolute', {
-      alpha: 200,
-      beta: 0,
-      gamma: 0,
-    })
-    emit('deviceorientation', {
-      alpha: 30,
-      beta: 0,
-      gamma: 0,
-    })
-
-    subscription.stop()
-
-    expect(poses).toHaveLength(2)
-    expect(poses[0].headingDeg).toBe(20)
-    expect(poses[1].headingDeg).toBeCloseTo(22, 4)
-  })
-
-  it('prefers deviceorientationabsolute when it becomes valid before relative fallback locks in', async () => {
-    vi.useFakeTimers()
-
-    const { runtime, emit } = createOrientationRuntime()
-    const poses: Array<{ headingDeg: number }> = []
-
-    const subscription = subscribeToOrientationPose(
-      ({ sample }) => {
-        poses.push({ headingDeg: sample.headingDeg })
-      },
-      { runtime },
-    )
-
-    emit('deviceorientation', {
-      alpha: 10,
-      beta: 0,
-      gamma: 0,
-    })
-
-    expect(poses).toHaveLength(0)
-
-    emit('deviceorientationabsolute', {
-      alpha: 50,
-      beta: 0,
-      gamma: 0,
-      absolute: true,
-    })
-
-    await vi.runAllTimersAsync()
-
-    emit('deviceorientation', {
-      alpha: 100,
-      beta: 0,
-      gamma: 0,
-    })
-    emit('deviceorientationabsolute', {
-      alpha: 60,
-      beta: 0,
-      gamma: 0,
-      absolute: true,
-    })
-
-    subscription.stop()
-
-    expect(poses).toHaveLength(2)
-    expect(poses[0].headingDeg).toBe(50)
-    expect(poses[1].headingDeg).toBeCloseTo(52, 4)
-  })
-
-  it('selects deviceorientation immediately when the absolute stream is not supported', () => {
-    const { runtime, emit } = createOrientationRuntime({
-      supportsAbsolute: false,
-    })
-    const poses: Array<{ headingDeg: number }> = []
-
-    const subscription = subscribeToOrientationPose(
-      ({ sample }) => {
-        poses.push({ headingDeg: sample.headingDeg })
-      },
-      { runtime },
-    )
-
-    emit('deviceorientation', {
       alpha: 25,
-      beta: 0,
+      beta: 80,
       gamma: 0,
+      absolute: false,
+    })
+
+    await vi.runAllTimersAsync()
+
+    emit('deviceorientation', {
+      alpha: 40,
+      beta: 80,
+      gamma: 0,
+      absolute: true,
     })
 
     subscription.stop()
 
-    expect(poses).toHaveLength(1)
-    expect(poses[0].headingDeg).toBe(25)
+    expect(states).toHaveLength(2)
+    expect(states[0]).toEqual({
+      source: 'deviceorientation-relative',
+      absolute: false,
+      needsCalibration: true,
+    })
+    expect(states[1]).toEqual({
+      source: 'deviceorientation-absolute',
+      absolute: true,
+      needsCalibration: false,
+    })
   })
 
-  it('keeps emitted samples continuous through zenith before smoothing and recenter are applied', () => {
-    const { runtime, emit } = createOrientationRuntime({
-      supportsAbsolute: false,
-      screenAngle: 90,
+  it('prefers AbsoluteOrientationSensor screen-frame samples when available', () => {
+    const { runtime, triggerSensorReading } = createOrientationRuntime({
+      sensorMatrix: [
+        [1, 0, 0],
+        [0, 0, -1],
+        [0, 1, 0],
+      ],
     })
-    const poses: Array<{
-      headingDeg: number
-      pitchDeg: number
-      rollDeg: number
-      quaternionMagnitude: number
+    const states: Array<{
+      source: string
+      absolute: boolean
+      needsCalibration: boolean
+      forward: readonly number[]
     }> = []
 
     const subscription = subscribeToOrientationPose(
-      ({ sample }) => {
-        poses.push({
-          headingDeg: sample.headingDeg,
-          pitchDeg: sample.pitchDeg,
-          rollDeg: sample.rollDeg,
-          quaternionMagnitude: Math.hypot(...(sample.quaternion ?? [NaN, NaN, NaN, NaN])),
+      ({ pose, orientationAbsolute, orientationNeedsCalibration, orientationSource }) => {
+        states.push({
+          source: orientationSource,
+          absolute: orientationAbsolute,
+          needsCalibration: orientationNeedsCalibration,
+          forward: getCameraBasisVectors(pose.quaternion).forward,
         })
       },
       { runtime },
     )
 
-    emit('deviceorientation', {
-      alpha: 0,
-      beta: 0,
-      gamma: 89,
-    })
-    emit('deviceorientation', {
-      alpha: 180,
-      beta: 180,
-      gamma: 80,
-    })
-
+    triggerSensorReading()
     subscription.stop()
 
-    expect(poses).toHaveLength(2)
-    expect(poses[0].headingDeg).toBeCloseTo(90, 4)
-    expect(Math.abs(poses[0].pitchDeg)).toBeCloseTo(89, 4)
-    expect(poses[0].rollDeg).toBeCloseTo(0, 4)
-    expect(poses[0].quaternionMagnitude).toBeCloseTo(1, 6)
-    expect(poses[1].headingDeg).toBeCloseTo(90, 4)
-    expect(poses[1].pitchDeg).toBeGreaterThan(90)
-    expect(Math.abs(normalizeSignedDegrees(poses[1].rollDeg))).toBeCloseTo(0, 4)
-    expect(poses[1].quaternionMagnitude).toBeCloseTo(1, 6)
+    expect(states).toHaveLength(1)
+    expect(states[0]).toMatchObject({
+      source: 'absolute-sensor',
+      absolute: true,
+      needsCalibration: false,
+    })
+    expect(states[0].forward[0]).toBeCloseTo(0, 6)
+    expect(states[0].forward[1]).toBeCloseTo(1, 6)
+    expect(states[0].forward[2]).toBeCloseTo(0, 6)
   })
 
-  it('keeps repeated landscape zenith samples on the same normalized positive pitch branch', () => {
+  it('falls back to the buffered absolute device sample when the sensor provider stays pending', async () => {
+    vi.useFakeTimers()
+
     const { runtime, emit } = createOrientationRuntime({
-      supportsAbsolute: false,
-      screenAngle: 90,
+      sensorMatrix: [
+        [1, 0, 0],
+        [0, 0, -1],
+        [0, 1, 0],
+      ],
     })
-    const poses: Array<{ headingDeg: number; pitchDeg: number; rollDeg: number }> = []
-
-    const subscription = subscribeToOrientationPose(
-      ({ sample }) => {
-        poses.push({
-          headingDeg: sample.headingDeg,
-          pitchDeg: sample.pitchDeg,
-          rollDeg: sample.rollDeg,
-        })
-      },
-      { runtime },
-    )
-
-    emit('deviceorientation', {
-      alpha: 0,
-      beta: 0,
-      gamma: 80,
-    })
-    emit('deviceorientation', {
-      alpha: 0,
-      beta: 0,
-      gamma: 89,
-    })
-
-    subscription.stop()
-
-    expect(poses).toHaveLength(2)
-    expect(poses[0].pitchDeg).toBeCloseTo(80, 4)
-    expect(poses[1].headingDeg).toBeCloseTo(90, 4)
-    expect(poses[1].pitchDeg).toBeGreaterThan(poses[0].pitchDeg)
-    expect(poses[1].pitchDeg).toBeGreaterThan(0)
-    expect(Math.abs(normalizeSignedDegrees(poses[1].rollDeg))).toBeCloseTo(0, 4)
-  })
-
-  it('keeps emitted samples continuous through nadir before smoothing and recenter are applied', () => {
-    const { runtime, emit } = createOrientationRuntime({
-      supportsAbsolute: false,
-      screenAngle: 90,
-    })
-    const poses: Array<{
-      headingDeg: number
-      pitchDeg: number
-      rollDeg: number
-      quaternionMagnitude: number
+    const states: Array<{
+      source: string
+      absolute: boolean
+      needsCalibration: boolean
+      forward: readonly number[]
     }> = []
 
     const subscription = subscribeToOrientationPose(
-      ({ sample }) => {
-        poses.push({
-          headingDeg: sample.headingDeg,
-          pitchDeg: sample.pitchDeg,
-          rollDeg: sample.rollDeg,
-          quaternionMagnitude: Math.hypot(...(sample.quaternion ?? [NaN, NaN, NaN, NaN])),
+      ({ pose, orientationAbsolute, orientationNeedsCalibration, orientationSource }) => {
+        states.push({
+          source: orientationSource,
+          absolute: orientationAbsolute,
+          needsCalibration: orientationNeedsCalibration,
+          forward: getCameraBasisVectors(pose.quaternion).forward,
         })
       },
       { runtime },
     )
 
     emit('deviceorientation', {
-      alpha: 0,
-      beta: 0,
-      gamma: -89,
+      alpha: 10,
+      beta: 90,
+      gamma: 0,
+      absolute: false,
     })
-    emit('deviceorientation', {
-      alpha: 180,
-      beta: -180,
-      gamma: -80,
+    emit('deviceorientationabsolute', {
+      alpha: 270,
+      beta: 90,
+      gamma: 0,
+      absolute: true,
     })
 
+    expect(states).toHaveLength(0)
+
+    await vi.runAllTimersAsync()
     subscription.stop()
 
-    expect(poses).toHaveLength(2)
-    expect(poses[0].headingDeg).toBeCloseTo(90, 4)
-    expect(Math.abs(poses[0].pitchDeg)).toBeCloseTo(89, 4)
-    expect(poses[0].rollDeg).toBeCloseTo(0, 4)
-    expect(poses[0].quaternionMagnitude).toBeCloseTo(1, 6)
-    expect(poses[1].headingDeg).toBeCloseTo(90, 4)
-    expect(poses[1].pitchDeg).toBeLessThan(-90)
-    expect(Math.abs(normalizeSignedDegrees(poses[1].rollDeg))).toBeCloseTo(0, 4)
-    expect(poses[1].quaternionMagnitude).toBeCloseTo(1, 6)
+    expect(states).toHaveLength(1)
+    expect(states[0]).toMatchObject({
+      source: 'deviceorientation-absolute',
+      absolute: true,
+      needsCalibration: false,
+    })
+    expect(states[0].forward[0]).toBeCloseTo(1, 6)
+    expect(states[0].forward[1]).toBeCloseTo(0, 6)
+    expect(states[0].forward[2]).toBeCloseTo(0, 6)
   })
 
-  it('keeps recenter stable when the baseline is captured near zenith', () => {
+  it('requires calibration for relative mode until the controller recenters the raw pose', async () => {
+    vi.useFakeTimers()
+
     const { runtime, emit } = createOrientationRuntime({
       supportsAbsolute: false,
-      screenAngle: 90,
     })
-    const poses: Array<{ yawDeg: number; pitchDeg: number; rollDeg: number }> = []
+    const states: Array<{
+      yawDeg: number
+      pitchDeg: number
+      alignmentHealth: string
+      needsCalibration: boolean
+      forward: [number, number, number]
+    }> = []
 
     const subscription = subscribeToOrientationPose(
-      ({ pose }) => {
-        poses.push({
+      ({ pose, orientationNeedsCalibration }) => {
+        states.push({
           yawDeg: pose.yawDeg,
           pitchDeg: pose.pitchDeg,
-          rollDeg: pose.rollDeg,
+          alignmentHealth: pose.alignmentHealth,
+          needsCalibration: orientationNeedsCalibration,
+          forward: getCameraBasisVectors(pose.quaternion).forward,
         })
       },
       { runtime },
     )
 
     emit('deviceorientation', {
-      alpha: 0,
-      beta: 0,
-      gamma: 89,
+      alpha: 15,
+      beta: 75,
+      gamma: -10,
+      absolute: false,
     })
-
     subscription.recenter()
-
     emit('deviceorientation', {
-      alpha: 180,
-      beta: 180,
-      gamma: 80,
+      alpha: 15,
+      beta: 75,
+      gamma: -10,
+      absolute: false,
     })
 
     subscription.stop()
 
-    expect(poses).toHaveLength(2)
-    expect(poses[0].yawDeg).toBeCloseTo(90, 4)
-    expect(Math.abs(poses[0].pitchDeg)).toBeCloseTo(89, 4)
-    expect(poses[1].yawDeg).toBeCloseTo(0, 4)
-    expect(poses[1].pitchDeg).toBeGreaterThan(0)
-    expect(poses[1].pitchDeg).toBeLessThan(5)
-    expect(Math.abs(normalizeSignedDegrees(poses[1].rollDeg))).toBeCloseTo(0, 4)
+    expect(states).toHaveLength(3)
+    expect(states[0].needsCalibration).toBe(true)
+    expect(states[0].alignmentHealth).toBe('poor')
+    expect(states.at(-1)?.needsCalibration).toBe(false)
+    expect(states.at(-1)?.alignmentHealth).toBe('fair')
+    expect(states.at(-1)?.forward[0]).toBeCloseTo(0, 5)
+    expect(states.at(-1)?.forward[1]).toBeCloseTo(1, 5)
+    expect(states.at(-1)?.forward[2]).toBeCloseTo(0, 5)
   })
 })
 
@@ -391,16 +340,69 @@ function createOrientationRuntime({
   orientationPermission,
   motionPermission,
   supportsAbsolute = true,
-  screenAngle = 0,
+  supportsEvents = true,
+  sensorMatrix,
 }: {
-  orientationPermission?: () => Promise<'granted' | 'denied'>
+  orientationPermission?: (absolute?: boolean) => Promise<'granted' | 'denied'>
   motionPermission?: () => Promise<'granted' | 'denied'>
   supportsAbsolute?: boolean
-  screenAngle?: number
+  supportsEvents?: boolean
+  sensorMatrix?: [
+    [number, number, number],
+    [number, number, number],
+    [number, number, number],
+  ]
 } = {}) {
   const listeners = {
     deviceorientationabsolute: new Set<EventListenerOrEventListenerObject>(),
     deviceorientation: new Set<EventListenerOrEventListenerObject>(),
+  }
+  const sensorListeners = {
+    reading: new Set<EventListenerOrEventListenerObject>(),
+    error: new Set<EventListenerOrEventListenerObject>(),
+  }
+
+  class MockAbsoluteOrientationSensor {
+    addEventListener(
+      type: 'reading' | 'error',
+      listener: EventListenerOrEventListenerObject,
+    ) {
+      sensorListeners[type].add(listener)
+    }
+
+    removeEventListener(
+      type: 'reading' | 'error',
+      listener: EventListenerOrEventListenerObject,
+    ) {
+      sensorListeners[type].delete(listener)
+    }
+
+    populateMatrix(target: Float32Array | Float64Array | number[]) {
+      if (!sensorMatrix) {
+        throw new Error('no-matrix')
+      }
+
+      target[0] = sensorMatrix[0][0]
+      target[1] = sensorMatrix[1][0]
+      target[2] = sensorMatrix[2][0]
+      target[3] = 0
+      target[4] = sensorMatrix[0][1]
+      target[5] = sensorMatrix[1][1]
+      target[6] = sensorMatrix[2][1]
+      target[7] = 0
+      target[8] = sensorMatrix[0][2]
+      target[9] = sensorMatrix[1][2]
+      target[10] = sensorMatrix[2][2]
+      target[11] = 0
+      target[12] = 0
+      target[13] = 0
+      target[14] = 0
+      target[15] = 1
+      return target
+    }
+
+    start() {}
+    stop() {}
   }
 
   const runtime: OrientationRuntime = {
@@ -410,13 +412,13 @@ function createOrientationRuntime({
     removeEventListener(type, listener) {
       listeners[type].delete(listener)
     },
-    ondeviceorientation: null,
-    ...(supportsAbsolute ? { ondeviceorientationabsolute: null } : {}),
-    screen: {
-      orientation: {
-        angle: screenAngle,
-      },
-    },
+    ...(supportsEvents ? { ondeviceorientation: null } : {}),
+    ...(supportsEvents && supportsAbsolute ? { ondeviceorientationabsolute: null } : {}),
+    ...(sensorMatrix
+      ? {
+          AbsoluteOrientationSensor: MockAbsoluteOrientationSensor,
+        }
+      : {}),
     ...(orientationPermission
       ? {
           DeviceOrientationEvent: {
@@ -452,13 +454,16 @@ function createOrientationRuntime({
         }
       }
     },
-    listenerCount(type: 'deviceorientationabsolute' | 'deviceorientation') {
-      return listeners[type].size
+    triggerSensorReading() {
+      const event = { type: 'reading' } as Event
+
+      for (const listener of [...sensorListeners.reading]) {
+        if (typeof listener === 'function') {
+          listener(event)
+        } else {
+          listener.handleEvent(event)
+        }
+      }
     },
   }
-}
-
-function normalizeSignedDegrees(value: number) {
-  const normalized = ((value % 360) + 360) % 360
-  return normalized > 180 ? normalized - 360 : normalized
 }

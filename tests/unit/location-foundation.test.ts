@@ -128,7 +128,7 @@ describe('location foundation', () => {
     const getCurrentPosition = vi.fn((success: PositionCallback, _error, options) => {
       expect(options).toEqual({
         enableHighAccuracy: true,
-        maximumAge: 0,
+        maximumAge: 30_000,
         timeout: 10_000,
       })
 

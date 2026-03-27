@@ -2,6 +2,11 @@ import type { CameraPose } from '../viewer/contracts'
 
 export type Quaternion = [number, number, number, number]
 export type Vec3 = readonly [number, number, number]
+export type Mat3 = [
+  [number, number, number],
+  [number, number, number],
+  [number, number, number],
+]
 
 export interface RearCameraStreamRuntime {
   getUserMedia: (
@@ -9,10 +14,55 @@ export interface RearCameraStreamRuntime {
   ) => Promise<MediaStream>
 }
 
+export interface CameraDeviceRuntime extends RearCameraStreamRuntime {
+  enumerateDevices?: () => Promise<MediaDeviceInfo[]>
+}
+
+export interface RearCameraRequestOptions {
+  preferredDeviceId?: string | null
+}
+
+export interface CameraDeviceOption {
+  deviceId: string
+  label: string
+}
+
 export interface ProjectViewport {
   width: number
   height: number
+  sourceWidth?: number
+  sourceHeight?: number
+  objectFit?: 'cover'
   overscanRatio?: number
+}
+
+export interface CameraFrameLayout {
+  sourceWidth: number
+  sourceHeight: number
+  viewportWidth: number
+  viewportHeight: number
+  objectFit: 'cover'
+  scale: number
+  cropX: number
+  cropY: number
+}
+
+export interface ProjectedImagePlanePoint {
+  visible: boolean
+  imageX: number
+  imageY: number
+  normalizedX: number
+  normalizedY: number
+  angularDistanceDeg: number
+  cameraVector: [number, number, number]
+}
+
+export interface ViewportMappedPoint {
+  visible: boolean
+  inViewport: boolean
+  inOverscan: boolean
+  x: number
+  y: number
 }
 
 export interface ProjectWorldPointInput {
@@ -39,12 +89,27 @@ export interface CenterLockCandidate {
 }
 
 const DEFAULT_VERTICAL_FOV_DEG = 50
-const MIN_VERTICAL_FOV_DEG = 40
-const MAX_VERTICAL_FOV_DEG = 60
+const MIN_VERTICAL_FOV_DEG = 20
+const MAX_VERTICAL_FOV_DEG = 100
 const DEFAULT_OVERSCAN_RATIO = 0.1
 
-export function getRearCameraConstraintCandidates(): MediaStreamConstraints[] {
-  return [
+export function getRearCameraConstraintCandidates(
+  preferredDeviceId?: string | null,
+): MediaStreamConstraints[] {
+  const candidates: MediaStreamConstraints[] = []
+
+  if (preferredDeviceId) {
+    candidates.push({
+      audio: false,
+      video: {
+        deviceId: { exact: preferredDeviceId },
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+      },
+    })
+  }
+
+  candidates.push(
     {
       audio: false,
       video: {
@@ -61,13 +126,16 @@ export function getRearCameraConstraintCandidates(): MediaStreamConstraints[] {
         height: { ideal: 720 },
       },
     },
-  ]
+  )
+
+  return candidates
 }
 
 export async function requestRearCameraStream(
   runtime: RearCameraStreamRuntime = navigator.mediaDevices,
+  options: RearCameraRequestOptions = {},
 ): Promise<MediaStream> {
-  for (const constraints of getRearCameraConstraintCandidates()) {
+  for (const constraints of getRearCameraConstraintCandidates(options.preferredDeviceId)) {
     try {
       return await runtime.getUserMedia(constraints)
     } catch {
@@ -100,6 +168,47 @@ export async function probeRearCameraPermission(
   } catch {
     return 'denied'
   }
+}
+
+export async function listAvailableVideoInputDevices(
+  runtime: Pick<CameraDeviceRuntime, 'enumerateDevices'> | null =
+    typeof navigator !== 'undefined' ? navigator.mediaDevices : null,
+): Promise<CameraDeviceOption[]> {
+  if (!runtime?.enumerateDevices) {
+    return []
+  }
+
+  const devices = await runtime.enumerateDevices()
+  const videoInputs = devices.filter((device) => device.kind === 'videoinput')
+
+  if (videoInputs.length === 0) {
+    return []
+  }
+
+  const sortedInputs = [...videoInputs].sort((left, right) => {
+    return getCameraDevicePriority(right.label) - getCameraDevicePriority(left.label)
+  })
+  const rearInputs = sortedInputs.filter((device) => isLikelyRearCameraLabel(device.label))
+  const preferredInputs = rearInputs.length > 0 ? rearInputs : sortedInputs
+
+  return preferredInputs.map((device, index) => ({
+    deviceId: device.deviceId,
+    label: device.label || `Camera ${index + 1}`,
+  }))
+}
+
+export function getStreamVideoDeviceId(stream: MediaStream | null | undefined) {
+  const tracks =
+    stream && typeof stream.getVideoTracks === 'function'
+      ? stream.getVideoTracks()
+      : []
+  const [track] = tracks
+
+  if (!track || typeof track.getSettings !== 'function') {
+    return null
+  }
+
+  return track.getSettings().deviceId ?? null
 }
 
 export function stopMediaStream(stream: MediaStream | null | undefined) {
@@ -195,6 +304,24 @@ export function createCameraQuaternion(
   )
 }
 
+export function createQuaternionFromBasis(
+  right: Vec3,
+  down: Vec3,
+  forward: Vec3,
+): Quaternion {
+  const normalizedRight = normalizeVec3(right)
+  const normalizedDown = normalizeVec3(down)
+  const normalizedForward = normalizeVec3(forward)
+
+  return normalizeQuaternion(
+    quaternionFromRotationMatrix([
+      [normalizedRight[0], normalizedDown[0], normalizedForward[0]],
+      [normalizedRight[1], normalizedDown[1], normalizedForward[1]],
+      [normalizedRight[2], normalizedDown[2], normalizedForward[2]],
+    ]),
+  )
+}
+
 export function multiplyQuaternions(
   left: Quaternion,
   right: Quaternion,
@@ -280,12 +407,39 @@ export function horizontalToWorldVector(
   ]
 }
 
-export function projectWorldPointToScreen(
+export function createCameraFrameLayout(
+  viewport: ProjectViewport,
+): CameraFrameLayout {
+  const sourceWidth = Math.max(viewport.sourceWidth ?? viewport.width, 1)
+  const sourceHeight = Math.max(viewport.sourceHeight ?? viewport.height, 1)
+  const viewportWidth = Math.max(viewport.width, 1)
+  const viewportHeight = Math.max(viewport.height, 1)
+  const objectFit = viewport.objectFit ?? 'cover'
+  const scale = Math.max(
+    viewportWidth / sourceWidth,
+    viewportHeight / sourceHeight,
+  )
+  const displayedWidth = sourceWidth * scale
+  const displayedHeight = sourceHeight * scale
+
+  return {
+    sourceWidth,
+    sourceHeight,
+    viewportWidth,
+    viewportHeight,
+    objectFit,
+    scale,
+    cropX: (displayedWidth - viewportWidth) / 2,
+    cropY: (displayedHeight - viewportHeight) / 2,
+  }
+}
+
+export function projectWorldPointToImagePlane(
   pose: Pick<CameraPose, 'quaternion'>,
   worldPoint: ProjectWorldPointInput,
-  viewport: ProjectViewport,
+  frame: Pick<CameraFrameLayout, 'sourceWidth' | 'sourceHeight'>,
   verticalFovAdjustmentDeg = 0,
-): ProjectedWorldPoint {
+): ProjectedImagePlanePoint {
   const worldVector = horizontalToWorldVector(
     worldPoint.azimuthDeg,
     worldPoint.elevationDeg,
@@ -298,10 +452,8 @@ export function projectWorldPointToScreen(
   if (cameraVector[2] <= 0) {
     return {
       visible: false,
-      inViewport: false,
-      inOverscan: false,
-      x: Number.NaN,
-      y: Number.NaN,
+      imageX: Number.NaN,
+      imageY: Number.NaN,
       normalizedX: Number.NaN,
       normalizedY: Number.NaN,
       angularDistanceDeg,
@@ -309,8 +461,10 @@ export function projectWorldPointToScreen(
     }
   }
 
+  const sourceWidth = Math.max(frame.sourceWidth, 1)
+  const sourceHeight = Math.max(frame.sourceHeight, 1)
   const verticalFovDeg = getEffectiveVerticalFovDeg(verticalFovAdjustmentDeg)
-  const aspectRatio = viewport.width / Math.max(viewport.height, 1)
+  const aspectRatio = sourceWidth / sourceHeight
   const horizontalFovDeg = getHorizontalFovDeg(verticalFovDeg, aspectRatio)
   const normalizedX =
     cameraVector[0] /
@@ -318,18 +472,44 @@ export function projectWorldPointToScreen(
   const normalizedY =
     cameraVector[1] /
     (cameraVector[2] * Math.tan(degreesToRadians(verticalFovDeg) / 2))
-  const x = ((normalizedX + 1) / 2) * viewport.width
-  const y = ((normalizedY + 1) / 2) * viewport.height
-  const overscanRatio = viewport.overscanRatio ?? DEFAULT_OVERSCAN_RATIO
-  const overscanX = viewport.width * overscanRatio
-  const overscanY = viewport.height * overscanRatio
+
+  return {
+    visible: true,
+    imageX: ((normalizedX + 1) / 2) * sourceWidth,
+    imageY: ((normalizedY + 1) / 2) * sourceHeight,
+    normalizedX,
+    normalizedY,
+    angularDistanceDeg,
+    cameraVector,
+  }
+}
+
+export function mapImagePointToViewport(
+  point: Pick<ProjectedImagePlanePoint, 'visible' | 'imageX' | 'imageY'>,
+  layout: CameraFrameLayout,
+  overscanRatio = DEFAULT_OVERSCAN_RATIO,
+): ViewportMappedPoint {
+  if (!point.visible) {
+    return {
+      visible: false,
+      inViewport: false,
+      inOverscan: false,
+      x: Number.NaN,
+      y: Number.NaN,
+    }
+  }
+
+  const x = point.imageX * layout.scale - layout.cropX
+  const y = point.imageY * layout.scale - layout.cropY
+  const overscanX = layout.viewportWidth * overscanRatio
+  const overscanY = layout.viewportHeight * overscanRatio
   const inViewport =
-    x >= 0 && x <= viewport.width && y >= 0 && y <= viewport.height
+    x >= 0 && x <= layout.viewportWidth && y >= 0 && y <= layout.viewportHeight
   const inOverscan =
     x >= -overscanX &&
-    x <= viewport.width + overscanX &&
+    x <= layout.viewportWidth + overscanX &&
     y >= -overscanY &&
-    y <= viewport.height + overscanY
+    y <= layout.viewportHeight + overscanY
 
   return {
     visible: inOverscan,
@@ -337,10 +517,38 @@ export function projectWorldPointToScreen(
     inOverscan,
     x,
     y,
-    normalizedX,
-    normalizedY,
-    angularDistanceDeg,
-    cameraVector,
+  }
+}
+
+export function projectWorldPointToScreen(
+  pose: Pick<CameraPose, 'quaternion'>,
+  worldPoint: ProjectWorldPointInput,
+  viewport: ProjectViewport,
+  verticalFovAdjustmentDeg = 0,
+): ProjectedWorldPoint {
+  const layout = createCameraFrameLayout(viewport)
+  const imageProjection = projectWorldPointToImagePlane(
+    pose,
+    worldPoint,
+    layout,
+    verticalFovAdjustmentDeg,
+  )
+  const viewportProjection = mapImagePointToViewport(
+    imageProjection,
+    layout,
+    viewport.overscanRatio ?? DEFAULT_OVERSCAN_RATIO,
+  )
+
+  return {
+    visible: viewportProjection.visible,
+    inViewport: viewportProjection.inViewport,
+    inOverscan: viewportProjection.inOverscan,
+    x: viewportProjection.x,
+    y: viewportProjection.y,
+    normalizedX: imageProjection.normalizedX,
+    normalizedY: imageProjection.normalizedY,
+    angularDistanceDeg: imageProjection.angularDistanceDeg,
+    cameraVector: imageProjection.cameraVector,
   }
 }
 
@@ -373,6 +581,28 @@ export function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max)
 }
 
+function isLikelyRearCameraLabel(label: string) {
+  return /\b(back|rear|environment|world|ultra[- ]wide|wide|telephoto)\b/i.test(label)
+}
+
+function getCameraDevicePriority(label: string) {
+  const normalizedLabel = label.toLowerCase()
+
+  if (/\b(back|rear|environment)\b/.test(normalizedLabel)) {
+    return 3
+  }
+
+  if (/\b(ultra[- ]wide|wide|telephoto)\b/.test(normalizedLabel)) {
+    return 2
+  }
+
+  if (/\bfront|user|facetime\b/.test(normalizedLabel)) {
+    return 0
+  }
+
+  return 1
+}
+
 function magnitudeVec3(vector: Vec3) {
   return Math.hypot(vector[0], vector[1], vector[2])
 }
@@ -397,6 +627,18 @@ export function crossVec3(left: Vec3, right: Vec3): [number, number, number] {
 
 export function dotVec3(left: Vec3, right: Vec3) {
   return left[0] * right[0] + left[1] * right[1] + left[2] * right[2]
+}
+
+export function multiplyMat3Vec3(mat: Mat3, vector: Vec3): [number, number, number] {
+  return [
+    mat[0][0] * vector[0] + mat[0][1] * vector[1] + mat[0][2] * vector[2],
+    mat[1][0] * vector[0] + mat[1][1] * vector[1] + mat[1][2] * vector[2],
+    mat[2][0] * vector[0] + mat[2][1] * vector[1] + mat[2][2] * vector[2],
+  ]
+}
+
+export function negateVec3(vector: Vec3): [number, number, number] {
+  return [-vector[0], -vector[1], -vector[2]]
 }
 
 function rotateAroundAxis(

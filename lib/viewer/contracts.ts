@@ -1,5 +1,15 @@
 export type AlignmentHealth = 'good' | 'fair' | 'poor'
 export type CameraMode = 'sensor' | 'manual'
+export type ObserverSource = 'geo' | 'manual'
+export type StartupState =
+  | 'unsupported'
+  | 'ready-to-request'
+  | 'requesting'
+  | 'camera-only'
+  | 'sensor-relative-needs-calibration'
+  | 'sensor-absolute'
+  | 'manual'
+  | 'error'
 export type ObjectType =
   | 'aircraft'
   | 'satellite'
@@ -15,7 +25,7 @@ export interface ObserverState {
   altMeters: number
   accuracyMeters?: number
   timestampMs: number
-  source: 'live' | 'demo'
+  source: 'live' | 'demo' | 'manual'
 }
 
 export interface CameraPose {

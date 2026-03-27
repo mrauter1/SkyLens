@@ -16,12 +16,26 @@ type SettingsSheetProps = {
   onEnterDemoMode: () => void
   onDemoScenarioSelect?: (scenarioId: DemoScenarioId) => void
   onFixAlignment?: () => void
+  onAlignCalibration?: () => void
+  onResetCalibration?: () => void
+  onFineAdjustCalibration?: (adjustment: {
+    axis: 'yaw' | 'pitch'
+    deltaDeg: number
+  }) => void
   onRecenter?: () => void
   canFixAlignment?: boolean
+  canAlignCalibration?: boolean
+  canResetCalibration?: boolean
   canRecenter?: boolean
-  headingOffsetDeg?: number
-  pitchOffsetDeg?: number
+  calibrationTargetLabel?: string
+  calibrationTargetDescription?: string
+  calibrationStatus?: string
   verticalFovAdjustmentDeg?: number
+  cameraDevices?: Array<{
+    deviceId: string
+    label: string
+  }>
+  selectedCameraDeviceId?: string | null
   layers: Record<EnabledLayer, boolean>
   layerAvailabilityLabels?: Partial<Record<EnabledLayer, string>>
   likelyVisibleOnly: boolean
@@ -29,9 +43,8 @@ type SettingsSheetProps = {
   onLayerToggle: (layer: EnabledLayer, enabled: boolean) => void
   onLikelyVisibleOnlyChange: (enabled: boolean) => void
   onLabelDisplayModeChange: (mode: LabelDisplayMode) => void
-  onHeadingOffsetChange?: (value: number) => void
-  onPitchOffsetChange?: (value: number) => void
   onVerticalFovAdjustmentChange?: (value: number) => void
+  onSelectedCameraDeviceChange?: (deviceId: string) => void
   demoScenarioId?: DemoScenarioId
   demoScenarioOptions?: Array<{
     id: DemoScenarioId
@@ -73,12 +86,20 @@ export function SettingsSheet({
   onEnterDemoMode,
   onDemoScenarioSelect,
   onFixAlignment,
+  onAlignCalibration,
+  onResetCalibration,
+  onFineAdjustCalibration,
   onRecenter,
   canFixAlignment = false,
+  canAlignCalibration = false,
+  canResetCalibration = false,
   canRecenter = false,
-  headingOffsetDeg = 0,
-  pitchOffsetDeg = 0,
+  calibrationTargetLabel = 'North marker',
+  calibrationTargetDescription = 'Use north on the horizon when no sky body is suitable.',
+  calibrationStatus = 'Calibration is off.',
   verticalFovAdjustmentDeg = 0,
+  cameraDevices = [],
+  selectedCameraDeviceId = null,
   layers,
   layerAvailabilityLabels,
   likelyVisibleOnly,
@@ -86,9 +107,8 @@ export function SettingsSheet({
   onLayerToggle,
   onLikelyVisibleOnlyChange,
   onLabelDisplayModeChange,
-  onHeadingOffsetChange,
-  onPitchOffsetChange,
   onVerticalFovAdjustmentChange,
+  onSelectedCameraDeviceChange,
   demoScenarioId,
   demoScenarioOptions = [],
 }: SettingsSheetProps) {
@@ -268,12 +288,13 @@ export function SettingsSheet({
                 type="button"
                 onClick={() => {
                   setShowCalibrationPanel(true)
-                  onFixAlignment?.()
+                  if (canFixAlignment) {
+                    onFixAlignment?.()
+                  }
                 }}
                 className="min-h-11 rounded-2xl border border-sky-100/10 bg-white/5 px-4 py-3 text-sm text-sky-200/55 disabled:cursor-not-allowed"
-                disabled={!canFixAlignment}
               >
-                Fix alignment
+                Alignment
               </button>
               <button
                 type="button"
@@ -284,30 +305,113 @@ export function SettingsSheet({
                 Recenter
               </button>
             </div>
+            {cameraDevices.length > 0 ? (
+              <label className="grid gap-2 rounded-[1.5rem] border border-sky-100/10 bg-white/5 p-4 text-sm text-sky-50">
+                <span className="text-xs uppercase tracking-[0.18em] text-sky-200/60">
+                  Camera source
+                </span>
+                <select
+                  aria-label="Camera source"
+                  value={selectedCameraDeviceId ?? ''}
+                  onChange={(event) => onSelectedCameraDeviceChange?.(event.target.value)}
+                  className="min-h-11 rounded-2xl border border-sky-100/10 bg-slate-950/35 px-4 py-3 text-sm text-sky-50"
+                >
+                  <option value="">Auto rear camera</option>
+                  {cameraDevices.map((device) => (
+                    <option key={device.deviceId} value={device.deviceId}>
+                      {device.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
             {showCalibrationPanel ? (
               <div className="grid gap-3 rounded-[1.5rem] border border-sky-100/10 bg-white/5 p-4">
-                <RangeControl
-                  label="Heading nudge"
-                  min={-20}
-                  max={20}
-                  step={1}
-                  value={headingOffsetDeg}
-                  suffix="°"
-                  onChange={onHeadingOffsetChange}
-                />
-                <RangeControl
-                  label="Pitch nudge"
-                  min={-10}
-                  max={10}
-                  step={1}
-                  value={pitchOffsetDeg}
-                  suffix="°"
-                  onChange={onPitchOffsetChange}
-                />
+                <div className="rounded-[1.25rem] border border-sky-100/10 bg-slate-950/30 p-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-sky-200/60">
+                    Calibration target
+                  </p>
+                  <p className="mt-2 text-base font-semibold text-white">
+                    {calibrationTargetLabel}
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-sky-100/75">
+                    {calibrationTargetDescription}
+                  </p>
+                  <p className="mt-3 text-xs uppercase tracking-[0.16em] text-amber-100/75">
+                    {calibrationStatus}
+                  </p>
+                  {!canFixAlignment ? (
+                    <p className="mt-3 text-sm leading-6 text-sky-100/70">
+                      Live sensor alignment is unavailable in the current mode. Field-of-view
+                      calibration still applies.
+                    </p>
+                  ) : null}
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={onAlignCalibration}
+                    disabled={!canAlignCalibration}
+                    className="min-h-11 rounded-2xl bg-amber-300 px-4 py-3 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:bg-amber-100"
+                  >
+                    Align to target
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onResetCalibration}
+                    disabled={!canResetCalibration}
+                    className="min-h-11 rounded-2xl border border-sky-100/10 bg-slate-950/35 px-4 py-3 text-sm text-sky-50 disabled:cursor-not-allowed"
+                  >
+                    Reset calibration
+                  </button>
+                </div>
+                <div className="grid gap-2 rounded-[1.25rem] border border-sky-100/10 bg-slate-950/30 p-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-sky-200/60">
+                    Fine adjust
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onFineAdjustCalibration?.({ axis: 'yaw', deltaDeg: -0.75 })
+                      }
+                      className="min-h-11 rounded-2xl border border-sky-100/10 bg-white/5 px-4 py-3 text-sm text-sky-50"
+                    >
+                      Nudge left
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onFineAdjustCalibration?.({ axis: 'yaw', deltaDeg: 0.75 })
+                      }
+                      className="min-h-11 rounded-2xl border border-sky-100/10 bg-white/5 px-4 py-3 text-sm text-sky-50"
+                    >
+                      Nudge right
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onFineAdjustCalibration?.({ axis: 'pitch', deltaDeg: 0.5 })
+                      }
+                      className="min-h-11 rounded-2xl border border-sky-100/10 bg-white/5 px-4 py-3 text-sm text-sky-50"
+                    >
+                      Nudge up
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onFineAdjustCalibration?.({ axis: 'pitch', deltaDeg: -0.5 })
+                      }
+                      className="min-h-11 rounded-2xl border border-sky-100/10 bg-white/5 px-4 py-3 text-sm text-sky-50"
+                    >
+                      Nudge down
+                    </button>
+                  </div>
+                </div>
                 <RangeControl
                   label="Field of view"
-                  min={-10}
-                  max={10}
+                  min={-30}
+                  max={30}
                   step={1}
                   value={verticalFovAdjustmentDeg}
                   suffix="°"

@@ -8,6 +8,7 @@ import {
   parseViewerRouteState,
   runStartFlow,
   supportsOrientationEvents,
+  type PermissionStatusValue,
 } from '../../lib/permissions/coordinator'
 
 describe('permission coordinator', () => {
@@ -17,19 +18,19 @@ describe('permission coordinator', () => {
     const routeState = await runStartFlow({
       requestLocation: vi.fn(async () => {
         calls.push('location')
-        return 'granted'
+        return 'granted' as PermissionStatusValue
       }),
       requestCamera: vi.fn(async () => {
         calls.push('camera')
-        return 'denied'
+        return 'denied' as PermissionStatusValue
       }),
       requestOrientation: vi.fn(async () => {
         calls.push('orientation')
-        return 'granted'
+        return 'granted' as PermissionStatusValue
       }),
     })
 
-    expect(calls).toEqual(['location', 'camera', 'orientation'])
+    expect(calls).toEqual(['orientation', 'camera', 'location'])
     expect(routeState).toEqual({
       entry: 'live',
       location: 'granted',
@@ -38,12 +39,12 @@ describe('permission coordinator', () => {
     })
   })
 
-  it('blocks when location is denied and skips camera/motion requests', async () => {
-    const requestCamera = vi.fn(async () => 'granted')
-    const requestOrientation = vi.fn(async () => 'granted')
+  it('keeps camera and motion startup live even when location is denied', async () => {
+    const requestCamera = vi.fn(async () => 'granted' as PermissionStatusValue)
+    const requestOrientation = vi.fn(async () => 'granted' as PermissionStatusValue)
 
     const routeState = await runStartFlow({
-      requestLocation: vi.fn(async () => 'denied'),
+      requestLocation: vi.fn(async () => 'denied' as PermissionStatusValue),
       requestCamera,
       requestOrientation,
     })
@@ -51,12 +52,12 @@ describe('permission coordinator', () => {
     expect(routeState).toEqual({
       entry: 'live',
       location: 'denied',
-      camera: 'unavailable',
-      orientation: 'unavailable',
+      camera: 'granted',
+      orientation: 'granted',
     })
-    expect(requestCamera).not.toHaveBeenCalled()
-    expect(requestOrientation).not.toHaveBeenCalled()
-    expect(describeViewerExperience(routeState).mode).toBe('blocked')
+    expect(requestCamera).toHaveBeenCalledTimes(1)
+    expect(requestOrientation).toHaveBeenCalledTimes(1)
+    expect(describeViewerExperience(routeState).mode).toBe('live')
   })
 
   it('builds and parses the shared demo route state', () => {
@@ -114,7 +115,7 @@ describe('permission coordinator', () => {
     })
     expect(describeViewerExperience(routeState)).toMatchObject({
       mode: 'blocked',
-      title: 'Start SkyLens first',
+      title: 'Start AR to continue',
     })
   })
 
@@ -134,7 +135,7 @@ describe('permission coordinator', () => {
     })
     expect(describeViewerExperience(routeState)).toMatchObject({
       mode: 'blocked',
-      title: 'Start SkyLens first',
+      title: 'Start AR to continue',
     })
     expect(hasVerifiedLiveViewerState(routeState)).toBe(false)
   })
