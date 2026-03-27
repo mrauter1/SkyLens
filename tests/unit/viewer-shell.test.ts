@@ -885,6 +885,78 @@ describe('ViewerShell startup gating', () => {
     expect(alignButton?.disabled).toBe(true)
   })
 
+  it('keeps mobile align visible after calibration succeeds so alignment can be rerun', async () => {
+    mockSubscribeToOrientationPose.mockImplementationOnce((onPose: (state: unknown) => void) => {
+      onPose({
+        pose: {
+          yawDeg: 0,
+          pitchDeg: 0,
+          rollDeg: 0,
+          quaternion: [0, 0, 0, 1],
+          alignmentHealth: 'good',
+          mode: 'sensor',
+        },
+        sample: {
+          source: 'absolute-sensor',
+          absolute: true,
+          needsCalibration: false,
+          timestampMs: Date.UTC(2026, 2, 26, 0, 45, 6),
+          headingDeg: 0,
+          pitchDeg: 0,
+          rollDeg: 0,
+          quaternion: [0, 0, 0, 1],
+          rawQuaternion: [0, 0, 0, 1],
+          rawSample: {
+            source: 'absolute-sensor',
+            localFrame: 'screen',
+            absolute: true,
+            timestampMs: Date.UTC(2026, 2, 26, 0, 45, 6),
+            worldFromLocal: [
+              [1, 0, 0],
+              [0, 1, 0],
+              [0, 0, 1],
+            ],
+          },
+        },
+        history: [],
+        orientationSource: 'absolute-sensor',
+        orientationAbsolute: true,
+        orientationNeedsCalibration: false,
+        poseCalibration: {
+          offsetQuaternion: [0, 0, 0, 1],
+          calibrated: true,
+          sourceAtCalibration: 'absolute-sensor',
+          lastCalibratedAtMs: Date.UTC(2026, 2, 26, 0, 45, 10),
+        },
+      })
+
+      return SENSOR_CONTROLLER
+    })
+
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'granted',
+    })
+
+    const alignButton = container.querySelector(
+      '[data-testid="mobile-align-action"]',
+    ) as HTMLButtonElement | null
+
+    expect(alignButton).not.toBeNull()
+    expect(alignButton?.disabled).toBe(false)
+
+    await act(async () => {
+      alignButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(container.querySelector('[data-testid="mobile-align-action"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="mobile-viewer-overlay-trigger"]')).toBeNull()
+    expect(container.querySelector('[data-testid="alignment-instructions-panel"]')).not.toBeNull()
+  })
+
   it('shows the secure-context failure screen when live AR is unavailable on this origin', async () => {
     Object.defineProperty(window, 'isSecureContext', {
       configurable: true,
@@ -1076,6 +1148,9 @@ describe('ViewerShell startup gating', () => {
     expect(container.textContent).toMatch(
       /Center .* in the reticle, then align before trusting label placement\./,
     )
+    expect(container.textContent).toContain('Alignment steps')
+    expect(container.textContent).toContain('Choose the Sun or Moon target for this alignment pass.')
+    expect(container.textContent).toMatch(/Tap Align to lock labels to .*?\./)
     expect(container.textContent).toContain('Motion: Align first')
     expect(container.textContent).toContain('Sensor: Relative')
   })

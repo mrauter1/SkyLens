@@ -1,0 +1,3 @@
+# Plan ↔ Plan Verifier Feedback
+- Replaced the stub with a single-phase implementation plan that targets only the viewer-shell and settings-sheet alignment UI, keeps target selection session-scoped, preserves the existing fallback chain, and adds focused regression coverage expectations.
+- PLAN-001 non-blocking: The plan correctly identifies the risk that calibrated-status copy can drift with later scene changes, but the validation section should explicitly call for a test that aligns to one target and then re-renders with a different auto-selected target so the implementation does not lose that invariant.

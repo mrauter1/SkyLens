@@ -179,9 +179,19 @@ describe('ViewerShell settings integration', () => {
     const fovSlider = container.querySelector(
       'input[aria-label="Field of view"]',
     ) as HTMLInputElement | null
+    const sunTargetButton = container.querySelector(
+      'button[aria-label="Use Sun for alignment"]',
+    ) as HTMLButtonElement | null
+    const moonTargetButton = container.querySelector(
+      'button[aria-label="Use Moon for alignment"]',
+    ) as HTMLButtonElement | null
 
     expect(fovSlider?.value).toBe('6')
     expect(container.textContent).toContain('North marker')
+    expect(container.textContent).toContain('Alignment steps')
+    expect(container.textContent).toContain('Choose the Sun or Moon target for this alignment pass.')
+    expect(sunTargetButton?.disabled).toBe(true)
+    expect(moonTargetButton?.disabled).toBe(true)
     expect(
       (container.querySelector('input[aria-label="On objects"]') as HTMLInputElement | null)
         ?.checked,
@@ -351,6 +361,7 @@ describe('ViewerShell settings integration', () => {
 
     expect(reloadedFovSlider?.value).toBe('-4')
     expect(container.textContent).toContain('North marker')
+    expect(container.textContent).toContain('Alignment steps')
     expect(
       (container.querySelector('input[aria-label="Top list"]') as HTMLInputElement | null)
         ?.checked,
