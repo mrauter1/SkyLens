@@ -28,9 +28,6 @@ describe('SettingsSheet', () => {
 
   it('renders subtle aircraft availability messaging inside the sheet', async () => {
     const onFixAlignment = vi.fn()
-    const onAlignCalibration = vi.fn()
-    const onFineAdjustCalibration = vi.fn()
-    const onAlignmentTargetPreferenceChange = vi.fn()
     const onLabelDisplayModeChange = vi.fn()
     const onMotionQualityChange = vi.fn()
 
@@ -39,27 +36,9 @@ describe('SettingsSheet', () => {
         React.createElement(SettingsSheet, {
           onEnterDemoMode: vi.fn(),
           onFixAlignment,
-          onAlignCalibration,
-          onAlignmentTargetPreferenceChange,
-          onFineAdjustCalibration,
           onRecenter: vi.fn(),
           canFixAlignment: true,
-          canAlignCalibration: true,
           canRecenter: true,
-          calibrationTargetLabel: 'Venus',
-          calibrationTargetDescription: 'Center Venus in the reticle, then align.',
-          calibrationStatus: 'Relative sensors need Venus before labels can lock.',
-          calibrationInstructions: [
-            'Choose Sun or Moon as your preferred target. SkyLens is currently resolved to Venus.',
-            'Center Venus in the reticle.',
-            'Tap Align to lock labels to Venus.',
-            'If labels still drift, use the manual nudges to fine-adjust alignment.',
-          ],
-          alignmentTargetPreference: 'sun',
-          alignmentTargetAvailability: {
-            sun: true,
-            moon: true,
-          },
           layers: {
             aircraft: true,
             satellites: true,
@@ -100,44 +79,10 @@ describe('SettingsSheet', () => {
 
     expect(fixAlignmentButton).toBeDefined()
 
-    await act(async () => {
-      fixAlignmentButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-
-    const alignButton = Array.from(container.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('Align to Venus'),
-    )
-    const nudgeRightButton = Array.from(container.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('Nudge right'),
-    )
-    const moonTargetButton = container.querySelector(
-      'button[aria-label="Use Moon for alignment"]',
-    ) as HTMLButtonElement | null
-
-    expect(onFixAlignment).toHaveBeenCalledTimes(1)
-    expect(container.textContent).toContain('Venus')
-    expect(container.textContent).toContain('Relative sensors need Venus before labels can lock.')
-    expect(container.textContent).toContain('Alignment steps')
-    expect(container.textContent).toContain(
-      'Choose Sun or Moon as your preferred target. SkyLens is currently resolved to Venus.',
-    )
     expect(
       (container.querySelector('input[aria-label="Center only"]') as HTMLInputElement | null)
         ?.checked,
     ).toBe(true)
-
-    await act(async () => {
-      moonTargetButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-      alignButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-      nudgeRightButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-
-    expect(onAlignmentTargetPreferenceChange).toHaveBeenCalledWith('moon')
-    expect(onAlignCalibration).toHaveBeenCalledTimes(1)
-    expect(onFineAdjustCalibration).toHaveBeenCalledWith({
-      axis: 'yaw',
-      deltaDeg: 0.75,
-    })
 
     const topListRadio = container.querySelector(
       'input[aria-label="Top list"]',
@@ -158,28 +103,25 @@ describe('SettingsSheet', () => {
     })
 
     expect(onMotionQualityChange).toHaveBeenCalledWith('high')
+
+    await act(async () => {
+      fixAlignmentButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(onFixAlignment).toHaveBeenCalledTimes(1)
+    expect(container.querySelector('[role="dialog"]')).toBeNull()
   })
 
-  it('keeps unavailable targets selectable while showing fallback copy', async () => {
-    const onAlignmentTargetPreferenceChange = vi.fn()
-
+  it('delegates alignment to the viewer-owned opener and closes the sheet', async () => {
+    const onFixAlignment = vi.fn()
     await act(async () => {
       root.render(
         React.createElement(SettingsSheet, {
           onEnterDemoMode: vi.fn(),
-          onFixAlignment: vi.fn(),
-          onAlignmentTargetPreferenceChange,
+          onFixAlignment,
           onRecenter: vi.fn(),
           canFixAlignment: true,
           canRecenter: true,
-          calibrationTargetLabel: 'Sun',
-          calibrationStatus: 'Relative sensors need Sun before labels can lock.',
-          alignmentTargetPreference: 'moon',
-          alignmentTargetAvailability: {
-            sun: true,
-            moon: false,
-          },
-          alignmentTargetFallbackLabel: 'Sun',
           layers: {
             aircraft: true,
             satellites: true,
@@ -216,102 +158,19 @@ describe('SettingsSheet', () => {
       alignmentButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    const moonTargetButton = container.querySelector(
-      'button[aria-label="Use Moon for alignment"]',
-    ) as HTMLButtonElement | null
-
-    expect(moonTargetButton?.disabled).toBe(false)
-    expect(container.textContent).toContain(
-      'Moon is unavailable. SkyLens will use Sun if you align now.',
-    )
-
-    await act(async () => {
-      moonTargetButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-
-    expect(onAlignmentTargetPreferenceChange).toHaveBeenCalledWith('moon')
+    expect(onFixAlignment).toHaveBeenCalledTimes(1)
+    expect(container.querySelector('[role="dialog"]')).toBeNull()
   })
 
-  it('surfaces the shared align blocker copy when live motion data is not ready', async () => {
+  it('disables the alignment launcher when live alignment is unavailable in the current mode', async () => {
     await act(async () => {
       root.render(
         React.createElement(SettingsSheet, {
           onEnterDemoMode: vi.fn(),
           onFixAlignment: vi.fn(),
-          onAlignCalibration: vi.fn(),
-          onRecenter: vi.fn(),
-          canFixAlignment: true,
-          canAlignCalibration: false,
-          canRecenter: true,
-          calibrationTargetLabel: 'Moon',
-          calibrationStatus: 'Relative sensors need Moon before labels can lock.',
-          alignmentTargetPreference: 'moon',
-          alignmentTargetAvailability: {
-            sun: true,
-            moon: true,
-          },
-          layers: {
-            aircraft: true,
-            satellites: true,
-            planets: true,
-            stars: true,
-            constellations: true,
-          },
-          likelyVisibleOnly: true,
-          labelDisplayMode: 'center_only',
-          motionQuality: 'balanced',
-          onLayerToggle: vi.fn(),
-          onLikelyVisibleOnlyChange: vi.fn(),
-          onLabelDisplayModeChange: vi.fn(),
-          onMotionQualityChange: vi.fn(),
-        }),
-      )
-    })
-
-    const settingsButton = Array.from(container.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('Settings'),
-    )
-
-    expect(settingsButton).toBeDefined()
-
-    await act(async () => {
-      settingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-
-    const alignmentButton = Array.from(container.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('Alignment'),
-    )
-
-    expect(alignmentButton).toBeDefined()
-
-    await act(async () => {
-      alignmentButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-
-    expect(container.textContent).toContain(
-      'Align stays disabled until live motion data is ready. SkyLens will keep Moon as the next target.',
-    )
-    expect(container.textContent).toContain('Waiting for motion sample')
-  })
-
-  it('surfaces the mode blocker copy when live sensor alignment is unavailable in the current mode', async () => {
-    await act(async () => {
-      root.render(
-        React.createElement(SettingsSheet, {
-          onEnterDemoMode: vi.fn(),
-          onFixAlignment: vi.fn(),
-          onAlignCalibration: vi.fn(),
           onRecenter: vi.fn(),
           canFixAlignment: false,
-          canAlignCalibration: false,
           canRecenter: true,
-          calibrationTargetLabel: 'North marker',
-          calibrationStatus: 'Absolute sensors are active, but manual alignment is still available.',
-          alignmentTargetPreference: 'sun',
-          alignmentTargetAvailability: {
-            sun: false,
-            moon: false,
-          },
           layers: {
             aircraft: true,
             satellites: true,
@@ -350,14 +209,8 @@ describe('SettingsSheet', () => {
       alignmentButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    const alignButton = Array.from(container.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('Waiting for motion sample'),
-    ) as HTMLButtonElement | undefined
-
-    expect(container.textContent).toContain(
-      'Live sensor alignment is unavailable in the current mode. Manual nudges and field-of-view calibration are still available.',
-    )
-    expect(alignButton?.disabled).toBe(true)
+    expect((alignmentButton as HTMLButtonElement | undefined)?.disabled).toBe(true)
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull()
   })
 
   it('traps focus and exposes demo scenario switching controls when open', async () => {
