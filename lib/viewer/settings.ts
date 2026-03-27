@@ -10,6 +10,7 @@ import {
 export const VIEWER_SETTINGS_STORAGE_KEY = 'skylens.viewer-settings.v1'
 
 export type LabelDisplayMode = 'center_only' | 'on_objects' | 'top_list'
+export type MotionQuality = 'low' | 'balanced' | 'high'
 
 export interface ManualObserverSettings {
   lat: number
@@ -21,6 +22,7 @@ export interface ViewerSettings {
   enabledLayers: Record<EnabledLayer, boolean>
   likelyVisibleOnly: boolean
   labelDisplayMode: LabelDisplayMode
+  motionQuality: MotionQuality
   poseCalibration: PoseCalibration
   verticalFovAdjustmentDeg: number
   selectedCameraDeviceId: string | null
@@ -43,6 +45,7 @@ const SettingsSchema = z.object({
   }),
   likelyVisibleOnly: z.boolean(),
   labelDisplayMode: z.enum(['center_only', 'on_objects', 'top_list']),
+  motionQuality: z.enum(['low', 'balanced', 'high']).optional(),
   headingOffsetDeg: z.number().optional(),
   pitchOffsetDeg: z.number().optional(),
   poseCalibration: z
@@ -85,6 +88,7 @@ export function getDefaultViewerSettings(): ViewerSettings {
     },
     likelyVisibleOnly: config.defaults.likelyVisibleOnly,
     labelDisplayMode: 'center_only',
+    motionQuality: 'balanced',
     poseCalibration: createIdentityPoseCalibration(),
     verticalFovAdjustmentDeg: 0,
     selectedCameraDeviceId: null,
@@ -163,6 +167,7 @@ export function normalizeViewerSettings(settings: ViewerSettings): ViewerSetting
     },
     likelyVisibleOnly: settings.likelyVisibleOnly,
     labelDisplayMode: settings.labelDisplayMode,
+    motionQuality: normalizeMotionQuality(settings.motionQuality),
     poseCalibration: createPoseCalibration(settings.poseCalibration),
     verticalFovAdjustmentDeg: clamp(settings.verticalFovAdjustmentDeg, -30, 30),
     selectedCameraDeviceId:
@@ -186,6 +191,18 @@ function normalizeManualObserver(
     lat: clamp(manualObserver.lat, -90, 90),
     lon: clamp(manualObserver.lon, -180, 180),
     altMeters: clamp(manualObserver.altMeters, -500, 10_000),
+  }
+}
+
+function normalizeMotionQuality(
+  motionQuality: MotionQuality | null | undefined,
+): MotionQuality {
+  switch (motionQuality) {
+    case 'low':
+    case 'high':
+      return motionQuality
+    default:
+      return 'balanced'
   }
 }
 
