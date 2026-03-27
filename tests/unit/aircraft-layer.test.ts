@@ -9,6 +9,7 @@ import {
   getAircraftAvailabilityMessage,
   normalizeAircraftObjects,
 } from '../../lib/aircraft/client'
+import type { AircraftApiResponse } from '../../lib/aircraft/contracts'
 import { getAircraftApiResponse, resetAircraftCacheForTests } from '../../lib/aircraft/opensky'
 
 const ENABLED_LAYERS = {
@@ -482,6 +483,224 @@ describe('aircraft layer', () => {
       'Live aircraft temporarily unavailable',
     )
   })
+
+  it('interpolates aircraft motion between retained snapshots during the transition window', () => {
+    const previousSnapshot = createAircraftResponse('2026-03-26T00:00:00.000Z', [
+      {
+        id: 'icao24-midpt1',
+        callsign: 'MIDPT1',
+        lat: 37.7,
+        lon: -122.5,
+        geoAltitudeM: 4000,
+        velocityMps: 200,
+        headingDeg: 20,
+        azimuthDeg: 10,
+        elevationDeg: 20,
+        rangeKm: 30,
+      },
+    ])
+    const currentSnapshot = createAircraftResponse('2026-03-26T00:00:10.000Z', [
+      {
+        id: 'icao24-midpt1',
+        callsign: 'MIDPT1',
+        lat: 37.9,
+        lon: -122.3,
+        geoAltitudeM: 6000,
+        velocityMps: 240,
+        headingDeg: 40,
+        azimuthDeg: 20,
+        elevationDeg: 40,
+        rangeKm: 10,
+      },
+    ])
+
+    const objects = normalizeAircraftObjects({
+      snapshot: currentSnapshot,
+      previousSnapshot,
+      transitionStartedAtMs: Date.parse('2026-03-26T00:00:20.000Z'),
+      timeMs: Date.parse('2026-03-26T00:00:25.000Z'),
+      observer: currentSnapshot.observer,
+      enabledLayers: ENABLED_LAYERS,
+    })
+
+    expect(objects).toHaveLength(1)
+    expect(objects[0]).toMatchObject({
+      id: 'icao24-midpt1',
+      azimuthDeg: 15,
+      elevationDeg: 30,
+      rangeKm: 20,
+      metadata: {
+        motionState: 'interpolated',
+      },
+    })
+  })
+
+  it('applies bounded dead reckoning when only one fresh sample is available', () => {
+    const snapshot = createAircraftResponse('2026-03-26T00:00:00.000Z', [
+      {
+        id: 'icao24-est001',
+        callsign: 'EST001',
+        lat: 0.009,
+        lon: 0,
+        geoAltitudeM: 1000,
+        velocityMps: 250,
+        headingDeg: 0,
+        verticalRateMps: 0,
+        azimuthDeg: 0,
+        elevationDeg: 45,
+        rangeKm: 1.4,
+      },
+    ], {
+      lat: 0,
+      lon: 0,
+      altMeters: 0,
+    })
+
+    const objects = normalizeAircraftObjects({
+      snapshot,
+      transitionStartedAtMs: Date.parse('2026-03-26T00:00:00.000Z'),
+      timeMs: Date.parse('2026-03-26T00:00:04.000Z'),
+      observer: snapshot.observer,
+      enabledLayers: ENABLED_LAYERS,
+    })
+
+    expect(objects).toHaveLength(1)
+    expect(objects[0].metadata).toMatchObject({
+      motionState: 'estimated',
+    })
+    expect(objects[0].azimuthDeg).toBeCloseTo(0, 1)
+    expect(objects[0].rangeKm ?? 0).toBeGreaterThan(2)
+    expect(objects[0].elevationDeg).toBeLessThan(35)
+  })
+
+  it('suppresses aircraft once stale data ages beyond the bounded fallback window', () => {
+    const snapshot = createAircraftResponse('2026-03-26T00:00:00.000Z', [
+      {
+        id: 'icao24-stale1',
+        callsign: 'STALE1',
+        lat: 0.009,
+        lon: 0,
+        geoAltitudeM: 1000,
+        velocityMps: 250,
+        headingDeg: 0,
+        azimuthDeg: 0,
+        elevationDeg: 45,
+        rangeKm: 1.4,
+      },
+    ], {
+      lat: 0,
+      lon: 0,
+      altMeters: 0,
+    })
+
+    const objects = normalizeAircraftObjects({
+      snapshot,
+      transitionStartedAtMs: Date.parse('2026-03-26T00:00:00.000Z'),
+      timeMs: Date.parse('2026-03-26T00:00:31.000Z'),
+      observer: snapshot.observer,
+      enabledLayers: ENABLED_LAYERS,
+    })
+
+    expect(objects).toEqual([])
+  })
+
+  it('downgrades stale aircraft before suppressing them completely', () => {
+    const snapshot = createAircraftResponse('2026-03-26T00:00:00.000Z', [
+      {
+        id: 'icao24-stale2',
+        callsign: 'STALE2',
+        lat: 0.009,
+        lon: 0,
+        geoAltitudeM: 1000,
+        velocityMps: 250,
+        headingDeg: 0,
+        azimuthDeg: 0,
+        elevationDeg: 45,
+        rangeKm: 1.4,
+      },
+    ], {
+      lat: 0,
+      lon: 0,
+      altMeters: 0,
+    })
+
+    const objects = normalizeAircraftObjects({
+      snapshot,
+      transitionStartedAtMs: Date.parse('2026-03-26T00:00:00.000Z'),
+      timeMs: Date.parse('2026-03-26T00:00:25.000Z'),
+      observer: snapshot.observer,
+      enabledLayers: ENABLED_LAYERS,
+    })
+
+    expect(objects).toHaveLength(1)
+    expect(objects[0].metadata).toMatchObject({
+      motionState: 'stale',
+      motionOpacity: expect.any(Number),
+    })
+    expect(Number(objects[0].metadata.motionOpacity)).toBeLessThan(1)
+  })
+
+  it('keeps fresh current-only aircraft live during entry fade when motion fields are absent', () => {
+    const snapshot = createAircraftResponse('2026-03-26T00:00:10.000Z', [
+      {
+        id: 'icao24-fresh1',
+        callsign: 'FRESH1',
+        lat: 37.81,
+        lon: -122.25,
+        geoAltitudeM: 5100,
+        azimuthDeg: 18,
+        elevationDeg: 28,
+        rangeKm: 15.2,
+      },
+    ])
+
+    const objects = normalizeAircraftObjects({
+      snapshot,
+      transitionStartedAtMs: Date.parse('2026-03-26T00:00:10.000Z'),
+      timeMs: Date.parse('2026-03-26T00:00:11.000Z'),
+      observer: snapshot.observer,
+      enabledLayers: ENABLED_LAYERS,
+    })
+
+    expect(objects).toHaveLength(1)
+    expect(objects[0].metadata).toMatchObject({
+      motionOpacity: expect.any(Number),
+    })
+    expect(objects[0].metadata).not.toHaveProperty('motionState')
+  })
+
+  it('keeps departing aircraft briefly visible while they fade out of the snapshot set', () => {
+    const previousSnapshot = createAircraftResponse('2026-03-26T00:00:00.000Z', [
+      {
+        id: 'icao24-exit01',
+        callsign: 'EXIT01',
+        lat: 37.81,
+        lon: -122.25,
+        geoAltitudeM: 5100,
+        velocityMps: 200,
+        headingDeg: 210,
+        azimuthDeg: 18,
+        elevationDeg: 28,
+        rangeKm: 15.2,
+      },
+    ])
+    const currentSnapshot = createAircraftResponse('2026-03-26T00:00:10.000Z', [])
+
+    const objects = normalizeAircraftObjects({
+      snapshot: currentSnapshot,
+      previousSnapshot,
+      transitionStartedAtMs: Date.parse('2026-03-26T00:00:10.000Z'),
+      timeMs: Date.parse('2026-03-26T00:00:11.000Z'),
+      observer: currentSnapshot.observer,
+      enabledLayers: ENABLED_LAYERS,
+    })
+
+    expect(objects).toHaveLength(1)
+    expect(objects[0].metadata).toMatchObject({
+      motionState: 'stale',
+      motionOpacity: expect.any(Number),
+    })
+  })
 })
 
 function readFixture(fileName: string) {
@@ -537,6 +756,23 @@ function buildOpenSkyResponse({
         4,
       ],
     ],
+  }
+}
+
+function createAircraftResponse(
+  fetchedAt: string,
+  aircraft: AircraftApiResponse['aircraft'],
+  observer = {
+    lat: 37.7749,
+    lon: -122.4194,
+    altMeters: 0,
+  },
+) {
+  return {
+    fetchedAt,
+    observer,
+    availability: 'available' as const,
+    aircraft,
   }
 }
 

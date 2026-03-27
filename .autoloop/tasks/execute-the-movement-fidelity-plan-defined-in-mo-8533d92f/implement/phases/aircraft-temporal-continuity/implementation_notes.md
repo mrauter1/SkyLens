@@ -1,0 +1,53 @@
+# Implementation Notes
+
+- Task ID: execute-the-movement-fidelity-plan-defined-in-mo-8533d92f
+- Pair: implement
+- Phase ID: aircraft-temporal-continuity
+- Phase Directory Key: aircraft-temporal-continuity
+- Phase Title: Smooth aircraft motion between snapshots
+- Scope: phase-local producer artifact
+- Files changed:
+  - `components/viewer/viewer-shell.tsx`
+  - `lib/aircraft/client.ts`
+  - `tests/unit/aircraft-layer.test.ts`
+  - `tests/unit/viewer-shell.test.ts`
+  - `.autoloop/tasks/execute-the-movement-fidelity-plan-defined-in-mo-8533d92f/decisions.txt`
+- Symbols touched:
+  - `ViewerShell`
+  - `buildSceneSnapshot`
+  - `formatSkyObjectSublabel`
+  - `renderObjectBadges`
+  - `normalizeAircraftObjects`
+  - `getAircraftAvailabilityMessage`
+  - new local aircraft motion helpers in `lib/aircraft/client.ts`
+- Checklist mapping:
+  - Plan milestone 2 / Pair 2 implement: retained previous/current aircraft snapshots in `viewer-shell`, interpolated shared ids, bounded dead reckoning for current-only ids, stale fade/suppression, additive estimated/stale viewer treatment.
+  - Plan milestone 2 / Pair 2 test: added unit coverage for interpolation, bounded extrapolation, stale suppression, fade-out retention, and viewer-shell snapshot retention on poll success/failure.
+- Assumptions:
+  - Demo aircraft remain on the pre-existing static path; temporal smoothing is enabled only for live polling.
+  - Existing aircraft API fields (`fetchedAt`, `lat/lon`, `headingDeg`, `velocityMps`, `verticalRateMps`) are sufficient for this phase.
+- Preserved invariants:
+  - Aircraft ids and label-ranking inputs remain unchanged.
+  - Poll cadence stays at 10 seconds.
+  - Reduced-motion and existing scene clock behavior from the prior cadence phase were not intentionally changed here.
+  - Degraded aircraft availability messaging remains additive.
+- Intended behavior changes:
+  - Live aircraft now animate from the prior poll to the latest poll over the poll interval instead of teleporting at fetch boundaries.
+  - New or lone aircraft use short-horizon dead reckoning when heading/velocity are available.
+  - Fresh current-only aircraft without motion fields stay visually live during entry fade instead of being mislabeled as stale.
+  - Missing or stale aircraft fade/suppress instead of drifting indefinitely; estimated/stale states surface through aircraft labels/badges and marker opacity metadata.
+- Known non-changes:
+  - No shared motion module yet; phase 3 remains the intended centralization point.
+  - No settings persistence or quality-policy changes beyond consuming the existing cadence timing.
+  - No aircraft/satellite API contract changes.
+- Expected side effects:
+  - Live aircraft can trail real position by up to one poll interval because smoothing is intentionally anchored to the latest received snapshot.
+  - Live refresh failures preserve the last successful aircraft set briefly while stale fade-out runs.
+- Validation performed:
+  - `npx vitest run tests/unit/aircraft-layer.test.ts`
+  - `npx vitest run tests/unit/viewer-shell.test.ts`
+  - Reviewer `IMP-001` rechecked with added unit coverage for fresh current-only aircraft lacking motion fields.
+  - `npm run lint` still fails on pre-existing `components/viewer/viewer-shell.tsx` React hook/purity/immutability errors outside this phase’s delta; no new lint pass was established repo-wide in this turn.
+- Deduplication / centralization decisions:
+  - Kept motion math inside `lib/aircraft/client.ts` for this phase so `viewer-shell` only owns snapshot retention/wiring.
+  - Reused observer-relative math locally in the aircraft client instead of introducing the phase-3 shared motion abstraction early.

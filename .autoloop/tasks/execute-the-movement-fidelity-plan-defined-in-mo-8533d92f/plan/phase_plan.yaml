@@ -1,0 +1,145 @@
+version: 1
+task_id: execute-the-movement-fidelity-plan-defined-in-mo-8533d92f
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/execute-the-movement-fidelity-plan-defined-in-mo-8533d92f/runs/run-20260327T174116Z-2e992f16/request.md
+phases:
+  - phase_id: cadence-loop
+    title: Increase scene cadence
+    objective: Replace 1Hz scene clock updates with throttled animation-driven time progression while preserving reduced-motion, battery-conscious low-power, and demo/live semantics.
+    status: planned
+    in_scope:
+      - Convert viewer scene time updates from interval-driven 1Hz ticks to requestAnimationFrame with explicit throttling.
+      - Preserve coarse fallback behavior for prefers-reduced-motion, non-animated contexts, and motionQuality='low' as the explicit battery-conscious low-power policy.
+      - Add viewer tests covering continuous advancement, reduced-motion fallback cadence, and low-quality battery-conscious cadence.
+    out_of_scope:
+      - Aircraft interpolation logic.
+      - Motion-quality settings UI.
+      - Changes to aircraft or satellite API routes.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: Demo and live viewer modes both advance scene time correctly under the new cadence policy.
+      - id: AC-2
+        text: Reduced-motion mode falls back to coarse updates and has direct unit coverage.
+      - id: AC-3
+        text: motionQuality='low' uses an explicit throttled cadence as the battery-conscious fallback and is directly covered by tests.
+    deliverables:
+      - Animation-driven scene clock implementation in viewer-shell.
+      - Unit coverage for active cadence, reduced-motion fallback, and low-quality battery-conscious fallback.
+    risks:
+      - Higher render frequency may increase rerender cost or break demo/live time semantics.
+    rollback:
+      - Restore coarse interval-based scene time updates while keeping tests that define the required behavior.
+  - phase_id: aircraft-temporal-continuity
+    title: Smooth aircraft motion between snapshots
+    objective: Remove aircraft teleporting by retaining temporal snapshot state, interpolating across snapshots, and applying bounded dead reckoning when safe.
+    status: planned
+    in_scope:
+      - Track prior and current aircraft snapshots with timestamps keyed by aircraft id.
+      - Interpolate aircraft render pose between snapshots.
+      - Apply short-horizon velocity/heading-based dead reckoning when interpolation data is unavailable.
+      - Add stale-data handling and fade-in/fade-out behavior for aircraft entering or leaving the snapshot set.
+      - Add unit tests for interpolation, bounded extrapolation, and stale fallback.
+    out_of_scope:
+      - Satellite deterministic motion refactor into a shared motion module.
+      - Persisted motion-quality settings.
+    dependencies:
+      - cadence-loop
+    acceptance_criteria:
+      - id: AC-1
+        text: Aircraft positions update smoothly between backend polls instead of teleporting at 10-second boundaries.
+      - id: AC-2
+        text: Extrapolation is explicitly bounded and stale aircraft are suppressed or visually downgraded rather than drifting indefinitely.
+    deliverables:
+      - Temporal aircraft state handling in viewer-shell and any required local contracts.
+      - Unit coverage for smooth aircraft motion and stale-state behavior.
+    risks:
+      - Incorrect prediction horizon could show obviously wrong aircraft positions.
+      - Snapshot-entry/exit handling could cause flicker or object identity regressions.
+    rollback:
+      - Disable dead reckoning and retain interpolation-only aircraft smoothing.
+      - Fall back to last confirmed snapshot rendering if continuity logic destabilizes selection or visibility.
+  - phase_id: unified-motion-state
+    title: Introduce shared motion-state pipeline
+    objective: Centralize moving-object fidelity rules in a reusable motion-state module without changing existing label or selection semantics.
+    status: planned
+    in_scope:
+      - Add lib/viewer/motion.ts for per-object state, confidence decay, and render-pose resolution.
+      - Move viewer-shell moving-object smoothing to the shared motion-state layer.
+      - Apply per-type fidelity policy for satellites and aircraft.
+      - Add tests for policy behavior, confidence decay, and label-order regression safety.
+    out_of_scope:
+      - New viewer setting persistence and UI controls.
+      - Non-moving celestial object behavior changes.
+    dependencies:
+      - aircraft-temporal-continuity
+    acceptance_criteria:
+      - id: AC-1
+        text: Moving-object render poses are resolved through a shared motion-state API with per-type fidelity policies.
+      - id: AC-2
+        text: Existing object ids, selection behavior, and label ranking semantics remain unchanged under test.
+    deliverables:
+      - Shared motion-state module integrated into scene snapshot building.
+      - Unit coverage for confidence decay and per-type motion policy behavior.
+    risks:
+      - Over-abstraction could duplicate or obscure existing normalization logic.
+      - Integration could unintentionally alter object ordering or visibility.
+    rollback:
+      - Revert to object-type-specific smoothing in viewer-shell while preserving tests and any reusable helpers that proved stable.
+  - phase_id: motion-affordances-and-controls
+    title: Add motion affordances and quality controls
+    objective: Expose motion quality settings and generalize trails or stale-state visuals for moving objects while respecting accessibility.
+    status: planned
+    in_scope:
+      - Add persisted motionQuality setting with backward-compatible defaults.
+      - Add settings-sheet controls for low, balanced, and high motion quality.
+      - Generalize moving-object trail or vector behavior across aircraft and satellites with per-quality limits.
+      - Add stale or extrapolated-state visual treatment and reduced-motion suppression tests.
+    out_of_scope:
+      - Changes to non-moving object display modes.
+      - Altering the viewer startup permission flow.
+    dependencies:
+      - unified-motion-state
+    acceptance_criteria:
+      - id: AC-1
+        text: Motion quality persists across reloads and defaults cleanly for existing stored settings.
+      - id: AC-2
+        text: Trails or vectors vary by quality mode and remain disabled when reduced motion is preferred.
+    deliverables:
+      - Viewer settings and settings-sheet updates for motion quality.
+      - Viewer-shell motion affordance updates with quality-dependent behavior.
+      - Unit coverage for settings persistence and reduced-motion handling.
+    risks:
+      - Additional visuals could reduce readability or conflict with selected-object emphasis.
+      - Persisted settings changes could break older local storage payloads.
+    rollback:
+      - Default all users to balanced quality and disable extra trail states while retaining the normalized settings field.
+  - phase_id: final-verification
+    title: Run final validation
+    objective: Verify the full movement-fidelity change set with targeted and repo-wide checks before handoff.
+    status: planned
+    in_scope:
+      - Run npm run test.
+      - Run npm run lint.
+      - Confirm all changed behavior is covered by tests.
+      - Create the final commit after verification passes.
+      - Create the PR as the final delivery step, or surface an explicit blocker if the environment prevents PR creation.
+    out_of_scope:
+      - New feature work beyond the four movement-fidelity pairs.
+    dependencies:
+      - motion-affordances-and-controls
+    acceptance_criteria:
+      - id: AC-1
+        text: Repository test and lint commands pass after the movement-fidelity changes land.
+      - id: AC-2
+        text: The final implementation has direct coverage for cadence, aircraft continuity, shared motion state, and motion quality behavior.
+      - id: AC-3
+        text: The validated change set is committed and a PR is created unless an execution-time environment blocker is explicitly recorded.
+    deliverables:
+      - Passing repo verification runs.
+      - Final git commit for the movement-fidelity change set.
+      - PR creation or an explicit blocker record if PR tooling is unavailable.
+    risks:
+      - Late integration failures may require revisiting earlier phases.
+      - Environment limitations may block PR creation even after implementation and validation succeed.
+    rollback:
+      - Revert the most recent unstable phase and rerun verification to isolate regressions.

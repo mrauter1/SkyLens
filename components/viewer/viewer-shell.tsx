@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactElement,
   useCallback,
   useEffect,
   useRef,
@@ -16,8 +17,6 @@ import {
 import {
   fetchAircraftSnapshot,
   getAircraftAvailabilityMessage,
-  normalizeAircraftObjects,
-  type AircraftDetailMetadata,
 } from '../../lib/aircraft/client'
 import type { AircraftApiResponse, AircraftAvailability } from '../../lib/aircraft/contracts'
 import {
@@ -42,10 +41,15 @@ import {
 import { loadStarCatalog, normalizeVisibleStars } from '../../lib/astronomy/stars'
 import {
   fetchSatelliteCatalog,
-  normalizeSatelliteObjects,
-  type SatelliteDetailMetadata,
 } from '../../lib/satellites/client'
 import type { TleApiResponse } from '../../lib/satellites/contracts'
+import {
+  type AircraftDetailMetadata,
+  type MovingObjectMotionState,
+  type SatelliteDetailMetadata,
+  resolveAircraftMotionObjects,
+  resolveSatelliteMotionObjects,
+} from '../../lib/viewer/motion'
 import {
   compareLabelCandidates,
   getLabelRankScore,
@@ -72,7 +76,6 @@ import {
   requestRearCameraStream,
   stopMediaStream,
   type CameraDeviceOption,
-  type CameraFrameLayout,
 } from '../../lib/projection/camera'
 import {
   buildViewerHref,
@@ -104,6 +107,7 @@ import {
   readViewerSettings,
   writeViewerSettings,
   type ManualObserverSettings,
+  type MotionQuality,
 } from '../../lib/viewer/settings'
 import { SettingsSheet } from '../settings/settings-sheet'
 
@@ -116,7 +120,7 @@ type ProjectedSkyObject = SkyObject & {
 }
 
 type OnObjectLabel = RankedLabelPlacement<ProjectedSkyObject>
-type TrailSample = {
+type MotionAffordanceSample = {
   id: string
   x: number
   y: number
@@ -151,6 +155,12 @@ type SceneSnapshot = {
   error: string | null
 }
 
+type AircraftTemporalState = {
+  currentSnapshot: AircraftApiResponse | null
+  previousSnapshot: AircraftApiResponse | null
+  transitionStartedAtMs: number | null
+}
+
 type CalibrationTarget = {
   id: string
   label: string
@@ -178,6 +188,16 @@ const EMPTY_CONSTELLATION_SCENE = {
   lineSegments: [] as ReturnType<typeof buildVisibleConstellations>['lineSegments'],
 }
 const WORLD_UP: [number, number, number] = [0, 0, 1]
+const SCENE_CLOCK_COARSE_INTERVAL_MS = 1_000
+const SCENE_CLOCK_FRAME_INTERVAL_MS: Record<Exclude<MotionQuality, 'low'>, number> = {
+  balanced: 1_000 / 15,
+  high: 1_000 / 30,
+}
+const MOTION_AFFORDANCE_SAMPLE_LIMITS: Record<MotionQuality, number> = {
+  low: 2,
+  balanced: 8,
+  high: 16,
+}
 
 export function ViewerShell({ initialState }: ViewerShellProps) {
   const router = useRouter()
@@ -191,7 +211,6 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const [retryError, setRetryError] = useState<string | null>(null)
   const [state, setState] = useState(initialState)
   const [stageElement, setStageElement] = useState<HTMLDivElement | null>(null)
-  const [videoElement, setVideoElement] = useState<HTMLVideoElement | null>(null)
   const [viewport, setViewport] = useState(DEFAULT_VIEWPORT)
   const [liveObserver, setLiveObserver] = useState<ObserverState | null>(persistedManualObserver)
   const [liveLocationError, setLiveLocationError] = useState<string | null>(null)
@@ -207,12 +226,18 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     createDefaultSensorCameraPose(),
   )
   const [sceneTimeMs, setSceneTimeMs] = useState(() =>
-    initialState.entry === 'demo' ? initialDemoScenario.observer.timestampMs : Date.now(),
+    initialState.entry === 'demo'
+      ? initialDemoScenario.observer.timestampMs
+      : getCurrentTimestampMs(),
   )
   const [viewerSettings, setViewerSettings] = useState(persistedViewerSettings)
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null)
   const [astronomyFailureBanner, setAstronomyFailureBanner] = useState<string | null>(null)
-  const [aircraftSnapshot, setAircraftSnapshot] = useState<AircraftApiResponse | null>(null)
+  const [aircraftTemporalState, setAircraftTemporalState] = useState<AircraftTemporalState>({
+    currentSnapshot: null,
+    previousSnapshot: null,
+    transitionStartedAtMs: null,
+  })
   const [aircraftAvailability, setAircraftAvailability] = useState<AircraftAvailability>(
     'available',
   )
@@ -220,7 +245,6 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const [liveCameraStreamActive, setLiveCameraStreamActive] = useState(false)
   const [liveCameraError, setLiveCameraError] = useState<string | null>(null)
   const [cameraDevices, setCameraDevices] = useState<CameraDeviceOption[]>([])
-  const [cameraFrameLayout, setCameraFrameLayout] = useState<CameraFrameLayout | null>(null)
   const [renderFrameToken, setRenderFrameToken] = useState(0)
   const [cameraSourceSize, setCameraSourceSize] = useState<{
     width: number
@@ -230,11 +254,10 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const [orientationAbsolute, setOrientationAbsolute] = useState(
     initialState.orientation === 'granted',
   )
-  const [orientationNeedsCalibration, setOrientationNeedsCalibration] = useState(false)
+  const [, setOrientationNeedsCalibration] = useState(false)
   const [latestOrientationSample, setLatestOrientationSample] = useState<OrientationSample | null>(
     null,
   )
-  const [sceneSnapshot, setSceneSnapshot] = useState<SceneSnapshot>(EMPTY_SCENE_SNAPSHOT)
   const [startupState, setStartupState] = useState<StartupState>(() =>
     initialState.entry === 'demo'
       ? 'sensor-absolute'
@@ -251,8 +274,12 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const [showAlignmentGuidance, setShowAlignmentGuidance] = useState(false)
   const [calibrationBanner, setCalibrationBanner] = useState<string | null>(null)
   const [healthStatus, setHealthStatus] = useState<HealthApiResponse | null>(null)
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false)
-  const [trailSamples, setTrailSamples] = useState<TrailSample[]>([])
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(() =>
+    getInitialReducedMotionPreference(),
+  )
+  const [motionAffordanceSamples, setMotionAffordanceSamples] = useState<
+    MotionAffordanceSample[]
+  >([])
   const [isMobileOverlayOpen, setIsMobileOverlayOpen] = useState(false)
   const [motionRetryError, setMotionRetryError] = useState<string | null>(null)
   const [manualObserverError, setManualObserverError] = useState<string | null>(null)
@@ -262,10 +289,12 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const orientationControllerRef = useRef<ReturnType<typeof subscribeToOrientationPose> | null>(
     null,
   )
+  const videoElementRef = useRef<HTMLVideoElement | null>(null)
   const cameraStreamRef = useRef<MediaStream | null>(null)
   const cameraRequestIdRef = useRef(0)
   const lastOpenedCameraPreferenceRef = useRef<string | null>(null)
   const liveObserverRef = useRef<ObserverState | null>(persistedManualObserver)
+  const sceneTimeMsRef = useRef(sceneTimeMs)
   const poorSinceRef = useRef<number | null>(null)
   const dragRef = useRef<{
     pointerId: number
@@ -309,7 +338,11 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     : sensorCameraPose
   const shouldPollAircraft =
     state.entry !== 'demo' && hasLiveSessionStarted && observer !== null && enabledLayers.aircraft
-  const activeAircraftSnapshot = shouldPollAircraft ? aircraftSnapshot : null
+  const activeAircraftSnapshot = shouldPollAircraft ? aircraftTemporalState.currentSnapshot : null
+  const activeAircraftPreviousSnapshot =
+    shouldPollAircraft ? aircraftTemporalState.previousSnapshot : null
+  const activeAircraftTransitionStartedAtMs =
+    shouldPollAircraft ? aircraftTemporalState.transitionStartedAtMs : null
   const demoAircraftSnapshot = state.entry === 'demo' ? demoScenario.aircraftSnapshot : null
   const activeAircraftData = demoAircraftSnapshot ?? activeAircraftSnapshot
   const activeAircraftAvailability =
@@ -320,10 +353,32 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         : 'available'
   const activeSatelliteCatalog =
     state.entry === 'demo' ? demoScenario.satelliteCatalog : satelliteCatalog
+  const sceneSnapshot = observer
+    ? buildSceneSnapshot({
+        observer,
+        timeMs: sceneTimeMs,
+        enabledLayers,
+        likelyVisibleOnly,
+        focusedObjectId: selectedObjectId,
+        aircraftSnapshot: activeAircraftData,
+        aircraftPreviousSnapshot: state.entry === 'demo' ? null : activeAircraftPreviousSnapshot,
+        aircraftTransitionStartedAtMs:
+          state.entry === 'demo' ? null : activeAircraftTransitionStartedAtMs,
+        satelliteCatalog: activeSatelliteCatalog,
+      })
+    : EMPTY_SCENE_SNAPSHOT
   const cameraStreamActive =
     state.entry === 'live' && state.camera === 'granted' && liveCameraStreamActive
   const cameraError = state.entry === 'demo' ? null : liveCameraError
   const shouldMountVideoElement = state.entry === 'live'
+  const cameraFrameLayout = cameraSourceSize
+    ? createCameraFrameLayout({
+        width: viewport.width,
+        height: viewport.height,
+        sourceWidth: cameraSourceSize.width,
+        sourceHeight: cameraSourceSize.height,
+      })
+    : null
 
   const showGradientBackground =
     state.entry === 'demo' ||
@@ -434,16 +489,20 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     projectedObjects.find((object) => object.id === selectedObjectId) ?? null
   const selectedDetailObject = selectedObject
   const activeSummaryObject = selectedObject ?? centerLockedObject
-  const shouldRenderTrail =
-    !prefersReducedMotion && isTrailEligible(activeSummaryObject, selectedObjectId)
-  const activeTrailObjectId = activeSummaryObject?.id ?? null
-  const activeTrailX = activeSummaryObject?.projection.x ?? null
-  const activeTrailY = activeSummaryObject?.projection.y ?? null
-  const activeTrailVisible = activeSummaryObject?.projection.visible ?? false
-  const activeTrailInViewport = activeSummaryObject?.projection.inViewport ?? false
-  const activeTrail =
-    shouldRenderTrail && activeSummaryObject
-      ? trailSamples.filter((sample) => sample.id === activeSummaryObject.id)
+  const shouldRenderMotionAffordance =
+    !prefersReducedMotion && isMotionAffordanceEligible(activeSummaryObject)
+  const activeMotionAffordanceObjectId = activeSummaryObject?.id ?? null
+  const activeMotionAffordanceX = activeSummaryObject?.projection.x ?? null
+  const activeMotionAffordanceY = activeSummaryObject?.projection.y ?? null
+  const activeMotionAffordanceVisible = activeSummaryObject?.projection.visible ?? false
+  const activeMotionAffordanceInViewport = activeSummaryObject?.projection.inViewport ?? false
+  const activeMotionAffordanceKind =
+    shouldRenderMotionAffordance && activeSummaryObject
+      ? getMotionAffordanceKind(viewerSettings.motionQuality)
+      : null
+  const activeMotionAffordance =
+    shouldRenderMotionAffordance && activeSummaryObject
+      ? motionAffordanceSamples.filter((sample) => sample.id === activeSummaryObject.id)
       : []
   const renderedLineSegments = hasMounted ? constellationScene.lineSegments : []
   const renderedMarkerObjects = hasMounted ? markerObjects : []
@@ -488,6 +547,8 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   }
 
   const openLiveCamera = async (preferredDeviceId?: string | null) => {
+    const videoElement = videoElementRef.current
+
     if (!videoElement) {
       throw new Error('camera-element-unavailable')
     }
@@ -500,7 +561,6 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     setLiveCameraStreamActive(false)
     setLiveCameraError(null)
     setCameraSourceSize(null)
-    setCameraFrameLayout(null)
 
     stopMediaStream(cameraStreamRef.current)
     cameraStreamRef.current = null
@@ -650,8 +710,8 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         }
 
         setSelectedObjectId(null)
-        setTrailSamples([])
-        setSceneTimeMs(Date.now())
+        setMotionAffordanceSamples([])
+        setSceneTimeMs(getCurrentTimestampMs())
         commitViewerRouteState(nextState)
         setStartupState(
           resolveStartupState({
@@ -758,7 +818,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       onboardingCompleted: true,
     }))
     setSelectedObjectId(null)
-    setTrailSamples([])
+    setMotionAffordanceSamples([])
     setCalibrationBanner(null)
     setManualPoseState(
       createManualPoseState({
@@ -777,7 +837,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     }
 
     setSelectedObjectId(null)
-    setTrailSamples([])
+    setMotionAffordanceSamples([])
     setManualPoseState(
       createManualPoseState({
         pitchDeg: nextScenario.initialPitchDeg,
@@ -799,54 +859,64 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   }, [])
 
   const handleVideoRef = useCallback((node: HTMLVideoElement | null) => {
-    setVideoElement(node)
+    videoElementRef.current = node
   }, [])
 
   useEffect(() => {
-    if (state.entry === 'demo') {
-      const intervalId = window.setInterval(() => {
-        setSceneTimeMs((current) => current + 1_000)
-      }, 1_000)
+    sceneTimeMsRef.current = sceneTimeMs
+  }, [sceneTimeMs])
+
+  useEffect(() => {
+    const sceneClock = resolveSceneClock({
+      prefersReducedMotion,
+      motionQuality: viewerSettings.motionQuality,
+    })
+    const wallClockStartMs = getCurrentTimestampMs()
+    const demoSceneStartTimeMs = sceneTimeMsRef.current
+    const readNextSceneTimeMs = () =>
+      state.entry === 'demo'
+        ? demoSceneStartTimeMs + (getCurrentTimestampMs() - wallClockStartMs)
+        : getCurrentTimestampMs()
+    const commitSceneTime = () => {
+      const nextSceneTimeMs = readNextSceneTimeMs()
+
+      setSceneTimeMs((current) => (current === nextSceneTimeMs ? current : nextSceneTimeMs))
+    }
+
+    commitSceneTime()
+
+    if (sceneClock.mode === 'coarse') {
+      const intervalId = window.setInterval(commitSceneTime, sceneClock.intervalMs)
 
       return () => {
         window.clearInterval(intervalId)
       }
     }
 
-    const intervalId = window.setInterval(() => {
-      setSceneTimeMs(Date.now())
-    }, 1_000)
+    let animationFrameId: number | null = null
+    let lastCommittedFrameMs = Number.NEGATIVE_INFINITY
+
+    const tick = (frameMs: number) => {
+      if (frameMs - lastCommittedFrameMs >= sceneClock.intervalMs) {
+        lastCommittedFrameMs = frameMs
+        commitSceneTime()
+      }
+
+      animationFrameId = window.requestAnimationFrame(tick)
+    }
+
+    animationFrameId = window.requestAnimationFrame(tick)
 
     return () => {
-      window.clearInterval(intervalId)
+      if (animationFrameId !== null) {
+        window.cancelAnimationFrame(animationFrameId)
+      }
     }
-  }, [demoScenario.observer.timestampMs, state.entry])
-
-  useEffect(() => {
-    if (!observer) {
-      setSceneSnapshot(EMPTY_SCENE_SNAPSHOT)
-      return
-    }
-
-    setSceneSnapshot(
-      buildSceneSnapshot({
-        observer,
-        timeMs: sceneTimeMs,
-        enabledLayers,
-        likelyVisibleOnly,
-        focusedObjectId: selectedObjectId,
-        aircraftSnapshot: activeAircraftData,
-        satelliteCatalog: activeSatelliteCatalog,
-      }),
-    )
   }, [
-    activeAircraftData,
-    activeSatelliteCatalog,
-    enabledLayers,
-    likelyVisibleOnly,
-    observer,
-    sceneTimeMs,
-    selectedObjectId,
+    demoScenario.observer.timestampMs,
+    prefersReducedMotion,
+    state.entry,
+    viewerSettings.motionQuality,
   ])
 
   useEffect(() => {
@@ -860,7 +930,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         'Live astronomy is unavailable. SkyLens switched to the demo sky instead of leaving a partial live viewer active.',
       )
       setSelectedObjectId(null)
-      setTrailSamples([])
+      setMotionAffordanceSamples([])
       setManualPoseState(
         createManualPoseState({
           pitchDeg: getDemoScenario('tokyo-iss').initialPitchDeg,
@@ -885,7 +955,19 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   }, [liveObserver])
 
   useEffect(() => {
-    setManualObserverDraft(createManualObserverDraft(viewerSettings.manualObserver))
+    let cancelled = false
+
+    queueMicrotask(() => {
+      if (cancelled) {
+        return
+      }
+
+      setManualObserverDraft(createManualObserverDraft(viewerSettings.manualObserver))
+    })
+
+    return () => {
+      cancelled = true
+    }
   }, [viewerSettings.manualObserver])
 
   useEffect(() => {
@@ -954,28 +1036,30 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   useEffect(() => {
     if (
       prefersReducedMotion ||
-      !activeTrailObjectId ||
-      !shouldRenderTrail ||
-      !activeTrailVisible ||
-      !activeTrailInViewport ||
-      activeTrailX === null ||
-      activeTrailY === null
+      !activeMotionAffordanceObjectId ||
+      !shouldRenderMotionAffordance ||
+      !activeMotionAffordanceVisible ||
+      !activeMotionAffordanceInViewport ||
+      activeMotionAffordanceX === null ||
+      activeMotionAffordanceY === null
     ) {
       return
     }
 
     const timeoutId = window.setTimeout(() => {
-      setTrailSamples((current) => {
-        const nextSamples = current.filter((sample) => sample.id === activeTrailObjectId)
+      setMotionAffordanceSamples((current) => {
+        const nextSamples = current.filter(
+          (sample) => sample.id === activeMotionAffordanceObjectId,
+        )
 
         return [
           ...nextSamples,
           {
-            id: activeTrailObjectId,
-            x: activeTrailX,
-            y: activeTrailY,
+            id: activeMotionAffordanceObjectId,
+            x: activeMotionAffordanceX,
+            y: activeMotionAffordanceY,
           },
-        ].slice(-10)
+        ].slice(-MOTION_AFFORDANCE_SAMPLE_LIMITS[viewerSettings.motionQuality])
       })
     }, 0)
 
@@ -983,14 +1067,15 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       window.clearTimeout(timeoutId)
     }
   }, [
-    activeTrailInViewport,
-    activeTrailObjectId,
-    activeTrailVisible,
-    activeTrailX,
-    activeTrailY,
+    activeMotionAffordanceInViewport,
+    activeMotionAffordanceObjectId,
+    activeMotionAffordanceVisible,
+    activeMotionAffordanceX,
+    activeMotionAffordanceY,
     prefersReducedMotion,
     sceneTimeMs,
-    shouldRenderTrail,
+    shouldRenderMotionAffordance,
+    viewerSettings.motionQuality,
   ])
 
   useEffect(() => {
@@ -1005,12 +1090,15 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         const nextSnapshot = await fetchAircraftSnapshot(observer)
 
         if (!disposed) {
-          setAircraftSnapshot(nextSnapshot)
+          setAircraftTemporalState((current) => ({
+            currentSnapshot: nextSnapshot,
+            previousSnapshot: current.currentSnapshot,
+            transitionStartedAtMs: getCurrentTimestampMs(),
+          }))
           setAircraftAvailability(nextSnapshot.availability)
         }
       } catch {
         if (!disposed) {
-          setAircraftSnapshot(null)
           setAircraftAvailability('degraded')
         }
       }
@@ -1070,7 +1158,19 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     }
 
     if (!secureLiveArContext) {
-      setStartupState('unsupported')
+      let cancelled = false
+
+      queueMicrotask(() => {
+        if (cancelled) {
+          return
+        }
+
+        setStartupState('unsupported')
+      })
+
+      return () => {
+        cancelled = true
+      }
     }
   }, [secureLiveArContext, state.entry])
 
@@ -1156,6 +1256,8 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   }, [liveObserver, startupState, state, viewerSettings.manualObserver])
 
   useEffect(() => {
+    const videoElement = videoElementRef.current
+
     if (
       state.entry !== 'live' ||
       startupState === 'ready-to-request' ||
@@ -1166,8 +1268,19 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       return
     }
 
-    void openLiveCamera(viewerSettings.selectedCameraDeviceId).catch(() => undefined)
-  }, [startupState, state, videoElement, viewerSettings.selectedCameraDeviceId])
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) {
+        return
+      }
+
+      void openLiveCamera(viewerSettings.selectedCameraDeviceId).catch(() => undefined)
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [startupState, state, viewerSettings.selectedCameraDeviceId])
 
   useEffect(() => {
     if (
@@ -1204,22 +1317,6 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   }, [hasLiveSessionStarted, observerSource, state.location])
 
   useEffect(() => {
-    if (!cameraSourceSize) {
-      setCameraFrameLayout(null)
-      return
-    }
-
-    setCameraFrameLayout(
-      createCameraFrameLayout({
-        width: viewport.width,
-        height: viewport.height,
-        sourceWidth: cameraSourceSize.width,
-        sourceHeight: cameraSourceSize.height,
-      }),
-    )
-  }, [cameraSourceSize, viewport])
-
-  useEffect(() => {
     if (!hasLiveSessionStarted) {
       return
     }
@@ -1227,7 +1324,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     let cancelled = false
     let animationFrameId: number | null = null
     let videoFrameRequestId: number | null = null
-    const frameVideo = videoElement as HTMLVideoElement | null
+    const frameVideo = videoElementRef.current as HTMLVideoElement | null
     const callbackVideo = frameVideo as (HTMLVideoElement & {
       requestVideoFrameCallback?: (
         callback: (
@@ -1309,9 +1406,11 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         callbackVideo.cancelVideoFrameCallback(videoFrameRequestId)
       }
     }
-  }, [cameraStreamActive, hasLiveSessionStarted, videoElement])
+  }, [cameraStreamActive, hasLiveSessionStarted])
 
   useEffect(() => {
+    const videoElement = videoElementRef.current
+
     if (
       state.entry !== 'live' ||
       state.camera !== 'granted' ||
@@ -1331,30 +1430,42 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       return
     }
 
-    void openLiveCamera(preferredDeviceId).catch(() => {
-      commitViewerRouteState({
-        ...state,
-        camera: 'denied',
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) {
+        return
+      }
+
+      void openLiveCamera(preferredDeviceId).catch(() => {
+        commitViewerRouteState({
+          ...state,
+          camera: 'denied',
+        })
+        setStartupState(
+          resolveStartupState({
+            orientationStatus: state.orientation,
+            cameraStatus: 'denied',
+            hasObserver: observer !== null,
+            orientationNeedsCalibration: startupState === 'sensor-relative-needs-calibration',
+          }),
+        )
       })
-      setStartupState(
-        resolveStartupState({
-          orientationStatus: state.orientation,
-          cameraStatus: 'denied',
-          hasObserver: observer !== null,
-          orientationNeedsCalibration: startupState === 'sensor-relative-needs-calibration',
-        }),
-      )
     })
+
+    return () => {
+      cancelled = true
+    }
   }, [
     hasLiveSessionStarted,
     observer,
     startupState,
     state,
-    videoElement,
     viewerSettings.selectedCameraDeviceId,
   ])
 
   useEffect(() => {
+    const videoElement = videoElementRef.current
+
     if (state.entry === 'live' && state.camera === 'granted') {
       return
     }
@@ -1366,13 +1477,26 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     stopMediaStream(cameraStreamRef.current)
     cameraStreamRef.current = null
     lastOpenedCameraPreferenceRef.current = null
-    setLiveCameraStreamActive(false)
-    setCameraSourceSize(null)
-    setCameraFrameLayout(null)
-  }, [state.camera, state.entry, videoElement])
+    let cancelled = false
+
+    queueMicrotask(() => {
+      if (cancelled) {
+        return
+      }
+
+      setLiveCameraStreamActive(false)
+      setCameraSourceSize(null)
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [state.camera, state.entry])
 
   useEffect(() => {
     return () => {
+      const videoElement = videoElementRef.current
+
       if (videoElement) {
         videoElement.srcObject = null
       }
@@ -1382,17 +1506,12 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       lastOpenedCameraPreferenceRef.current = null
       setLiveCameraStreamActive(false)
     }
-  }, [videoElement])
+  }, [])
 
   useEffect(() => {
     orientationControllerRef.current?.stop()
     orientationControllerRef.current = null
     poorSinceRef.current = null
-    setCalibrationBanner(null)
-    setOrientationSource(null)
-    setOrientationAbsolute(state.orientation === 'granted')
-    setOrientationNeedsCalibration(false)
-    setLatestOrientationSample(null)
 
     if (!hasLiveSessionStarted || manualMode) {
       return
@@ -1457,6 +1576,13 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       if (orientationControllerRef.current === controller) {
         orientationControllerRef.current = null
       }
+
+      poorSinceRef.current = null
+      setCalibrationBanner(null)
+      setOrientationSource(null)
+      setOrientationAbsolute(state.orientation === 'granted')
+      setOrientationNeedsCalibration(false)
+      setLatestOrientationSample(null)
     }
   }, [
     hasLiveSessionStarted,
@@ -1535,7 +1661,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       {
         targetQuaternion,
         source: latestOrientationSample.source,
-        timestampMs: Date.now(),
+        timestampMs: getCurrentTimestampMs(),
       },
     )
 
@@ -1566,7 +1692,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       calibrated: true,
       sourceAtCalibration:
         orientationSource ?? viewerSettings.poseCalibration.sourceAtCalibration,
-      lastCalibratedAtMs: Date.now(),
+      lastCalibratedAtMs: getCurrentTimestampMs(),
       offsetQuaternion: multiplyQuaternions(
         deltaQuaternion,
         viewerSettings.poseCalibration.offsetQuaternion,
@@ -1607,6 +1733,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     },
     likelyVisibleOnly,
     labelDisplayMode: viewerSettings.labelDisplayMode,
+    motionQuality: viewerSettings.motionQuality,
     demoScenarioId: state.entry === 'demo' ? demoScenario.id : undefined,
     demoScenarioOptions: state.entry === 'demo' ? demoScenarioOptions : [],
     onLayerToggle: (layer: EnabledLayer, enabled: boolean) => {
@@ -1628,6 +1755,12 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       setViewerSettings((current) => ({
         ...current,
         labelDisplayMode,
+      }))
+    },
+    onMotionQualityChange: (motionQuality: MotionQuality) => {
+      setViewerSettings((current) => ({
+        ...current,
+        motionQuality,
       }))
     },
     onVerticalFovAdjustmentChange: (value: number) => {
@@ -1741,7 +1874,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     }
 
     if (!activeDrag.moved) {
-      const now = Date.now()
+      const now = getCurrentTimestampMs()
 
       if (now - lastTapAtRef.current <= 280) {
         setManualPoseState(recenterManualPose())
@@ -1836,16 +1969,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
           </div>
         ) : null}
         <svg className="pointer-events-none absolute inset-0 h-full w-full">
-          {activeTrail.length >= 2 ? (
-            <polyline
-              points={activeTrail.map((sample) => `${sample.x},${sample.y}`).join(' ')}
-              fill="none"
-              stroke="rgba(251, 191, 36, 0.58)"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          ) : null}
+          {renderMotionAffordance(activeMotionAffordance, activeMotionAffordanceKind)}
           {renderedLineSegments.map((segment, index) => (
             <line
               key={`${segment.constellationId}-${index}`}
@@ -1898,6 +2022,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             style={{
               left: `${object.projection.x}px`,
               top: `${object.projection.y}px`,
+              opacity: getObjectMotionOpacity(object),
             }}
           >
             <span className="sr-only">
@@ -1930,6 +2055,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
               top: `${object.rect.top}px`,
               width: `${object.rect.width}px`,
               height: `${object.rect.height}px`,
+              opacity: getObjectMotionOpacity(object.object),
             }}
           >
             <span className="block truncate font-semibold">{object.object.label}</span>
@@ -2534,23 +2660,55 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   )
 }
 
-function isTrailEligible(
-  object: ProjectedSkyObject | null,
-  selectedObjectId: string | null,
-) {
+function isMotionAffordanceEligible(object: ProjectedSkyObject | null) {
   if (!object) {
     return false
   }
 
-  if (object.type === 'aircraft') {
-    return true
+  return object.type === 'aircraft' || object.type === 'satellite'
+}
+
+function getMotionAffordanceKind(motionQuality: MotionQuality) {
+  return motionQuality === 'low' ? 'vector' : 'trail'
+}
+
+function renderMotionAffordance(
+  samples: MotionAffordanceSample[],
+  kind: 'vector' | 'trail' | null,
+) {
+  if (samples.length < 2 || !kind) {
+    return null
   }
 
-  if (object.type !== 'satellite') {
-    return false
+  if (kind === 'vector') {
+    const start = samples[0]
+    const end = samples[samples.length - 1]
+
+    return (
+      <line
+        data-testid="motion-affordance-vector"
+        x1={start.x}
+        y1={start.y}
+        x2={end.x}
+        y2={end.y}
+        stroke="rgba(125, 211, 252, 0.72)"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    )
   }
 
-  return object.metadata.isIss === true || selectedObjectId === object.id
+  return (
+    <polyline
+      data-testid="motion-affordance-trail"
+      points={samples.map((sample) => `${sample.x},${sample.y}`).join(' ')}
+      fill="none"
+      stroke="rgba(251, 191, 36, 0.58)"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  )
 }
 
 function getMarkerVisualClassName(
@@ -2564,9 +2722,10 @@ function getMarkerVisualClassName(
   },
 ) {
   const isFocused = object.id === centerLockedObjectId || object.id === selectedObjectId
+  const motionStateClassName = getMovingObjectMarkerStateClassName(object)
 
   if (isFocused) {
-    return 'rounded-full border border-amber-100/80 bg-amber-200/35 shadow-[0_0_0_4px_rgba(251,191,36,0.14),0_0_18px_rgba(251,191,36,0.4)]'
+    return `rounded-full border border-amber-100/80 bg-amber-200/35 shadow-[0_0_0_4px_rgba(251,191,36,0.14),0_0_18px_rgba(251,191,36,0.4)] ${motionStateClassName}`
   }
 
   switch (object.type) {
@@ -2582,12 +2741,23 @@ function getMarkerVisualClassName(
       return 'rounded-sm border border-sky-100/65 bg-sky-100/18 shadow-[0_0_10px_rgba(186,230,253,0.16)]'
     case 'satellite':
       return object.metadata.isIss === true
-        ? 'rounded-[0.4rem] border border-violet-100/70 bg-violet-200/42 shadow-[0_0_14px_rgba(196,181,253,0.28)]'
-        : 'rounded-[0.35rem] border border-sky-100/70 bg-sky-200/38 shadow-[0_0_12px_rgba(125,211,252,0.2)]'
+        ? `rounded-[0.4rem] border border-violet-100/70 bg-violet-200/42 shadow-[0_0_14px_rgba(196,181,253,0.28)] ${motionStateClassName}`
+        : `rounded-[0.35rem] border border-sky-100/70 bg-sky-200/38 shadow-[0_0_12px_rgba(125,211,252,0.2)] ${motionStateClassName}`
     case 'aircraft':
-      return 'rounded-[0.35rem] border border-cyan-100/70 bg-cyan-200/38 shadow-[0_0_12px_rgba(103,232,249,0.22)]'
+      return `rounded-[0.35rem] border border-cyan-100/70 bg-cyan-200/38 shadow-[0_0_12px_rgba(103,232,249,0.22)] ${motionStateClassName}`
     default:
       return 'rounded-full border border-sky-100/70 bg-sky-100/30'
+  }
+}
+
+function getMovingObjectMarkerStateClassName(object: SkyObject) {
+  switch (getMovingObjectMotionState(object)) {
+    case 'estimated':
+      return 'ring-1 ring-cyan-100/35'
+    case 'stale':
+      return 'border-dashed ring-1 ring-slate-50/20'
+    default:
+      return ''
   }
 }
 
@@ -2913,6 +3083,39 @@ function FallbackBanner({
   )
 }
 
+function getInitialReducedMotionPreference() {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return false
+  }
+
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+function resolveSceneClock({
+  prefersReducedMotion,
+  motionQuality,
+}: {
+  prefersReducedMotion: boolean
+  motionQuality: MotionQuality
+}) {
+  if (
+    prefersReducedMotion ||
+    motionQuality === 'low' ||
+    typeof window === 'undefined' ||
+    typeof window.requestAnimationFrame !== 'function'
+  ) {
+    return {
+      mode: 'coarse' as const,
+      intervalMs: SCENE_CLOCK_COARSE_INTERVAL_MS,
+    }
+  }
+
+  return {
+    mode: 'animated' as const,
+    intervalMs: SCENE_CLOCK_FRAME_INTERVAL_MS[motionQuality],
+  }
+}
+
 function buildSceneSnapshot({
   observer,
   timeMs,
@@ -2920,6 +3123,8 @@ function buildSceneSnapshot({
   likelyVisibleOnly,
   focusedObjectId,
   aircraftSnapshot,
+  aircraftPreviousSnapshot,
+  aircraftTransitionStartedAtMs,
   satelliteCatalog,
 }: {
   observer: ObserverState
@@ -2928,6 +3133,8 @@ function buildSceneSnapshot({
   likelyVisibleOnly: boolean
   focusedObjectId: string | null
   aircraftSnapshot: AircraftApiResponse | null
+  aircraftPreviousSnapshot: AircraftApiResponse | null
+  aircraftTransitionStartedAtMs: number | null
   satelliteCatalog: TleApiResponse | null
 }): SceneSnapshot {
   try {
@@ -2938,17 +3145,6 @@ function buildSceneSnapshot({
       likelyVisibleOnly,
       focusedObjectId,
     })
-    let aircraft: SkyObject[] = []
-
-    try {
-      aircraft = normalizeAircraftObjects({
-        snapshot: aircraftSnapshot,
-        enabledLayers,
-      })
-    } catch {
-      aircraft = []
-    }
-
     const stars = normalizeVisibleStars({
       observer,
       timeMs,
@@ -2956,17 +3152,31 @@ function buildSceneSnapshot({
       likelyVisibleOnly,
       sunAltitudeDeg: celestial.sunAltitudeDeg,
     })
+    let aircraft: SkyObject[] = []
     let satellites: SkyObject[] = []
 
     try {
-      satellites = normalizeSatelliteObjects({
+      aircraft = resolveAircraftMotionObjects({
+        snapshot: aircraftSnapshot,
+        previousSnapshot: aircraftPreviousSnapshot,
+        transitionStartedAtMs: aircraftTransitionStartedAtMs,
+        timeMs,
+        observer,
+        enabledLayers,
+      }).map(({ object }) => object)
+    } catch {
+      aircraft = []
+    }
+
+    try {
+      satellites = resolveSatelliteMotionObjects({
         catalog: satelliteCatalog,
         observer,
         timeMs,
         enabledLayers,
         likelyVisibleOnly,
         sunAltitudeDeg: celestial.sunAltitudeDeg,
-      })
+      }).map(({ object }) => object)
     } catch {
       satellites = []
     }
@@ -2993,9 +3203,12 @@ function buildSceneSnapshot({
 function formatSkyObjectSublabel(object: SkyObject) {
   switch (object.type) {
     case 'aircraft':
-      return 'Aircraft'
-    case 'satellite':
-      return 'Satellite'
+    case 'satellite': {
+      const baseLabel = object.type === 'aircraft' ? 'Aircraft' : 'Satellite'
+      const motionLabel = getMovingObjectMotionLabel(object)
+
+      return motionLabel ? `${baseLabel} ${motionLabel}` : baseLabel
+    }
     case 'sun':
       return 'Sun'
     case 'moon':
@@ -3089,15 +3302,104 @@ function getDetailRows(object: SkyObject) {
 }
 
 function renderObjectBadges(object: SkyObject) {
-  if (object.metadata.isIss !== true) {
+  const motionBadge = getMovingObjectMotionBadge(object)
+  const badges: ReactElement[] = []
+
+  if (motionBadge) {
+    badges.push(
+      <span
+        key={`motion-${motionBadge.label}`}
+        data-testid="object-badge"
+        data-badge-id={`motion-${motionBadge.label.toLowerCase()}`}
+        className={`rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${motionBadge.className}`}
+      >
+        {motionBadge.label}
+      </span>,
+    )
+  }
+
+  if (object.metadata.isIss === true) {
+    badges.push(
+      <span
+        key="iss"
+        data-testid="object-badge"
+        data-badge-id="iss"
+        className="rounded-full border border-amber-200/45 bg-amber-200/15 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-50"
+      >
+        ISS
+      </span>,
+    )
+  }
+
+  if (badges.length === 0) {
     return null
   }
 
-  return (
-    <span className="rounded-full border border-amber-200/45 bg-amber-200/15 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-50">
-      ISS
-    </span>
-  )
+  return badges
+}
+
+function getMovingObjectMotionLabel(object: SkyObject) {
+  if (object.type !== 'aircraft' && object.type !== 'satellite') {
+    return null
+  }
+
+  switch (getMovingObjectMotionState(object)) {
+    case 'estimated':
+      return 'Estimated'
+    case 'stale':
+      return 'Stale'
+    default:
+      return null
+  }
+}
+
+function getMovingObjectMotionBadge(object: SkyObject) {
+  if (object.type !== 'aircraft' && object.type !== 'satellite') {
+    return null
+  }
+
+  switch (getMovingObjectMotionState(object)) {
+    case 'estimated':
+      return {
+        label: 'Estimated',
+        className: 'border-cyan-100/40 bg-cyan-200/12 text-cyan-50',
+      }
+    case 'stale':
+      return {
+        label: 'Stale',
+        className: 'border-slate-100/25 bg-slate-100/10 text-slate-100',
+      }
+    default:
+      return null
+  }
+}
+
+function getMovingObjectMotionState(object: SkyObject): MovingObjectMotionState | null {
+  if (object.type !== 'aircraft' && object.type !== 'satellite') {
+    return null
+  }
+
+  const motionState = object.metadata.motionState
+
+  switch (motionState) {
+    case 'interpolated':
+    case 'estimated':
+    case 'stale':
+    case 'propagated':
+      return motionState
+    default:
+      return null
+  }
+}
+
+function getObjectMotionOpacity(object: SkyObject) {
+  const motionOpacity = object.metadata.motionOpacity
+
+  if (typeof motionOpacity !== 'number' || !Number.isFinite(motionOpacity)) {
+    return 1
+  }
+
+  return clampNumber(motionOpacity, 0, 1)
 }
 
 function formatDegrees(value: unknown) {
@@ -3344,7 +3646,7 @@ function describeRuntimeExperience({
 
 function resolveStartupState({
   orientationStatus,
-  cameraStatus,
+  cameraStatus: _cameraStatus,
   hasObserver,
   orientationNeedsCalibration = false,
   orientationAbsolute = true,
@@ -3392,9 +3694,13 @@ function createObserverStateFromManualSettings(
     lon: manualObserver.lon,
     altMeters: manualObserver.altMeters,
     accuracyMeters: undefined,
-    timestampMs: Date.now(),
+    timestampMs: getCurrentTimestampMs(),
     source: 'manual',
   }
+}
+
+function getCurrentTimestampMs() {
+  return Date.now()
 }
 
 function parseManualObserverDraft(
