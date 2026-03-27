@@ -1,0 +1,51 @@
+{
+  "task_id": "skylens-alignment-ux-mobile-camera-hardening-tas-ebd05595",
+  "created_at": "2026-03-27T23:14:28.195307+00:00",
+  "request_text": "# SkyLens alignment UX/mobile camera hardening task\n\n## Goal\nAddress the alignment UX and camera viewport behavior issues in the live viewer.\n\n## Required outcomes\n1. **No camera-view scrolling while using AR viewer**\n   - Prevent page/body and camera stage scrolling during live viewer usage.\n   - Remove or redesign any overlay container that enables vertical scrolling in the AR flow.\n   - Ensure touch gestures used for alignment/pan still work.\n\n2. **Fast align view should show only the next action**\n   - Replace the current full multi-step instructional list with a concise single \u201cnext action\u201d message.\n   - Keep only essential status/warning notices.\n\n3. **Alignment view starts closed and can be closed explicitly**\n   - Alignment panel must default to closed.\n   - It should open only when the user presses Align.\n   - Add a clear close/dismiss control and wire state accordingly.\n\n4. **Apply Align via center crosshair**\n   - Keep crosshair in the center and use it as the apply-align target in alignment focus mode.\n   - Style it as translucent green (low alpha), preserving current overall visual geometry.\n   - Add instruction text at top: user should press/tap the middle of the screen.\n\n5. **Re-alignment without reset dependency**\n   - Pressing Align should allow re-aligning repeatedly.\n   - Remove reset-as-required behavior/copy from fast alignment flow.\n   - Update labels/messages to reflect direct re-alignment.\n\n## Scope and constraints\n- Focus on `components/viewer/viewer-shell.tsx`, `lib/viewer/alignment-tutorial.ts`, and any related settings/alignment UI wiring.\n- Preserve existing permission and sensor behavior unless needed for the requested UX fixes.\n- Do not introduce unrelated refactors.\n\n## Deliverables expected from autoloop\n- A concrete **plan** and tracked phases.\n- **Implementation** changes for all outcomes above.\n- **Tests** added/updated to cover:\n  - alignment panel visibility/open-close behavior,\n  - single next-action rendering (no full steps list in fast mode),\n  - repeated align behavior without reset requirement,\n  - center-crosshair align action affordance,\n  - no-scroll behavior in viewer overlay/camera flow.\n- Run and report relevant test commands.",
+  "request_updated_at": "2026-03-27T23:14:28.195375+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/skylens-alignment-ux-mobile-camera-hardening-tas-ebd05595/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260327T231428Z-42cb4a9c",
+    "mode": "single",
+    "phase_ids": [
+      "viewer-alignment-ux-hardening",
+      "regression-coverage-validation"
+    ],
+    "explicit": true,
+    "current_phase_index": 2,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "viewer-alignment-ux-hardening": "completed",
+    "regression-coverage-validation": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "viewer-alignment-ux-hardening",
+      "run_id": "run-20260327T231428Z-42cb4a9c",
+      "status": "in_progress",
+      "ts": "2026-03-27T23:20:01.652814+00:00"
+    },
+    {
+      "phase_id": "viewer-alignment-ux-hardening",
+      "run_id": "run-20260327T231428Z-42cb4a9c",
+      "status": "completed",
+      "ts": "2026-03-27T23:36:30.263704+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "regression-coverage-validation",
+      "run_id": "run-20260327T231428Z-42cb4a9c",
+      "status": "in_progress",
+      "ts": "2026-03-27T23:36:30.265178+00:00"
+    },
+    {
+      "phase_id": "regression-coverage-validation",
+      "run_id": "run-20260327T231428Z-42cb4a9c",
+      "status": "completed",
+      "ts": "2026-03-27T23:41:22.402512+00:00",
+      "pair": "test"
+    }
+  ]
+}

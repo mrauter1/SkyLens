@@ -695,6 +695,8 @@ describe('ViewerShell startup gating', () => {
     ) as HTMLElement | null
 
     expect(mobileOverlay).not.toBeNull()
+    expect(container.querySelector('[data-testid="mobile-viewer-overlay-scroll-region"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="mobile-viewer-overlay-shell"]')).toBeNull()
     expect(mobileOverlay?.querySelector('[data-testid="settings-sheet"]')).not.toBeNull()
     expect(mobileOverlay?.textContent).toContain('Start AR')
     expect(mobileOverlay?.textContent).toContain('Try demo mode')
@@ -774,12 +776,14 @@ describe('ViewerShell startup gating', () => {
     })
     await flushEffects()
 
-    expect(container.textContent).toContain('Waiting for motion sample')
+    expect(container.querySelector('[data-testid="alignment-instructions-panel"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="alignment-focus-instruction"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="mobile-align-action"]')).toBeNull()
     expect(container.textContent).toMatch(
       /Align stays disabled until live motion data is ready\. SkyLens will keep .* as the next target\./,
     )
     expect(container.textContent).toMatch(
-      /Wait for live motion data, then tap Align to lock labels to .*?\./,
+      /Wait for live motion data, then press the middle of the screen to align to .*?\./,
     )
   })
 
@@ -857,17 +861,51 @@ describe('ViewerShell startup gating', () => {
     })
     await flushEffects()
 
-    const focusedAlignButton = container.querySelector(
-      '[data-testid="mobile-align-action"]',
-    ) as HTMLButtonElement | null
-
     expect(container.querySelector('[data-testid="mobile-viewer-overlay"]')).toBeNull()
     expect(container.querySelector('[data-testid="mobile-viewer-overlay-trigger"]')).toBeNull()
     expect(container.querySelector('[data-testid="mobile-permission-action"]')).toBeNull()
     expect(readViewerSettings().poseCalibration.calibrated).toBe(false)
     expect(SENSOR_CONTROLLER.setCalibration.mock.calls.length).toBe(calibrationCallsBefore)
-    expect(focusedAlignButton).not.toBeNull()
-    expect(focusedAlignButton?.disabled).toBe(false)
+    expect(container.querySelector('[data-testid="mobile-align-action"]')).toBeNull()
+    expect(container.querySelector('[data-testid="alignment-instructions-panel"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="alignment-crosshair-button"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="alignment-focus-instruction"]')).not.toBeNull()
+  })
+
+  it('closes the alignment view explicitly and restores the mobile Align action', async () => {
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'granted',
+    })
+
+    const latestSettingsProps = () =>
+      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+        | {
+            onFixAlignment?: () => void
+          }
+        | undefined
+
+    await act(async () => {
+      latestSettingsProps()?.onFixAlignment?.()
+    })
+    await flushEffects()
+
+    const closeButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Close'),
+    ) as HTMLButtonElement | undefined
+
+    expect(closeButton).toBeDefined()
+
+    await act(async () => {
+      closeButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(container.querySelector('[data-testid="alignment-instructions-panel"]')).toBeNull()
+    expect(container.querySelector('[data-testid="alignment-crosshair-button"]')).toBeNull()
+    expect(container.querySelector('[data-testid="mobile-align-action"]')).not.toBeNull()
   })
 
   it('hides mobile overlay chrome during explicit alignment focus and leaves only align visible', async () => {
@@ -910,11 +948,11 @@ describe('ViewerShell startup gating', () => {
     expect(container.querySelector('[data-testid="mobile-viewer-overlay-trigger"]')).toBeNull()
     expect(container.querySelector('[data-testid="mobile-permission-action"]')).toBeNull()
     expect(quickActions).not.toBeNull()
-    expect(alignButton).not.toBeNull()
-    expect(alignButton?.disabled).toBe(true)
+    expect(alignButton).toBeNull()
+    expect(container.querySelector('[data-testid="alignment-instructions-panel"]')).not.toBeNull()
   })
 
-  it('keeps mobile align visible after calibration succeeds so alignment can be rerun', async () => {
+  it('allows repeated alignment without requiring reset first', async () => {
     mockSubscribeToOrientationPose.mockImplementationOnce((onPose: (state: unknown) => void) => {
       onPose({
         pose: {
@@ -969,7 +1007,7 @@ describe('ViewerShell startup gating', () => {
       orientation: 'granted',
     })
 
-    const alignButton = container.querySelector(
+    let alignButton = container.querySelector(
       '[data-testid="mobile-align-action"]',
     ) as HTMLButtonElement | null
 
@@ -981,9 +1019,37 @@ describe('ViewerShell startup gating', () => {
     })
     await flushEffects()
 
-    expect(container.querySelector('[data-testid="mobile-align-action"]')).not.toBeNull()
+    const crosshairButton = container.querySelector(
+      '[data-testid="alignment-crosshair-button"]',
+    ) as HTMLButtonElement | null
+
+    expect(crosshairButton).not.toBeNull()
+    expect(container.querySelector('[data-testid="mobile-align-action"]')).toBeNull()
     expect(container.querySelector('[data-testid="mobile-viewer-overlay-trigger"]')).toBeNull()
     expect(container.querySelector('[data-testid="alignment-instructions-panel"]')).not.toBeNull()
+
+    await act(async () => {
+      crosshairButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(readViewerSettings().poseCalibration.calibrated).toBe(true)
+    expect(container.querySelector('[data-testid="alignment-instructions-panel"]')).toBeNull()
+    expect(container.querySelector('[data-testid="alignment-crosshair-button"]')).toBeNull()
+    expect(container.querySelector('[data-testid="mobile-align-action"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="mobile-viewer-overlay-trigger"]')).not.toBeNull()
+
+    alignButton = container.querySelector(
+      '[data-testid="mobile-align-action"]',
+    ) as HTMLButtonElement | null
+
+    await act(async () => {
+      alignButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(container.querySelector('[data-testid="alignment-instructions-panel"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="alignment-crosshair-button"]')).not.toBeNull()
   })
 
   it('exposes on-view manual nudges and gated reset controls in the alignment panel', async () => {
@@ -1097,13 +1163,12 @@ describe('ViewerShell startup gating', () => {
     expect(container.textContent).toContain('Try demo mode')
   })
 
-  it('keeps the expanded mobile overlay inside the safe viewport bounds', async () => {
+  it('uses a non-scrolling mobile overlay shell and locks document scroll during live camera use', async () => {
     await renderViewer({
-      entry: 'demo',
-      location: 'unavailable',
-      camera: 'unavailable',
-      orientation: 'unavailable',
-      demoScenarioId: 'sf-evening',
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'granted',
     })
 
     const mobileTrigger = container.querySelector(
@@ -1119,20 +1184,29 @@ describe('ViewerShell startup gating', () => {
     const mobileOverlay = container.querySelector(
       '[data-testid="mobile-viewer-overlay"]',
     ) as HTMLElement | null
-    const mobileOverlayScrollRegion = container.querySelector(
-      '[data-testid="mobile-viewer-overlay-scroll-region"]',
+    const mobileOverlayShell = container.querySelector(
+      '[data-testid="mobile-viewer-overlay-shell"]',
+    ) as HTMLElement | null
+    const compactOverlayContent = container.querySelector(
+      '[data-testid="mobile-viewer-overlay-compact-content"]',
     ) as HTMLElement | null
 
     expect(mobileOverlay).not.toBeNull()
-    expect(mobileOverlayScrollRegion).not.toBeNull()
-    expect(mobileOverlayScrollRegion?.className).toContain(
+    expect(mobileOverlayShell).not.toBeNull()
+    expect(compactOverlayContent).not.toBeNull()
+    expect(container.querySelector('[data-testid="mobile-viewer-overlay-scroll-region"]')).toBeNull()
+    expect(mobileOverlayShell?.className).toContain(
       'pt-[calc(1rem+env(safe-area-inset-top))]',
     )
-    expect(mobileOverlayScrollRegion?.className).toContain(
+    expect(mobileOverlayShell?.className).toContain(
       'pb-[calc(1rem+env(safe-area-inset-bottom))]',
     )
-    expect(mobileOverlayScrollRegion?.className).toContain('overflow-y-auto')
-    expect(mobileOverlayScrollRegion?.className).not.toContain('sm:hidden')
+    expect(mobileOverlayShell?.className).toContain('overflow-hidden')
+    expect(mobileOverlay?.textContent).toContain('Viewer snapshot')
+    expect(mobileOverlay?.textContent).not.toContain('Privacy reassurance')
+    expect(mobileOverlay?.textContent).not.toContain('Celestial layer')
+    expect(document.documentElement.style.overflow).toBe('hidden')
+    expect(document.body.style.overflow).toBe('hidden')
   })
 
   it('surfaces motion recovery guidance and retries orientation permission', async () => {
@@ -1264,13 +1338,9 @@ describe('ViewerShell startup gating', () => {
 
     expect(container.textContent).toContain('Relative sensor mode needs alignment.')
     expect(container.textContent).toMatch(
-      /Center .* in the reticle, then align before trusting label placement\./,
+      /Center .* in the crosshair, then press the middle of the screen to align before trusting label placement\./,
     )
-    expect(container.textContent).toContain('Alignment steps')
-    expect(container.textContent).toMatch(
-      /Choose Sun or Moon as your preferred target\. SkyLens is currently resolved to .*?\./,
-    )
-    expect(container.textContent).toMatch(/Tap Align to lock labels to .*?\./)
+    expect(container.querySelector('[data-testid="alignment-instructions-panel"]')).toBeNull()
     expect(container.textContent).toContain('Motion: Align first')
     expect(container.textContent).toContain('Sensor: Relative')
   })
@@ -2039,6 +2109,18 @@ describe('ViewerShell startup gating', () => {
       camera: 'granted',
       orientation: 'granted',
     })
+
+    const latestSettingsProps = () =>
+      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+        | {
+            onFixAlignment?: () => void
+          }
+        | undefined
+
+    await act(async () => {
+      latestSettingsProps()?.onFixAlignment?.()
+    })
+    await flushEffects()
 
     const nudgeLeftButton = Array.from(container.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Nudge left'),

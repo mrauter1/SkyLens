@@ -172,30 +172,11 @@ describe('ViewerShell settings integration', () => {
     expect(recenterButton).toBeDefined()
     expect(enterDemoModeButton).toBeDefined()
 
-    await act(async () => {
-      alignmentButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-
     const fovSlider = container.querySelector(
       'input[aria-label="Field of view"]',
     ) as HTMLInputElement | null
-    const sunTargetButton = container.querySelector(
-      'button[aria-label="Use Sun for alignment"]',
-    ) as HTMLButtonElement | null
-    const moonTargetButton = container.querySelector(
-      'button[aria-label="Use Moon for alignment"]',
-    ) as HTMLButtonElement | null
 
     expect(fovSlider?.value).toBe('6')
-    expect(container.textContent).toContain('North marker')
-    expect(container.textContent).toContain('Alignment steps')
-    expect(container.textContent).toContain(
-      'Choose Sun or Moon as your preferred target. SkyLens is currently resolved to North marker.',
-    )
-    expect(sunTargetButton?.disabled).toBe(false)
-    expect(moonTargetButton?.disabled).toBe(false)
-    expect(sunTargetButton?.getAttribute('aria-pressed')).toBe('false')
-    expect(moonTargetButton?.getAttribute('aria-pressed')).toBe('true')
     expect(
       (container.querySelector('input[aria-label="On objects"]') as HTMLInputElement | null)
         ?.checked,
@@ -263,16 +244,9 @@ describe('ViewerShell settings integration', () => {
 
     expect(alignmentButton).toBeDefined()
 
-    await act(async () => {
-      alignmentButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-
     const fovSlider = container.querySelector(
       'input[aria-label="Field of view"]',
     ) as HTMLInputElement | null
-    const nudgeLeftButton = Array.from(container.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('Nudge left'),
-    )
     const topListRadio = container.querySelector(
       'input[aria-label="Top list"]',
     ) as HTMLInputElement | null
@@ -291,7 +265,6 @@ describe('ViewerShell settings integration', () => {
       likelyVisibleToggle.click()
       topListRadio?.click()
       highMotionQualityRadio?.click()
-      nudgeLeftButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
       setInputValue(fovSlider!, '-4')
     })
 
@@ -355,17 +328,11 @@ describe('ViewerShell settings integration', () => {
 
     expect(reloadedAlignmentButton).toBeDefined()
 
-    await act(async () => {
-      reloadedAlignmentButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-
     const reloadedFovSlider = container.querySelector(
       'input[aria-label="Field of view"]',
     ) as HTMLInputElement | null
 
     expect(reloadedFovSlider?.value).toBe('-4')
-    expect(container.textContent).toContain('North marker')
-    expect(container.textContent).toContain('Alignment steps')
     expect(
       (container.querySelector('input[aria-label="Top list"]') as HTMLInputElement | null)
         ?.checked,
