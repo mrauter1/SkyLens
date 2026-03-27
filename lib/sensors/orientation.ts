@@ -1,9 +1,14 @@
 import {
+  clamp,
+  crossVec3,
   createAxisAngleQuaternion,
   createCameraQuaternion,
   getCameraBasisVectors,
   multiplyQuaternions,
+  normalizeVec3,
   radiansToDegrees,
+  slerpQuaternions,
+  dotVec3,
   type Quaternion,
   type Vec3,
 } from '../projection/camera'
@@ -248,11 +253,14 @@ export function smoothOrientationSample(
   }
 
   if (previous.quaternion || next.quaternion) {
-    smoothedSample.quaternion = createCameraQuaternion(
-      smoothedSample.headingDeg,
-      smoothedSample.pitchDeg,
-      smoothedSample.rollDeg,
-    )
+    smoothedSample.quaternion =
+      previous.quaternion && next.quaternion
+        ? slerpQuaternions(previous.quaternion, next.quaternion, smoothingFactor)
+        : createCameraQuaternion(
+            smoothedSample.headingDeg,
+            smoothedSample.pitchDeg,
+            smoothedSample.rollDeg,
+          )
   }
 
   return smoothedSample
@@ -643,10 +651,14 @@ function orientLandscapeSampleForPoseContract(
     return sample
   }
 
+  const pitchDeg = -sample.pitchDeg
+  const rollDeg = normalizeSignedDegrees(-sample.rollDeg)
+
   return {
     ...sample,
-    pitchDeg: -sample.pitchDeg,
-    rollDeg: normalizeSignedDegrees(-sample.rollDeg),
+    pitchDeg,
+    rollDeg,
+    quaternion: createCameraQuaternion(sample.headingDeg, pitchDeg, rollDeg),
   }
 }
 
@@ -744,30 +756,4 @@ function normalizeDegrees(value: number) {
 function normalizeSignedDegrees(value: number) {
   const normalized = normalizeDegrees(value)
   return normalized > 180 ? normalized - 360 : normalized
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(Math.max(value, min), max)
-}
-
-function normalizeVec3(vector: Vec3): [number, number, number] {
-  const magnitude = Math.hypot(vector[0], vector[1], vector[2])
-
-  if (magnitude === 0) {
-    return [0, 0, 0]
-  }
-
-  return [vector[0] / magnitude, vector[1] / magnitude, vector[2] / magnitude]
-}
-
-function crossVec3(left: Vec3, right: Vec3): [number, number, number] {
-  return [
-    left[1] * right[2] - left[2] * right[1],
-    left[2] * right[0] - left[0] * right[2],
-    left[0] * right[1] - left[1] * right[0],
-  ]
-}
-
-function dotVec3(left: Vec3, right: Vec3) {
-  return left[0] * right[0] + left[1] * right[1] + left[2] * right[2]
 }

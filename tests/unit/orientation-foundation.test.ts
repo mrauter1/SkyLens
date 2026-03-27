@@ -12,7 +12,11 @@ import {
   normalizeDeviceOrientationReading,
   smoothOrientationSample,
 } from '../../lib/sensors/orientation'
-import { projectWorldPointToScreen } from '../../lib/projection/camera'
+import {
+  createCameraQuaternion,
+  projectWorldPointToScreen,
+  slerpQuaternions,
+} from '../../lib/projection/camera'
 
 describe('orientation foundation', () => {
   it('applies screen-orientation correction without mirroring east and west', () => {
@@ -115,6 +119,22 @@ describe('orientation foundation', () => {
     expect(firstLandscape?.rollDeg).toBeCloseTo(afterPortrait?.rollDeg ?? NaN, 6)
     expect(firstLandscape?.pitchDeg).toBeCloseTo(89, 4)
     expect(firstLandscape?.rollDeg).toBeCloseTo(0, 4)
+    expectQuaternionEquivalent(
+      firstLandscape?.quaternion,
+      createCameraQuaternion(
+        firstLandscape?.headingDeg ?? NaN,
+        firstLandscape?.pitchDeg ?? NaN,
+        firstLandscape?.rollDeg ?? NaN,
+      ),
+    )
+    expectQuaternionEquivalent(
+      afterPortrait?.quaternion,
+      createCameraQuaternion(
+        afterPortrait?.headingDeg ?? NaN,
+        afterPortrait?.pitchDeg ?? NaN,
+        afterPortrait?.rollDeg ?? NaN,
+      ),
+    )
   })
 
   it('normalizes the same landscape nadir quaternion consistently with and without prior history', () => {
@@ -151,6 +171,22 @@ describe('orientation foundation', () => {
     expect(firstLandscape?.rollDeg).toBeCloseTo(afterPortrait?.rollDeg ?? NaN, 6)
     expect(firstLandscape?.pitchDeg).toBeCloseTo(-89, 4)
     expect(firstLandscape?.rollDeg).toBeCloseTo(0, 4)
+    expectQuaternionEquivalent(
+      firstLandscape?.quaternion,
+      createCameraQuaternion(
+        firstLandscape?.headingDeg ?? NaN,
+        firstLandscape?.pitchDeg ?? NaN,
+        firstLandscape?.rollDeg ?? NaN,
+      ),
+    )
+    expectQuaternionEquivalent(
+      afterPortrait?.quaternion,
+      createCameraQuaternion(
+        afterPortrait?.headingDeg ?? NaN,
+        afterPortrait?.pitchDeg ?? NaN,
+        afterPortrait?.rollDeg ?? NaN,
+      ),
+    )
   })
 
   it('keeps raw orientation normalization continuous through nadir-equivalent readings', () => {
@@ -211,6 +247,61 @@ describe('orientation foundation', () => {
 
     expect(smoothed.headingDeg).toBeCloseTo(354, 4)
     expect(smoothed.pitchDeg).toBeCloseTo(2, 4)
+  })
+
+  it('interpolates quaternion metadata without changing continuous euler smoothing', () => {
+    const previous = {
+      headingDeg: 350,
+      pitchDeg: 15,
+      rollDeg: -10,
+      timestampMs: 0,
+      quaternion: createCameraQuaternion(350, 15, -10),
+    }
+    const next = {
+      headingDeg: 10,
+      pitchDeg: 35,
+      rollDeg: 30,
+      timestampMs: 100,
+      quaternion: createCameraQuaternion(10, 35, 30),
+    }
+
+    const smoothed = smoothOrientationSample(previous, next)
+
+    expect(smoothed.headingDeg).toBeCloseTo(354, 4)
+    expect(smoothed.pitchDeg).toBeCloseTo(19, 4)
+    expect(smoothed.rollDeg).toBeCloseTo(358, 4)
+    expect(Math.hypot(...(smoothed.quaternion ?? [NaN, NaN, NaN, NaN]))).toBeCloseTo(1, 6)
+    expectQuaternionEquivalent(
+      smoothed.quaternion,
+      slerpQuaternions(previous.quaternion, next.quaternion, 0.2),
+    )
+  })
+
+  it('rebuilds quaternion metadata from the smoothed euler pose when only one sample has quaternion data', () => {
+    const smoothed = smoothOrientationSample(
+      {
+        headingDeg: 350,
+        pitchDeg: 0,
+        rollDeg: 0,
+        timestampMs: 0,
+      },
+      {
+        headingDeg: 10,
+        pitchDeg: 10,
+        rollDeg: 5,
+        timestampMs: 100,
+        quaternion: createCameraQuaternion(10, 10, 5),
+      },
+    )
+
+    expectQuaternionEquivalent(
+      smoothed.quaternion,
+      createCameraQuaternion(
+        smoothed.headingDeg,
+        smoothed.pitchDeg,
+        smoothed.rollDeg,
+      ),
+    )
   })
 
   it('scores steady and noisy heading fixtures using the locked thresholds', () => {
@@ -285,3 +376,17 @@ describe('orientation foundation', () => {
     expect(Math.hypot(...pose.quaternion)).toBeCloseTo(1, 6)
   })
 })
+
+function expectQuaternionEquivalent(
+  actual: [number, number, number, number] | undefined,
+  expected: [number, number, number, number],
+) {
+  expect(actual).toBeDefined()
+  const similarity =
+    actual![0] * expected[0] +
+    actual![1] * expected[1] +
+    actual![2] * expected[2] +
+    actual![3] * expected[3]
+
+  expect(Math.abs(similarity)).toBeCloseTo(1, 6)
+}

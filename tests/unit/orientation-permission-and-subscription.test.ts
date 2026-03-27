@@ -213,7 +213,12 @@ describe('orientation permission and subscription', () => {
       supportsAbsolute: false,
       screenAngle: 90,
     })
-    const poses: Array<{ headingDeg: number; pitchDeg: number; rollDeg: number }> = []
+    const poses: Array<{
+      headingDeg: number
+      pitchDeg: number
+      rollDeg: number
+      quaternionMagnitude: number
+    }> = []
 
     const subscription = subscribeToOrientationPose(
       ({ sample }) => {
@@ -221,6 +226,7 @@ describe('orientation permission and subscription', () => {
           headingDeg: sample.headingDeg,
           pitchDeg: sample.pitchDeg,
           rollDeg: sample.rollDeg,
+          quaternionMagnitude: Math.hypot(...(sample.quaternion ?? [NaN, NaN, NaN, NaN])),
         })
       },
       { runtime },
@@ -243,9 +249,11 @@ describe('orientation permission and subscription', () => {
     expect(poses[0].headingDeg).toBeCloseTo(90, 4)
     expect(Math.abs(poses[0].pitchDeg)).toBeCloseTo(89, 4)
     expect(poses[0].rollDeg).toBeCloseTo(0, 4)
+    expect(poses[0].quaternionMagnitude).toBeCloseTo(1, 6)
     expect(poses[1].headingDeg).toBeCloseTo(90, 4)
     expect(poses[1].pitchDeg).toBeGreaterThan(90)
     expect(Math.abs(normalizeSignedDegrees(poses[1].rollDeg))).toBeCloseTo(0, 4)
+    expect(poses[1].quaternionMagnitude).toBeCloseTo(1, 6)
   })
 
   it('keeps repeated landscape zenith samples on the same normalized positive pitch branch', () => {
@@ -292,7 +300,12 @@ describe('orientation permission and subscription', () => {
       supportsAbsolute: false,
       screenAngle: 90,
     })
-    const poses: Array<{ headingDeg: number; pitchDeg: number; rollDeg: number }> = []
+    const poses: Array<{
+      headingDeg: number
+      pitchDeg: number
+      rollDeg: number
+      quaternionMagnitude: number
+    }> = []
 
     const subscription = subscribeToOrientationPose(
       ({ sample }) => {
@@ -300,6 +313,7 @@ describe('orientation permission and subscription', () => {
           headingDeg: sample.headingDeg,
           pitchDeg: sample.pitchDeg,
           rollDeg: sample.rollDeg,
+          quaternionMagnitude: Math.hypot(...(sample.quaternion ?? [NaN, NaN, NaN, NaN])),
         })
       },
       { runtime },
@@ -322,9 +336,11 @@ describe('orientation permission and subscription', () => {
     expect(poses[0].headingDeg).toBeCloseTo(90, 4)
     expect(Math.abs(poses[0].pitchDeg)).toBeCloseTo(89, 4)
     expect(poses[0].rollDeg).toBeCloseTo(0, 4)
+    expect(poses[0].quaternionMagnitude).toBeCloseTo(1, 6)
     expect(poses[1].headingDeg).toBeCloseTo(90, 4)
     expect(poses[1].pitchDeg).toBeLessThan(-90)
     expect(Math.abs(normalizeSignedDegrees(poses[1].rollDeg))).toBeCloseTo(0, 4)
+    expect(poses[1].quaternionMagnitude).toBeCloseTo(1, 6)
   })
 
   it('keeps recenter stable when the baseline is captured near zenith', () => {

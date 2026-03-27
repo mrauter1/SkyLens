@@ -369,7 +369,7 @@ export function radiansToDegrees(value: number) {
   return (value * 180) / Math.PI
 }
 
-function clamp(value: number, min: number, max: number) {
+export function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max)
 }
 
@@ -377,7 +377,7 @@ function magnitudeVec3(vector: Vec3) {
   return Math.hypot(vector[0], vector[1], vector[2])
 }
 
-function normalizeVec3(vector: Vec3): [number, number, number] {
+export function normalizeVec3(vector: Vec3): [number, number, number] {
   const magnitude = magnitudeVec3(vector)
 
   if (magnitude === 0) {
@@ -385,6 +385,18 @@ function normalizeVec3(vector: Vec3): [number, number, number] {
   }
 
   return [vector[0] / magnitude, vector[1] / magnitude, vector[2] / magnitude]
+}
+
+export function crossVec3(left: Vec3, right: Vec3): [number, number, number] {
+  return [
+    left[1] * right[2] - left[2] * right[1],
+    left[2] * right[0] - left[0] * right[2],
+    left[0] * right[1] - left[1] * right[0],
+  ]
+}
+
+export function dotVec3(left: Vec3, right: Vec3) {
+  return left[0] * right[0] + left[1] * right[1] + left[2] * right[2]
 }
 
 function rotateAroundAxis(

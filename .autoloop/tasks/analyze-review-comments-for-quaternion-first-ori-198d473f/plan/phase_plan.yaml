@@ -1,0 +1,39 @@
+version: 1
+task_id: analyze-review-comments-for-quaternion-first-ori-198d473f
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/analyze-review-comments-for-quaternion-first-ori-198d473f/runs/run-20260327T001750Z-cc169aab/request.md
+phases:
+  - phase_id: remediate-orientation-review-comments
+    title: Remediate quaternion-first orientation review findings
+    objective: Apply the correct quaternion-first orientation fixes while preserving the existing continuous Euler pose contract and viewer-facing behavior.
+    status: planned
+    in_scope:
+      - Update orientation smoothing so quaternion metadata is interpolated safely without replacing angle-authoritative continuity logic.
+      - Deduplicate local vector helpers in lib/sensors/orientation.ts by reusing minimal shared math from lib/projection/camera.ts.
+      - Keep quaternion and Euler fields consistent when the landscape pose-contract adjustment flips pitch and roll.
+      - Add focused regression tests for continuity and quaternion/Euler agreement.
+    out_of_scope:
+      - Changing permission probing, stream selection, recenter semantics, or manual-pan behavior.
+      - Redesigning CameraPose, viewer state contracts, or persisted settings.
+      - Introducing a new generic math utility module.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: Orientation smoothing preserves the current continuous heading/pitch/roll behavior while quaternion metadata is interpolated from available neighboring quaternions and remains normalized.
+      - id: AC-2
+        text: Landscape pose-contract adjustments no longer leave OrientationSample quaternion data out of sync with the emitted pitch and roll values.
+      - id: AC-3
+        text: Duplicated vector math in lib/sensors/orientation.ts is removed in favor of minimal shared camera helpers without changing consumer-facing interfaces.
+      - id: AC-4
+        text: Unit tests cover quaternion/Euler consistency and confirm zenith, nadir, and repeated landscape continuity remain intact.
+    deliverables:
+      - Updated orientation smoothing and landscape-normalization logic in lib/sensors/orientation.ts.
+      - Minimal shared vector-helper exports in lib/projection/camera.ts if required by the deduplication.
+      - Focused orientation regression tests covering the new consistency guarantees.
+    risks:
+      - Quaternion interpolation could reintroduce short-arc flips if it starts driving the emitted Euler branch instead of metadata only.
+      - Exporting shared helpers from camera math could create avoidable coupling if the helper set is broader than necessary.
+      - Landscape consistency fixes could accidentally change the established sign-branch behavior for samples near +/-90 degrees.
+    rollback:
+      - Revert the quaternion interpolation slice if emitted sensor continuity regresses.
+      - Revert the shared-helper export if it causes dependency churn outside the orientation/camera boundary.
+      - Revert the landscape consistency change if it changes pose-contract branch selection rather than only making quaternion and Euler fields agree.
