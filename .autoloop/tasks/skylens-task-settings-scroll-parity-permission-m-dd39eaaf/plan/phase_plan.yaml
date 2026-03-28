@@ -1,0 +1,39 @@
+version: 1
+task_id: skylens-task-settings-scroll-parity-permission-m-dd39eaaf
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/skylens-task-settings-scroll-parity-permission-m-dd39eaaf/runs/run-20260328T035739Z-1c550d60/request.md
+phases:
+  - phase_id: ship-settings-scroll-permission-persistence-parity
+    title: Ship settings scroll parity, permission recovery copy, and full durable persistence
+    objective: Update the live viewer/settings surfaces so the settings sheet owns internal scrolling, permission recovery labels and motion-disabled warnings stay accurate across overlay states, and the full durable viewer plus calibration configuration restores compatibly from localStorage.
+    status: planned
+    in_scope:
+      - Update the settings sheet modal shell so the opened sheet uses an internal scroll region with safe-area-aware max-height behavior.
+      - Unify permission recovery CTA copy and retry behavior for missing camera and/or motion across live viewer recovery surfaces.
+      - Add the remaining durable calibration preference to persisted viewer settings and restore it compatibly from existing storage payloads.
+      - Extend unit coverage for settings scroll ownership, permission label permutations, motion-disabled warning copy, and persistence/restore behavior.
+    out_of_scope:
+      - Changing the blocked-state Start AR startup contract.
+      - Redesigning the desktop/mobile viewer overlay composition beyond the settings-sheet scroll-owner fix.
+      - Persisting transient overlay visibility, banner, or draft-input state.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: Opening Settings keeps the viewer stage/background fixed while the settings content scrolls internally within safe-area/max-height limits.
+      - id: AC-2
+        text: Live viewer recovery CTAs show Enable camera and motion, Enable camera, or Enable motion according to the actual missing permission combination.
+      - id: AC-3
+        text: A yellow motion-disabled warning with polished copy appears consistently in the relevant live overlay fallback states when motion is unavailable.
+      - id: AC-4
+        text: Viewer settings and durable calibration state restore correctly after reload, and older localStorage payloads without the new field still normalize successfully.
+    deliverables:
+      - Updated settings-sheet and viewer-shell runtime logic for scroll ownership and permission recovery copy
+      - Extended viewer settings persistence/normalization for the remaining durable calibration preference
+      - Unit coverage for scroll parity, permission messaging, motion warning copy, and storage restore compatibility
+    risks:
+      - Settings-sheet layout changes could regress focus management or close behavior.
+      - Shared permission recovery logic could accidentally alter the blocked startup flow if scoped incorrectly.
+      - Persisting the wrong calibration fields could reload stale UI state instead of durable user preferences.
+    rollback:
+      - Revert the settings-sheet scroll-shell changes if they break focus or safe-area behavior.
+      - Revert permission-copy unification separately if it disturbs blocked-state startup UX.
+      - Revert the optional storage-field addition if compatibility issues appear while keeping the existing storage key and persisted fields.

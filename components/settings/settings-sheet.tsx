@@ -96,6 +96,9 @@ const MOTION_QUALITY_OPTIONS: Array<{
   },
 ]
 
+const SETTINGS_SHEET_MAX_HEIGHT =
+  'calc(100dvh - (2rem + env(safe-area-inset-top) + env(safe-area-inset-bottom)))'
+
 export function SettingsSheet({
   onEnterDemoMode,
   onDemoScenarioSelect,
@@ -141,6 +144,31 @@ export function SettingsSheet({
       document.activeElement instanceof HTMLElement ? document.activeElement : null
 
     closeButtonRef.current?.focus()
+  }, [isOpen])
+
+  useEffect(() => {
+    if (typeof document === 'undefined' || !isOpen) {
+      return
+    }
+
+    const root = document.documentElement
+    const body = document.body
+    const previousRootOverflow = root.style.overflow
+    const previousRootOverscrollBehavior = root.style.overscrollBehavior
+    const previousBodyOverflow = body.style.overflow
+    const previousBodyOverscrollBehavior = body.style.overscrollBehavior
+
+    root.style.overflow = 'hidden'
+    root.style.overscrollBehavior = 'none'
+    body.style.overflow = 'hidden'
+    body.style.overscrollBehavior = 'none'
+
+    return () => {
+      root.style.overflow = previousRootOverflow
+      root.style.overscrollBehavior = previousRootOverscrollBehavior
+      body.style.overflow = previousBodyOverflow
+      body.style.overscrollBehavior = previousBodyOverscrollBehavior
+    }
   }, [isOpen])
 
   const closeSheet = () => {
@@ -193,221 +221,236 @@ export function SettingsSheet({
         Settings
       </button>
       {isOpen ? (
-        <section
-          id={panelId}
-          ref={panelRef}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby={titleId}
-          className="shell-panel absolute inset-x-4 bottom-24 z-30 rounded-[1.75rem] p-5"
-          onKeyDown={handlePanelKeyDown}
+        <div
+          className="fixed inset-0 z-40 px-4 pt-[calc(1rem+env(safe-area-inset-top))] pb-[calc(1rem+env(safe-area-inset-bottom))]"
+          data-testid="settings-sheet-shell"
         >
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">
-                Viewer controls
-              </p>
-              <h2
-                id={titleId}
-                className="text-lg font-semibold text-white"
-                style={{ fontFamily: 'var(--font-display)' }}
-              >
-                Settings
-              </h2>
-            </div>
-            <button
-              ref={closeButtonRef}
-              type="button"
-              onClick={closeSheet}
-              className="min-h-11 rounded-full border border-sky-100/15 px-3 py-1 text-sm text-sky-50"
+          <div aria-hidden="true" className="absolute inset-0 bg-slate-950/45" />
+          <div className="relative flex h-full items-end justify-center">
+            <section
+              id={panelId}
+              ref={panelRef}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={titleId}
+              className="shell-panel relative flex max-h-full min-h-0 w-full max-w-xl flex-col overflow-hidden rounded-[1.75rem] p-5"
+              style={{ maxHeight: SETTINGS_SHEET_MAX_HEIGHT }}
+              data-testid="settings-sheet-panel"
+              onKeyDown={handlePanelKeyDown}
             >
-              Close
-            </button>
-          </div>
-          <div className="grid gap-3">
-            {LAYER_LABELS.map(([layerId, label]) => (
-              <label
-                key={layerId}
-                className="flex items-center justify-between rounded-2xl border border-sky-100/10 bg-white/5 px-4 py-3 text-sm text-sky-50"
-              >
-                <span>
-                  <span className="block">{label}</span>
-                  {layerAvailabilityLabels?.[layerId] ? (
-                    <span className="mt-1 block text-xs text-amber-200/85">
-                      {layerAvailabilityLabels[layerId]}
-                    </span>
-                  ) : null}
-                </span>
-                <input
-                  type="checkbox"
-                  checked={layers[layerId]}
-                  onChange={(event) =>
-                    onLayerToggle(layerId, event.target.checked)
-                  }
-                  aria-label={label}
-                />
-              </label>
-            ))}
-            <label className="flex items-center justify-between rounded-2xl border border-sky-100/10 bg-white/5 px-4 py-3 text-sm text-sky-50">
-              <span>Likely visible only</span>
-              <input
-                type="checkbox"
-                checked={likelyVisibleOnly}
-                onChange={(event) => onLikelyVisibleOnlyChange(event.target.checked)}
-              />
-            </label>
-            <fieldset className="rounded-[1.5rem] border border-sky-100/10 bg-white/5 p-4">
-              <legend className="px-1 text-xs uppercase tracking-[0.18em] text-sky-200/60">
-                Label display
-              </legend>
-              <div className="mt-3 grid gap-2">
-                {LABEL_DISPLAY_MODE_OPTIONS.map((option) => (
-                  <label
-                    key={option.id}
-                    className={`rounded-2xl border px-4 py-3 text-sm ${
-                      labelDisplayMode === option.id
-                        ? 'border-amber-200/45 bg-amber-200/12 text-amber-50'
-                        : 'border-sky-100/10 bg-slate-950/30 text-sky-50'
-                    }`}
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">
+                    Viewer controls
+                  </p>
+                  <h2
+                    id={titleId}
+                    className="text-lg font-semibold text-white"
+                    style={{ fontFamily: 'var(--font-display)' }}
                   >
-                    <span className="flex items-start justify-between gap-3">
-                      <span>
-                        <span className="block font-medium">{option.label}</span>
-                        <span className="mt-1 block text-xs text-sky-100/70">
-                          {option.description}
-                        </span>
-                      </span>
-                      <input
-                        type="radio"
-                        name="label-display-mode"
-                        value={option.id}
-                        checked={labelDisplayMode === option.id}
-                        onChange={() => onLabelDisplayModeChange(option.id)}
-                        aria-label={option.label}
-                      />
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-            <fieldset className="rounded-[1.5rem] border border-sky-100/10 bg-white/5 p-4">
-              <legend className="px-1 text-xs uppercase tracking-[0.18em] text-sky-200/60">
-                Motion quality
-              </legend>
-              <div className="mt-3 grid gap-2">
-                {MOTION_QUALITY_OPTIONS.map((option) => (
-                  <label
-                    key={option.id}
-                    className={`rounded-2xl border px-4 py-3 text-sm ${
-                      motionQuality === option.id
-                        ? 'border-amber-200/45 bg-amber-200/12 text-amber-50'
-                        : 'border-sky-100/10 bg-slate-950/30 text-sky-50'
-                    }`}
-                  >
-                    <span className="flex items-start justify-between gap-3">
-                      <span>
-                        <span className="block font-medium">{option.label}</span>
-                        <span className="mt-1 block text-xs text-sky-100/70">
-                          {option.description}
-                        </span>
-                      </span>
-                      <input
-                        type="radio"
-                        name="motion-quality"
-                        value={option.id}
-                        checked={motionQuality === option.id}
-                        onChange={() => onMotionQualityChange(option.id)}
-                        aria-label={option.label}
-                      />
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  if (canFixAlignment) {
-                    onFixAlignment?.()
-                    closeSheet()
-                  }
-                }}
-                className="min-h-11 rounded-2xl border border-sky-100/10 bg-white/5 px-4 py-3 text-sm text-sky-200/55 disabled:cursor-not-allowed"
-                disabled={!canFixAlignment}
-              >
-                Alignment
-              </button>
-              <button
-                type="button"
-                onClick={onRecenter}
-                className="min-h-11 rounded-2xl border border-sky-100/10 bg-white/5 px-4 py-3 text-sm text-sky-200/55 disabled:cursor-not-allowed"
-                disabled={!canRecenter}
-              >
-                Recenter
-              </button>
-            </div>
-            {cameraDevices.length > 0 ? (
-              <label className="grid gap-2 rounded-[1.5rem] border border-sky-100/10 bg-white/5 p-4 text-sm text-sky-50">
-                <span className="text-xs uppercase tracking-[0.18em] text-sky-200/60">
-                  Camera source
-                </span>
-                <select
-                  aria-label="Camera source"
-                  value={selectedCameraDeviceId ?? ''}
-                  onChange={(event) => onSelectedCameraDeviceChange?.(event.target.value)}
-                  className="min-h-11 rounded-2xl border border-sky-100/10 bg-slate-950/35 px-4 py-3 text-sm text-sky-50"
+                    Settings
+                  </h2>
+                </div>
+                <button
+                  ref={closeButtonRef}
+                  type="button"
+                  onClick={closeSheet}
+                  className="min-h-11 rounded-full border border-sky-100/15 px-3 py-1 text-sm text-sky-50"
                 >
-                  <option value="">Auto rear camera</option>
-                  {cameraDevices.map((device) => (
-                    <option key={device.deviceId} value={device.deviceId}>
-                      {device.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : null}
-            <RangeControl
-              label="Field of view"
-              min={-30}
-              max={30}
-              step={1}
-              value={verticalFovAdjustmentDeg}
-              suffix="°"
-              onChange={onVerticalFovAdjustmentChange}
-            />
-            {demoScenarioOptions.length > 0 ? (
-              <div className="grid gap-2 rounded-[1.5rem] border border-sky-100/10 bg-white/5 p-4">
-                <p className="text-xs uppercase tracking-[0.18em] text-sky-200/60">
-                  Demo scenarios
-                </p>
-                <div className="grid gap-2">
-                  {demoScenarioOptions.map((scenario) => (
-                    <button
-                      key={scenario.id}
-                      type="button"
-                      onClick={() => onDemoScenarioSelect?.(scenario.id)}
-                      className={`min-h-11 rounded-2xl border px-4 py-3 text-left text-sm ${
-                        demoScenarioId === scenario.id
-                          ? 'border-amber-200/45 bg-amber-200/12 text-amber-50'
-                          : 'border-sky-100/10 bg-slate-950/30 text-sky-50'
-                      }`}
+                  Close
+                </button>
+              </div>
+              <div
+                className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1"
+                data-testid="settings-sheet-scroll-region"
+              >
+                <div className="grid gap-3 pb-1">
+                  {LAYER_LABELS.map(([layerId, label]) => (
+                    <label
+                      key={layerId}
+                      className="flex items-center justify-between rounded-2xl border border-sky-100/10 bg-white/5 px-4 py-3 text-sm text-sky-50"
                     >
-                      {scenario.label}
-                    </button>
+                      <span>
+                        <span className="block">{label}</span>
+                        {layerAvailabilityLabels?.[layerId] ? (
+                          <span className="mt-1 block text-xs text-amber-200/85">
+                            {layerAvailabilityLabels[layerId]}
+                          </span>
+                        ) : null}
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={layers[layerId]}
+                        onChange={(event) =>
+                          onLayerToggle(layerId, event.target.checked)
+                        }
+                        aria-label={label}
+                      />
+                    </label>
                   ))}
+                  <label className="flex items-center justify-between rounded-2xl border border-sky-100/10 bg-white/5 px-4 py-3 text-sm text-sky-50">
+                    <span>Likely visible only</span>
+                    <input
+                      type="checkbox"
+                      checked={likelyVisibleOnly}
+                      onChange={(event) => onLikelyVisibleOnlyChange(event.target.checked)}
+                    />
+                  </label>
+                  <fieldset className="rounded-[1.5rem] border border-sky-100/10 bg-white/5 p-4">
+                    <legend className="px-1 text-xs uppercase tracking-[0.18em] text-sky-200/60">
+                      Label display
+                    </legend>
+                    <div className="mt-3 grid gap-2">
+                      {LABEL_DISPLAY_MODE_OPTIONS.map((option) => (
+                        <label
+                          key={option.id}
+                          className={`rounded-2xl border px-4 py-3 text-sm ${
+                            labelDisplayMode === option.id
+                              ? 'border-amber-200/45 bg-amber-200/12 text-amber-50'
+                              : 'border-sky-100/10 bg-slate-950/30 text-sky-50'
+                          }`}
+                        >
+                          <span className="flex items-start justify-between gap-3">
+                            <span>
+                              <span className="block font-medium">{option.label}</span>
+                              <span className="mt-1 block text-xs text-sky-100/70">
+                                {option.description}
+                              </span>
+                            </span>
+                            <input
+                              type="radio"
+                              name="label-display-mode"
+                              value={option.id}
+                              checked={labelDisplayMode === option.id}
+                              onChange={() => onLabelDisplayModeChange(option.id)}
+                              aria-label={option.label}
+                            />
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+                  <fieldset className="rounded-[1.5rem] border border-sky-100/10 bg-white/5 p-4">
+                    <legend className="px-1 text-xs uppercase tracking-[0.18em] text-sky-200/60">
+                      Motion quality
+                    </legend>
+                    <div className="mt-3 grid gap-2">
+                      {MOTION_QUALITY_OPTIONS.map((option) => (
+                        <label
+                          key={option.id}
+                          className={`rounded-2xl border px-4 py-3 text-sm ${
+                            motionQuality === option.id
+                              ? 'border-amber-200/45 bg-amber-200/12 text-amber-50'
+                              : 'border-sky-100/10 bg-slate-950/30 text-sky-50'
+                          }`}
+                        >
+                          <span className="flex items-start justify-between gap-3">
+                            <span>
+                              <span className="block font-medium">{option.label}</span>
+                              <span className="mt-1 block text-xs text-sky-100/70">
+                                {option.description}
+                              </span>
+                            </span>
+                            <input
+                              type="radio"
+                              name="motion-quality"
+                              value={option.id}
+                              checked={motionQuality === option.id}
+                              onChange={() => onMotionQualityChange(option.id)}
+                              aria-label={option.label}
+                            />
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (canFixAlignment) {
+                          onFixAlignment?.()
+                          closeSheet()
+                        }
+                      }}
+                      className="min-h-11 rounded-2xl border border-sky-100/10 bg-white/5 px-4 py-3 text-sm text-sky-200/55 disabled:cursor-not-allowed"
+                      disabled={!canFixAlignment}
+                    >
+                      Alignment
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onRecenter}
+                      className="min-h-11 rounded-2xl border border-sky-100/10 bg-white/5 px-4 py-3 text-sm text-sky-200/55 disabled:cursor-not-allowed"
+                      disabled={!canRecenter}
+                    >
+                      Recenter
+                    </button>
+                  </div>
+                  {cameraDevices.length > 0 ? (
+                    <label className="grid gap-2 rounded-[1.5rem] border border-sky-100/10 bg-white/5 p-4 text-sm text-sky-50">
+                      <span className="text-xs uppercase tracking-[0.18em] text-sky-200/60">
+                        Camera source
+                      </span>
+                      <select
+                        aria-label="Camera source"
+                        value={selectedCameraDeviceId ?? ''}
+                        onChange={(event) => onSelectedCameraDeviceChange?.(event.target.value)}
+                        className="min-h-11 rounded-2xl border border-sky-100/10 bg-slate-950/35 px-4 py-3 text-sm text-sky-50"
+                      >
+                        <option value="">Auto rear camera</option>
+                        {cameraDevices.map((device) => (
+                          <option key={device.deviceId} value={device.deviceId}>
+                            {device.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
+                  <RangeControl
+                    label="Field of view"
+                    min={-30}
+                    max={30}
+                    step={1}
+                    value={verticalFovAdjustmentDeg}
+                    suffix="°"
+                    onChange={onVerticalFovAdjustmentChange}
+                  />
+                  {demoScenarioOptions.length > 0 ? (
+                    <div className="grid gap-2 rounded-[1.5rem] border border-sky-100/10 bg-white/5 p-4">
+                      <p className="text-xs uppercase tracking-[0.18em] text-sky-200/60">
+                        Demo scenarios
+                      </p>
+                      <div className="grid gap-2">
+                        {demoScenarioOptions.map((scenario) => (
+                          <button
+                            key={scenario.id}
+                            type="button"
+                            onClick={() => onDemoScenarioSelect?.(scenario.id)}
+                            className={`min-h-11 rounded-2xl border px-4 py-3 text-left text-sm ${
+                              demoScenarioId === scenario.id
+                                ? 'border-amber-200/45 bg-amber-200/12 text-amber-50'
+                                : 'border-sky-100/10 bg-slate-950/30 text-sky-50'
+                            }`}
+                          >
+                            {scenario.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={onEnterDemoMode}
+                    className="min-h-11 rounded-2xl bg-amber-300 px-4 py-3 text-sm font-semibold text-slate-950"
+                  >
+                    Enter demo mode
+                  </button>
                 </div>
               </div>
-            ) : null}
-            <button
-              type="button"
-              onClick={onEnterDemoMode}
-              className="min-h-11 rounded-2xl bg-amber-300 px-4 py-3 text-sm font-semibold text-slate-950"
-            >
-              Enter demo mode
-            </button>
+            </section>
           </div>
-        </section>
+        </div>
       ) : null}
     </>
   )

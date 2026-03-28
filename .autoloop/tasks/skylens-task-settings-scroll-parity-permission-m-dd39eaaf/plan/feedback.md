@@ -1,0 +1,5 @@
+# Plan ↔ Plan Verifier Feedback
+- Added a single-phase implementation plan because this is one coherent viewer/settings slice spanning sheet layout, permission recovery copy, and durable localStorage restore.
+- Locked the plan to local changes in `settings-sheet`, `viewer-shell`, and `lib/viewer/settings.ts`, with tests focused on scroll ownership, permission CTA permutations, motion-disabled warning copy, and backward-compatible persistence.
+- Captured two non-obvious constraints explicitly: keep blocked-state `Start AR` unchanged, and persist only durable calibration preferences/state rather than transient overlay banners or open-panel flags.
+- PLAN-001 [non-blocking]: No blocking findings. The plan covers the requested settings scroll parity, permission messaging, yellow motion-disabled warning, and backward-compatible persistence scope; it keeps the change local to the viewer/settings modules, preserves the blocked-state `Start AR` contract explicitly, and defines coherent single-phase acceptance criteria plus rollback for the storage and UI changes.

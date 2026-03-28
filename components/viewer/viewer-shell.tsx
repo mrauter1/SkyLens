@@ -301,9 +301,6 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   )
   const [showAlignmentGuidance, setShowAlignmentGuidance] = useState(false)
   const [calibrationBanner, setCalibrationBanner] = useState<string | null>(null)
-  const [manualAlignmentTargetPreference, setManualAlignmentTargetPreference] =
-    useState<AlignmentTargetPreference | null>(null)
-  const [hasManualAlignmentTargetOverride, setHasManualAlignmentTargetOverride] = useState(false)
   const [lastAppliedCalibrationTarget, setLastAppliedCalibrationTarget] =
     useState<CalibrationTarget | null>(null)
   const [healthStatus, setHealthStatus] = useState<HealthApiResponse | null>(null)
@@ -460,9 +457,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     sceneSnapshot.sunAltitudeDeg,
   )
   const alignmentTargetPreference =
-    hasManualAlignmentTargetOverride && manualAlignmentTargetPreference
-      ? manualAlignmentTargetPreference
-      : defaultAlignmentTargetPreference
+    viewerSettings.alignmentTargetPreference ?? defaultAlignmentTargetPreference
   const projectedObjects: ProjectedSkyObject[] = sceneObjects.map((object) => ({
     ...object,
     projection: projectWorldPointToScreen(
@@ -603,7 +598,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     state.entry === 'live' &&
     (state.camera !== 'granted' || state.orientation !== 'granted')
   const showMobileAlignAction = state.entry === 'live' && !isMobileAlignmentFocusActive
-  const mobilePermissionActionLabel = getMobilePermissionActionLabel(state)
+  const permissionRecoveryAction = getPermissionRecoveryAction(state)
   const activeLiveCameraStage = state.entry === 'live' && cameraStreamActive
   const shouldLockViewerScroll = activeLiveCameraStage || isMobileAlignmentFocusActive
   const usesCameraStageAlignmentFocus =
@@ -612,8 +607,10 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
 
   const handleAlignmentTargetPreferenceChange = useCallback(
     (target: AlignmentTargetPreference) => {
-      setHasManualAlignmentTargetOverride(true)
-      setManualAlignmentTargetPreference(target)
+      setViewerSettings((current) => ({
+        ...current,
+        alignmentTargetPreference: target,
+      }))
     },
     [],
   )
@@ -918,6 +915,56 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         setMotionRetryError('Unable to retry motion permission right now.')
       }
     })
+  }
+
+  const handleRetryCameraPermission = () => {
+    setRetryError(null)
+    setAstronomyFailureBanner(null)
+    setCalibrationBanner(null)
+
+    startTransition(async () => {
+      if (state.entry !== 'live') {
+        return
+      }
+
+      let camera: PermissionStatusValue = 'unknown'
+
+      try {
+        await openLiveCamera(viewerSettings.selectedCameraDeviceId)
+        camera = 'granted'
+      } catch {
+        camera = 'denied'
+      }
+
+      commitViewerRouteState({
+        ...state,
+        camera,
+      })
+      setStartupState(
+        resolveStartupState({
+          orientationStatus: state.orientation,
+          cameraStatus: camera,
+          hasObserver: observer !== null,
+          orientationNeedsCalibration:
+            startupState === 'sensor-relative-needs-calibration',
+          orientationAbsolute,
+        }),
+      )
+    })
+  }
+
+  const handlePermissionRecoveryAction = () => {
+    switch (permissionRecoveryAction.kind) {
+      case 'motion-only':
+        handleRetryMotionPermission()
+        break
+      case 'camera-only':
+        handleRetryCameraPermission()
+        break
+      default:
+        handleRetryPermissions()
+        break
+    }
   }
 
   const handleEnterDemoMode = () => {
@@ -1988,6 +2035,13 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       }))
     },
   }
+  const motionDisabledWarning =
+    state.entry !== 'demo' && state.orientation !== 'granted'
+      ? {
+          title: 'Motion is not enabled.',
+          body: 'Sky elements will not appear in the right location until motion is enabled. Use manual pan in the meantime.',
+        }
+      : null
   const motionRecoveryPanel =
     state.entry !== 'demo' && state.orientation !== 'granted' ? (
       <section className="rounded-[1.25rem] border border-sky-100/10 bg-white/5 p-4">
@@ -1998,11 +2052,13 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         </p>
         <button
           type="button"
-          onClick={handleRetryMotionPermission}
+          onClick={handlePermissionRecoveryAction}
           disabled={isPending}
           className="mt-3 rounded-full border border-sky-100/20 px-4 py-2 text-sm font-semibold text-sky-50 disabled:cursor-wait disabled:opacity-70"
         >
-          {isPending ? 'Retrying motion...' : 'Enable motion'}
+          {isPending
+            ? permissionRecoveryAction.pendingLabel
+            : permissionRecoveryAction.label}
         </button>
         {motionRetryError ? (
           <p className="mt-3 text-sm text-amber-200" role="alert">
@@ -2437,10 +2493,10 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                   body="SkyLens switched to the dark gradient background while keeping the same pose and projection pipeline available."
                 />
               ) : null}
-              {state.orientation !== 'granted' ? (
+              {motionDisabledWarning ? (
                 <FallbackBanner
-                  title="Motion access is off."
-                  body="Drag horizontally to pan, drag vertically to tilt, and double tap to recenter. Manual pan feeds the same normalized camera pose contract as live sensors."
+                  title={motionDisabledWarning.title}
+                  body={motionDisabledWarning.body}
                 />
               ) : null}
               {motionRecoveryPanel}
@@ -2729,6 +2785,12 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                           body={cameraError}
                         />
                       ) : null}
+                      {motionDisabledWarning ? (
+                        <FallbackBanner
+                          title={motionDisabledWarning.title}
+                          body={motionDisabledWarning.body}
+                        />
+                      ) : null}
                       {startupState === 'sensor-relative-needs-calibration' ? (
                         <FallbackBanner
                           title="Relative sensor mode needs alignment."
@@ -2860,10 +2922,10 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                             body="SkyLens switched to the dark gradient background while keeping the same pose and projection pipeline available."
                           />
                         ) : null}
-                        {state.orientation !== 'granted' ? (
+                        {motionDisabledWarning ? (
                           <FallbackBanner
-                            title="Motion access is off."
-                            body="Drag horizontally to pan, drag vertically to tilt, and double tap to recenter. Manual pan feeds the same normalized camera pose contract as live sensors."
+                            title={motionDisabledWarning.title}
+                            body={motionDisabledWarning.body}
                           />
                         ) : null}
                         {motionRecoveryPanel}
@@ -3050,16 +3112,14 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
               {showMobilePermissionAction && !isMobileAlignmentFocusActive ? (
                 <button
                   type="button"
-                  onClick={
-                    state.camera === 'granted' && state.orientation !== 'granted'
-                      ? handleRetryMotionPermission
-                      : handleRetryPermissions
-                  }
+                  onClick={handlePermissionRecoveryAction}
                   disabled={isPending}
                   data-testid="mobile-permission-action"
                   className="min-h-11 rounded-full bg-amber-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-[0_12px_30px_rgba(251,191,36,0.22)] disabled:cursor-wait disabled:bg-amber-100"
                 >
-                  {isPending ? 'Starting AR...' : mobilePermissionActionLabel}
+                  {isPending
+                    ? permissionRecoveryAction.pendingLabel
+                    : permissionRecoveryAction.label}
                 </button>
               ) : null}
               {showMobileAlignAction ? (
@@ -4250,20 +4310,36 @@ function alignmentBadgeValue(
   return 'Alignment fair'
 }
 
-function getMobilePermissionActionLabel(state: ViewerRouteState) {
+function getPermissionRecoveryAction(state: ViewerRouteState) {
   if (state.camera !== 'granted' && state.orientation !== 'granted') {
-    return 'Enable camera and motion'
+    return {
+      kind: 'camera-and-motion' as const,
+      label: 'Enable camera and motion',
+      pendingLabel: 'Starting AR...',
+    }
   }
 
   if (state.camera !== 'granted') {
-    return 'Enable camera'
+    return {
+      kind: 'camera-only' as const,
+      label: 'Enable camera',
+      pendingLabel: 'Starting AR...',
+    }
   }
 
   if (state.orientation !== 'granted') {
-    return 'Enable motion'
+    return {
+      kind: 'motion-only' as const,
+      label: 'Enable motion',
+      pendingLabel: 'Retrying motion...',
+    }
   }
 
-  return 'Enable AR'
+  return {
+    kind: 'none' as const,
+    label: 'Enable AR',
+    pendingLabel: 'Starting AR...',
+  }
 }
 
 function describeRuntimeExperience({

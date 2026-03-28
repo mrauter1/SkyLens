@@ -731,6 +731,72 @@ describe('ViewerShell startup gating', () => {
     expect(container.querySelector('[data-testid="mobile-viewer-overlay"]')).toBeNull()
   })
 
+  it('uses a camera-only recovery action when motion is already available', async () => {
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'granted',
+    })
+
+    const permissionButton = container.querySelector(
+      '[data-testid="mobile-permission-action"]',
+    ) as HTMLButtonElement | null
+
+    expect(permissionButton?.textContent).toContain('Enable camera')
+
+    await act(async () => {
+      permissionButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(mockRequestOrientationPermission).not.toHaveBeenCalled()
+    expect(mockRequestStartupObserverState).not.toHaveBeenCalled()
+    expect(mockRequestRearCameraStream).toHaveBeenCalledTimes(1)
+    expect(mockRouterReplace).toHaveBeenCalledWith(
+      buildViewerHref({
+        entry: 'live',
+        location: 'granted',
+        camera: 'granted',
+        orientation: 'granted',
+      }),
+    )
+  })
+
+  it('keeps camera-only recovery scoped to camera when the retry still fails', async () => {
+    mockRequestRearCameraStream.mockRejectedValueOnce(new Error('camera denied'))
+
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'granted',
+    })
+
+    const permissionButton = container.querySelector(
+      '[data-testid="mobile-permission-action"]',
+    ) as HTMLButtonElement | null
+
+    expect(permissionButton?.textContent).toContain('Enable camera')
+
+    await act(async () => {
+      permissionButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(mockRequestOrientationPermission).not.toHaveBeenCalled()
+    expect(mockRequestStartupObserverState).not.toHaveBeenCalled()
+    expect(mockRequestRearCameraStream).toHaveBeenCalledTimes(1)
+    expect(mockRouterReplace).toHaveBeenCalledWith(
+      buildViewerHref({
+        entry: 'live',
+        location: 'granted',
+        camera: 'denied',
+        orientation: 'granted',
+      }),
+    )
+  })
+
   it('keeps Align visible as the entry point before a live sample exists even after permissions are granted', async () => {
     await renderViewer({
       entry: 'live',
@@ -1530,6 +1596,39 @@ describe('ViewerShell startup gating', () => {
     expect(container.textContent).not.toContain('Motion recovery')
   })
 
+  it('reuses the combined recovery CTA inside the motion panel when camera and motion are both missing', async () => {
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
+
+    expect(container.textContent).toContain('Motion recovery')
+
+    const enableCameraAndMotionButton = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.includes('Enable camera and motion'),
+    )
+
+    expect(enableCameraAndMotionButton).toBeDefined()
+
+    await act(async () => {
+      enableCameraAndMotionButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(mockRequestOrientationPermission).toHaveBeenCalledTimes(1)
+    expect(mockRequestRearCameraStream).toHaveBeenCalledTimes(1)
+    expect(mockRouterReplace).toHaveBeenCalledWith(
+      buildViewerHref({
+        entry: 'live',
+        location: 'granted',
+        camera: 'granted',
+        orientation: 'granted',
+      }),
+    )
+  })
+
   it('keeps motion recovery visible and syncs denied retry state to the route', async () => {
     mockRequestOrientationPermission.mockResolvedValueOnce('denied')
 
@@ -1564,6 +1663,20 @@ describe('ViewerShell startup gating', () => {
     expect(container.textContent).toContain('Motion recovery')
     expect(container.textContent).toContain(
       'Motion access is still denied. Check iOS Settings → Safari → Motion & Orientation Access, then retry.',
+    )
+  })
+
+  it('shows the motion-disabled warning copy in live fallback overlays', async () => {
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'denied',
+    })
+
+    expect(container.textContent).toContain('Motion is not enabled.')
+    expect(container.textContent).toContain(
+      'Sky elements will not appear in the right location until motion is enabled.',
     )
   })
 

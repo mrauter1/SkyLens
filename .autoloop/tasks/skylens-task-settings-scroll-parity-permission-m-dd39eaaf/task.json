@@ -1,0 +1,36 @@
+{
+  "task_id": "skylens-task-settings-scroll-parity-permission-m-dd39eaaf",
+  "created_at": "2026-03-28T03:57:39.920351+00:00",
+  "request_text": "# SkyLens task: settings scroll parity + permission messaging + full persistence\n\n## Objective\nImplement the following in the live viewer experience:\n\n1. **Settings scroll behavior parity with Open viewer overlay**\n   - Keep the **stage (camera/stars background) fixed** when settings are open.\n   - Make only settings content scroll internally, matching open viewer behavior.\n   - Ensure mobile safe-area and max-height behavior remains robust.\n\n2. **Permission action labels and motion-disabled warning**\n   - When permissions are missing, show the correct CTA text:\n     - \"Enable camera and motion\" when both are missing\n     - \"Enable camera\" when only camera is missing\n     - \"Enable motion\" when only motion is missing\n   - When motion is not enabled, show a **yellow warning message** with polished wording that preserves meaning:\n     - motion is not enabled\n     - elements will not be shown in the right location\n   - Ensure warning appears consistently in relevant overlay states.\n\n3. **Persist all settings + calibration settings in localStorage**\n   - Persist viewer settings and all calibration-related settings/state.\n   - Ensure values restore correctly after reload.\n   - Preserve backward compatibility with existing storage payloads.\n\n## Scope guidance\n- Focus on viewer and settings modules (likely `components/viewer/viewer-shell.tsx`, `components/settings/settings-sheet.tsx`, `lib/viewer/settings.ts`, and related tests).\n- Add/adjust tests to cover:\n  - fixed stage + internal settings scrolling\n  - permission label permutations\n  - yellow motion-disabled warning\n  - persistence and restore of settings + calibration state\n\n## Execution requirements\n- Use pairs: **plan, implement, test**.\n- Use full auto answers.\n- Do not set max_iterations.",
+  "request_updated_at": "2026-03-28T03:57:39.920437+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/skylens-task-settings-scroll-parity-permission-m-dd39eaaf/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260328T035739Z-1c550d60",
+    "mode": "single",
+    "phase_ids": [
+      "ship-settings-scroll-permission-persistence-parity"
+    ],
+    "explicit": true,
+    "current_phase_index": 1,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "ship-settings-scroll-permission-persistence-parity": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "ship-settings-scroll-permission-persistence-parity",
+      "run_id": "run-20260328T035739Z-1c550d60",
+      "status": "in_progress",
+      "ts": "2026-03-28T04:01:24.505946+00:00"
+    },
+    {
+      "phase_id": "ship-settings-scroll-permission-persistence-parity",
+      "run_id": "run-20260328T035739Z-1c550d60",
+      "status": "completed",
+      "ts": "2026-03-28T04:12:58.978537+00:00",
+      "pair": "test"
+    }
+  ]
+}
