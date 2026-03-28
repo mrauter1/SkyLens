@@ -26,7 +26,7 @@ test('bare /view stays blocked until a verified permission state exists', async 
   const mobileOverlay = page.getByTestId('mobile-viewer-overlay')
 
   await expect(
-    mobileOverlay.getByRole('heading', { name: 'Start AR from this viewer.' }),
+    mobileOverlay.getByRole('heading', { name: 'Start AR from this viewer.' }).nth(1),
   ).toBeVisible()
   await expect(mobileOverlay.getByText('Location: Pending')).toBeVisible()
   await expect(mobileOverlay.getByRole('button', { name: 'Start AR' })).toBeVisible()
@@ -40,7 +40,7 @@ test('partial live state still blocks until the full payload is present', async 
   const mobileOverlay = page.getByTestId('mobile-viewer-overlay')
 
   await expect(
-    mobileOverlay.getByRole('heading', { name: 'Start AR from this viewer.' }),
+    mobileOverlay.getByRole('heading', { name: 'Start AR from this viewer.' }).nth(1),
   ).toBeVisible()
   await expect(mobileOverlay.getByText('Camera: Pending')).toBeVisible()
   await expect(mobileOverlay.getByText('Motion: Pending')).toBeVisible()
@@ -51,7 +51,7 @@ test('camera denial enters the non-camera fallback shell', async ({ page }) => {
   await ensureMobileViewerOverlayOpen(page)
   const mobileOverlay = page.getByTestId('mobile-viewer-overlay')
 
-  await expect(mobileOverlay.getByText('Camera access is off.')).toBeVisible()
+  await expect(page.getByTestId('viewer-warning-rail-item-camera')).toBeVisible()
   await expect(
     mobileOverlay.getByRole('heading', { name: 'Manual observer needed' }),
   ).toBeVisible()
@@ -64,7 +64,7 @@ test('orientation denial enters the manual-pan fallback shell', async ({ page })
   await ensureMobileViewerOverlayOpen(page)
   const mobileOverlay = page.getByTestId('mobile-viewer-overlay')
 
-  await expect(mobileOverlay.getByText('Motion is not enabled.')).toBeVisible()
+  await expect(page.getByTestId('viewer-warning-rail-item-motion')).toBeVisible()
   await expect(
     mobileOverlay.getByRole('heading', { name: 'Manual observer needed' }),
   ).toBeVisible()

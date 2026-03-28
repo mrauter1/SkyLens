@@ -1,0 +1,31 @@
+{
+  "task_id": "task-desktop-declutter-mobile-safe-navigation-an-94bfedd9",
+  "created_at": "2026-03-28T13:10:19.795209+00:00",
+  "request_text": "# Task: Desktop declutter + mobile-safe navigation and interaction updates\n\n## Objective\nRefine the viewer UI/UX so desktop is much less cluttered (similar to the cleaner mobile experience), while preserving and fixing mobile behavior.\n\n## Required outcomes\n1. **Desktop clutter reduction**\n   - Reduce visual clutter on PC/desktop.\n   - Desktop layout should mimic the less-cluttered mobile structure where appropriate.\n\n2. **Desktop interaction behavior (mouse/cross semantics)**\n   - On desktop, mouse cursor/reticle behavior should be equivalent to the mobile cross behavior.\n   - When hovering over an object on desktop, display object information.\n\n3. **Warning banner compaction and placement**\n   - Warning banner(s), especially for motion warnings, must be significantly more compact.\n   - Place compact warning banner at the top of the screen.\n\n4. **Desktop controls alignment with mobile simplicity**\n   - Ensure desktop view prominently uses streamlined controls similar to mobile:\n     - Open Viewer\n     - Enable Camera\n     - Motion\n     - Align buttons\n\n5. **Fix mobile navigation**\n   - Resolve current mobile navigation issues.\n   - Ensure navigation works reliably and intuitively on mobile.\n\n6. **Do not break mobile view**\n   - Validate and protect existing mobile layout/functionality.\n   - Any desktop changes must not regress mobile.\n\n## Implementation guidance\n- Prefer minimal, coherent UI changes that reduce cognitive load.\n- Reuse existing components/patterns where possible.\n- Keep desktop and mobile behavior consistent where it improves usability.\n- Add/update tests (unit/e2e) for:\n  - hover info behavior on desktop\n  - compact top warning presence\n  - mobile navigation behavior\n  - no obvious mobile regression\n\n## Acceptance checklist\n- [ ] Desktop feels significantly less cluttered.\n- [ ] Hovering object on desktop shows object info.\n- [ ] Motion warning banner is compact and at top.\n- [ ] Desktop controls mirror simple mobile actions.\n- [ ] Mobile navigation fixed.\n- [ ] Mobile layout/functionality not broken.\n- [ ] Relevant tests added/updated and passing.",
+  "request_updated_at": "2026-03-28T13:10:19.795277+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/task-desktop-declutter-mobile-safe-navigation-an-94bfedd9/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260328T131019Z-a4d7f675",
+    "mode": "single",
+    "phase_ids": [
+      "simplify-viewer-shell",
+      "desktop-reticle-and-mobile-nav-hardening"
+    ],
+    "explicit": true,
+    "current_phase_index": 0,
+    "current_phase_id": "simplify-viewer-shell"
+  },
+  "phase_status": {
+    "simplify-viewer-shell": "in_progress",
+    "desktop-reticle-and-mobile-nav-hardening": "planned"
+  },
+  "phase_history": [
+    {
+      "phase_id": "simplify-viewer-shell",
+      "run_id": "run-20260328T131019Z-a4d7f675",
+      "status": "in_progress",
+      "ts": "2026-03-28T13:16:00.143829+00:00"
+    }
+  ]
+}

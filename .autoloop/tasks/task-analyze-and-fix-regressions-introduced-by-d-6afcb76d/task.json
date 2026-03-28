@@ -1,0 +1,31 @@
+{
+  "task_id": "task-analyze-and-fix-regressions-introduced-by-d-6afcb76d",
+  "created_at": "2026-03-28T13:38:13.777144+00:00",
+  "request_text": "# Task: Analyze and fix regressions introduced by desktop declutter PR\n\n## Context\nThe previous desktop declutter PR introduced regressions and failing tests. We need a focused regression recovery pass.\n\n## Required objective\nUse Autoloop to **analyze, understand, verify, and confirm** the root causes of regressions introduced by the previous desktop declutter changes, then apply fixes that preserve the requested UX goals.\n\n## Must-do outcomes\n1. **Regression analysis and confirmation**\n   - Identify root causes for failing unit/e2e behavior after the previous PR.\n   - Explicitly verify and confirm each root cause against code/tests.\n\n2. **Fix functional regressions**\n   - Fix mobile navigation regressions.\n   - Fix mobile alignment/overlay/scroll-lock regressions (including desktop-overlay state leakage into mobile paths if present).\n   - Fix desktop interaction regressions while preserving declutter goals.\n\n3. **Maintain requested UX contract**\n   - Desktop remains less cluttered.\n   - Compact warning banner rail remains top-of-screen.\n   - Desktop primary actions remain aligned with requested set (`Open Viewer`, `Enable Camera`, `Motion`, `Align`).\n   - Mobile view must not be broken.\n\n4. **Tests and validation**\n   - Update tests only where behavior contract intentionally changed.\n   - Ensure relevant unit/e2e coverage reflects fixed behavior.\n   - Run tests and get passing results for impacted suites (or as close as possible with clear accounting).\n\n## Specific guidance\n- Prioritize fixing behavior first, then harmonize tests.\n- Keep changes scoped and avoid unnecessary churn.\n- Do not add autoloop artifact files to final code commit.\n\n## Acceptance checklist\n- [ ] Root causes documented and confirmed.\n- [ ] Regressions fixed in code.\n- [ ] Mobile navigation and mobile overlay behavior verified fixed.\n- [ ] Desktop declutter intent preserved.\n- [ ] Impacted tests updated and passing (or clearly reported if blocked).",
+  "request_updated_at": "2026-03-28T13:38:13.777204+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/task-analyze-and-fix-regressions-introduced-by-d-6afcb76d/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260328T133813Z-34a12ffb",
+    "mode": "single",
+    "phase_ids": [
+      "recover-viewer-shell-behavior",
+      "validate-regression-recovery"
+    ],
+    "explicit": true,
+    "current_phase_index": 0,
+    "current_phase_id": "recover-viewer-shell-behavior"
+  },
+  "phase_status": {
+    "recover-viewer-shell-behavior": "in_progress",
+    "validate-regression-recovery": "planned"
+  },
+  "phase_history": [
+    {
+      "phase_id": "recover-viewer-shell-behavior",
+      "run_id": "run-20260328T133813Z-34a12ffb",
+      "status": "in_progress",
+      "ts": "2026-03-28T13:43:19.180378+00:00"
+    }
+  ]
+}
