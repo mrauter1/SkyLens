@@ -180,14 +180,12 @@ These choices are fixed for v1 and must not be changed unless a human reviewer e
 8. Environment variables and external configuration
 
 The implementation must support these environment variables:
-	•	OPENSKY_CLIENT_ID — optional but recommended
-	•	OPENSKY_CLIENT_SECRET — optional but recommended
 	•	SKYLENS_BUILD_VERSION — optional; surfaced by /api/config
 
 Rules:
-	•	If OpenSky credentials are present, use authenticated OpenSky access.
-	•	If OpenSky credentials are absent, attempt anonymous access only where supported by OpenSky’s latest-state limitations.
-	•	If neither authenticated nor anonymous OpenSky access succeeds, the app must hide aircraft gracefully and continue.
+	•	Aircraft lookups use anonymous browser-direct OpenSky latest-state access only.
+	•	The app must not depend on server-side OpenSky credentials or a server aircraft proxy.
+	•	If anonymous OpenSky access fails, the app must hide aircraft gracefully and continue.
 
 ⸻
 
@@ -196,11 +194,12 @@ Rules:
 These are product requirements.
 	•	Camera frames must never be uploaded to the server.
 	•	The server must not persist raw user location.
-	•	The backend may receive current location only as request parameters for aircraft filtering.
+	•	Approximate aircraft-query location is sent directly from the browser to OpenSky.
 	•	The app must function without login.
 	•	The UI must clearly state:
 	•	Camera stays on your device.
-	•	Location is used only to calculate what is above you right now.
+	•	Approximate location-based aircraft queries go directly from your browser to OpenSky.
+	•	No camera frames are uploaded.
 
 ⸻
 
@@ -531,9 +530,9 @@ When likelyVisibleOnly is enabled:
 	•	satellites are eligible only if Sun altitude <= -4°
 
 16.6 Aircraft pipeline
-	•	Fetch /api/aircraft every 10 seconds while /view is active
-	•	Backend must filter by radius and compute observer-relative azimuth, elevation, and range
-	•	Client must never call OpenSky directly
+	•	Fetch OpenSky `/states/all` directly from the browser while /view is active
+	•	Client must filter by radius and compute observer-relative azimuth, elevation, and range
+	•	Do not use a server aircraft proxy
 	•	Hide aircraft with elevation < 2°
 	•	Ignore aircraft with missing latitude, longitude, or altitude
 
@@ -799,19 +798,21 @@ Rules:
 	•	overlapping group membership must be preserved in groups
 	•	duplicates must be removed before response is returned
 
-22.3 GET /api/aircraft
+22.3 Aircraft browser snapshot contract
 
-Query params:
+Browser query fields:
 	•	lat required
 	•	lon required
 	•	altMeters optional, default 0
-	•	radiusKm optional, default 250, max 250
+	•	radiusKm optional, default 180, max 250
 	•	limit optional, default 50, max 100
 
-Response shape:
+Normalized response shape:
 
 {
   "fetchedAt": "2026-01-01T00:00:00.000Z",
+  "snapshotTimeS": 1767225600,
+  "availability": "available",
   "observer": {
     "lat": 37.7749,
     "lon": -122.4194,
@@ -827,7 +828,7 @@ Response shape:
       "geoAltitudeM": 10668,
       "baroAltitudeM": 10620,
       "velocityMps": 240,
-      "headingDeg": 132,
+      "trackDeg": 132,
       "verticalRateMps": 0,
       "azimuthDeg": 54.2,
       "elevationDeg": 18.4,
@@ -1075,8 +1076,8 @@ Responsibilities:
 29.8 lib/aircraft/client.ts
 
 Responsibilities:
-	•	fetch /api/aircraft
-	•	normalize aircraft objects
+	•	fetch browser-direct OpenSky aircraft snapshots
+	•	normalize tracker-resolved aircraft objects
 
 29.9 lib/labels/ranking.ts
 
@@ -1152,9 +1153,9 @@ Tolerance:
 
 Required integration tests:
 	•	/api/tle returns normalized payload with cache semantics
-	•	/api/aircraft rejects invalid input and normalizes valid payloads
+	•	browser-direct aircraft snapshots normalize valid OpenSky payloads
 	•	stale TLE fallback works
-	•	OpenSky outage degrades gracefully
+	•	OpenSky outage degrades gracefully without clearing existing aircraft tracks
 
 31.4 Playwright E2E tests
 
@@ -1238,8 +1239,8 @@ Acceptance:
 Milestone 5 — Aircraft layer
 
 Deliver:
-	•	/api/aircraft
-	•	OpenSky proxy/cache
+	•	browser-direct OpenSky fetcher
+	•	multi-point aircraft tracker
 	•	aircraft labels and detail cards
 
 Acceptance:

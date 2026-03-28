@@ -12,7 +12,6 @@ export const HealthApiResponseSchema = z.object({
   app: z.object({
     status: z.literal('ok'),
   }),
-  aircraftCache: CacheHealthSchema,
   tleCache: CacheHealthSchema,
 })
 

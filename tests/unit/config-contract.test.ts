@@ -12,7 +12,7 @@ describe('GET /api/config', () => {
       buildVersion: 'test-build',
       defaults: {
         maxLabels: 18,
-        radiusKm: 250,
+        radiusKm: 180,
         verticalFovDeg: 50,
         likelyVisibleOnly: false,
         enabledLayers: [

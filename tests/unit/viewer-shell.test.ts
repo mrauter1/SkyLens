@@ -23,6 +23,8 @@ const {
   mockFetchSatelliteCatalog,
   mockResolveAircraftMotionObjects,
   mockResolveSatelliteMotionObjects,
+  mockAircraftTracker,
+  mockCreateAircraftTracker,
 } = vi.hoisted(() => ({
   mockRouterReplace: vi.fn(),
   mockSettingsSheetProps: vi.fn(),
@@ -37,6 +39,14 @@ const {
   mockFetchSatelliteCatalog: vi.fn(),
   mockResolveAircraftMotionObjects: vi.fn(),
   mockResolveSatelliteMotionObjects: vi.fn(),
+  mockAircraftTracker: {
+    ingest: vi.fn(),
+    resolve: vi.fn(),
+    getTrail: vi.fn(),
+    prune: vi.fn(),
+    reset: vi.fn(),
+  },
+  mockCreateAircraftTracker: vi.fn(),
 }))
 
 vi.mock('next/navigation', () => ({
@@ -112,6 +122,10 @@ vi.mock('../../lib/satellites/client', () => ({
 vi.mock('../../lib/aircraft/client', () => ({
   fetchAircraftSnapshot: mockFetchAircraftSnapshot,
   getAircraftAvailabilityMessage: mockGetAircraftAvailabilityMessage,
+}))
+
+vi.mock('../../lib/aircraft/tracker', () => ({
+  createAircraftTracker: mockCreateAircraftTracker,
 }))
 
 vi.mock('../../lib/viewer/motion', async () => {
@@ -218,6 +232,12 @@ describe('ViewerShell startup gating', () => {
     mockFetchSatelliteCatalog.mockReset()
     mockResolveAircraftMotionObjects.mockReset()
     mockResolveSatelliteMotionObjects.mockReset()
+    mockAircraftTracker.ingest.mockReset()
+    mockAircraftTracker.resolve.mockReset()
+    mockAircraftTracker.getTrail.mockReset()
+    mockAircraftTracker.prune.mockReset()
+    mockAircraftTracker.reset.mockReset()
+    mockCreateAircraftTracker.mockReset()
     SENSOR_CONTROLLER.stop.mockReset()
     SENSOR_CONTROLLER.recenter.mockReset()
     SENSOR_CONTROLLER.setCalibration.mockReset()
@@ -229,6 +249,7 @@ describe('ViewerShell startup gating', () => {
     mockRequestRearCameraStream.mockResolvedValue(CAMERA_STREAM)
     mockFetchAircraftSnapshot.mockResolvedValue({
       fetchedAt: '2026-03-26T00:00:00.000Z',
+      snapshotTimeS: 1774483200,
       observer: {
         lat: LIVE_OBSERVER_FIXTURE.lat,
         lon: LIVE_OBSERVER_FIXTURE.lon,
@@ -245,6 +266,9 @@ describe('ViewerShell startup gating', () => {
     })
     mockResolveAircraftMotionObjects.mockReturnValue([])
     mockResolveSatelliteMotionObjects.mockReturnValue([])
+    mockAircraftTracker.resolve.mockReturnValue([])
+    mockAircraftTracker.getTrail.mockReturnValue([])
+    mockCreateAircraftTracker.mockReturnValue(mockAircraftTracker)
     mockRequestOrientationPermission.mockResolvedValue('granted')
   })
 
@@ -459,8 +483,9 @@ describe('ViewerShell startup gating', () => {
     expect(container.textContent).toContain('Privacy reassurance')
     expect(container.textContent).toContain('Camera stays on your device.')
     expect(container.textContent).toContain(
-      'Location is used only to calculate what is above you right now.',
+      'Approximate location-based aircraft queries go directly from your browser to OpenSky.',
     )
+    expect(container.textContent).toContain('No camera frames are uploaded.')
   })
 
   it('supports keyboard panning in manual mode for desktop fallback', async () => {
@@ -2309,7 +2334,7 @@ describe('ViewerShell startup gating', () => {
     }
   })
 
-  it('retains previous and current aircraft snapshots across live polls', async () => {
+  it('ingests successive live aircraft snapshots into the persistent tracker', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-03-26T00:00:00.000Z'))
     const restoreAnimationFrame = installAnimationFrameClock()
@@ -2321,7 +2346,7 @@ describe('ViewerShell startup gating', () => {
         lon: -122.25,
         geoAltitudeM: 5100,
         velocityMps: 200,
-        headingDeg: 210,
+        trackDeg: 210,
         azimuthDeg: 18,
         elevationDeg: 28,
         rangeKm: 15.2,
@@ -2335,7 +2360,7 @@ describe('ViewerShell startup gating', () => {
         lon: -122.18,
         geoAltitudeM: 5200,
         velocityMps: 210,
-        headingDeg: 214,
+        trackDeg: 214,
         azimuthDeg: 24,
         elevationDeg: 30,
         rangeKm: 16.1,
@@ -2355,34 +2380,20 @@ describe('ViewerShell startup gating', () => {
       })
       await flushEffects()
 
+      expect(mockAircraftTracker.ingest).toHaveBeenCalledWith(firstSnapshot)
+
       const firstCall = mockResolveAircraftMotionObjects.mock.calls.at(-1)?.[0] as
-        | {
-            snapshot?: unknown
-            previousSnapshot?: unknown
-            transitionStartedAtMs?: unknown
-          }
+        | { tracker?: unknown }
         | undefined
 
-      expect(firstCall?.snapshot).toEqual(firstSnapshot)
-      expect(firstCall?.previousSnapshot).toBeNull()
-      expect(typeof firstCall?.transitionStartedAtMs).toBe('number')
+      expect(firstCall?.tracker).toBe(mockAircraftTracker)
 
       await act(async () => {
-        vi.advanceTimersByTime(10_000)
+        vi.advanceTimersByTime(15_000)
       })
       await flushEffects()
 
-      const secondCall = mockResolveAircraftMotionObjects.mock.calls.at(-1)?.[0] as
-        | {
-            snapshot?: unknown
-            previousSnapshot?: unknown
-            transitionStartedAtMs?: unknown
-          }
-        | undefined
-
-      expect(secondCall?.snapshot).toEqual(secondSnapshot)
-      expect(secondCall?.previousSnapshot).toEqual(firstSnapshot)
-      expect(typeof secondCall?.transitionStartedAtMs).toBe('number')
+      expect(mockAircraftTracker.ingest).toHaveBeenNthCalledWith(2, secondSnapshot)
     } finally {
       restoreAnimationFrame()
     }
@@ -2400,7 +2411,7 @@ describe('ViewerShell startup gating', () => {
         lon: -122.25,
         geoAltitudeM: 5100,
         velocityMps: 200,
-        headingDeg: 210,
+        trackDeg: 210,
         azimuthDeg: 18,
         elevationDeg: 28,
         rangeKm: 15.2,
@@ -2420,20 +2431,151 @@ describe('ViewerShell startup gating', () => {
       })
       await flushEffects()
 
+      expect(mockAircraftTracker.ingest).toHaveBeenCalledTimes(1)
+
+      await act(async () => {
+        vi.advanceTimersByTime(15_000)
+      })
+      await flushEffects()
+
+      expect(mockAircraftTracker.ingest).toHaveBeenCalledTimes(1)
+      expect(mockAircraftTracker.reset).toHaveBeenCalledTimes(1)
+    } finally {
+      restoreAnimationFrame()
+    }
+  })
+
+  it('falls back to the standard high-quality cadence after a failed poll with a stale bucket timestamp', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-03-26T00:00:00.000Z'))
+    writeViewerSettings({
+      ...readViewerSettings(),
+      motionQuality: 'high',
+    })
+    const restoreAnimationFrame = installAnimationFrameClock()
+    const firstSnapshot = createAircraftSnapshot('2026-03-26T00:00:00.000Z', [])
+
+    mockFetchAircraftSnapshot
+      .mockResolvedValueOnce(firstSnapshot)
+      .mockRejectedValueOnce(new Error('temporary outage'))
+      .mockResolvedValue(firstSnapshot)
+
+    try {
+      await renderViewer({
+        entry: 'live',
+        location: 'granted',
+        camera: 'granted',
+        orientation: 'granted',
+      })
+      await flushEffects()
+
+      expect(mockFetchAircraftSnapshot).toHaveBeenCalledTimes(1)
+
+      await act(async () => {
+        vi.advanceTimersByTime(10_500)
+      })
+      await flushEffects()
+
+      expect(mockFetchAircraftSnapshot).toHaveBeenCalledTimes(2)
+
+      await act(async () => {
+        vi.advanceTimersByTime(500)
+      })
+      await flushEffects()
+
+      expect(mockFetchAircraftSnapshot).toHaveBeenCalledTimes(2)
+
       await act(async () => {
         vi.advanceTimersByTime(10_000)
       })
       await flushEffects()
 
-      const latestCall = mockResolveAircraftMotionObjects.mock.calls.at(-1)?.[0] as
-        | { snapshot?: unknown; previousSnapshot?: unknown }
-        | undefined
-
-      expect(latestCall?.snapshot).toEqual(firstSnapshot)
-      expect(latestCall?.previousSnapshot).toBeNull()
+      expect(mockFetchAircraftSnapshot).toHaveBeenCalledTimes(3)
     } finally {
       restoreAnimationFrame()
     }
+  })
+
+  it('renders focused aircraft trails from tracker output', async () => {
+    mockResolveAircraftMotionObjects.mockReturnValue([
+      {
+        confidence: 1,
+        motionState: 'live',
+        object: {
+          id: 'icao24-trailui',
+          type: 'aircraft',
+          label: 'TRAILUI',
+          sublabel: 'Aircraft',
+          azimuthDeg: 0,
+          elevationDeg: 16,
+          rangeKm: 31.8,
+          importance: 88,
+          metadata: {
+            detail: {
+              typeLabel: 'Aircraft',
+              altitudeFeet: 35000,
+              altitudeMeters: 10668,
+              rangeKm: 31.8,
+            },
+          },
+        },
+      },
+    ])
+    mockAircraftTracker.getTrail.mockReturnValue([
+      {
+        timestampMs: 0,
+        lat: 0,
+        lon: 0,
+        altitudeMeters: 1000,
+        azimuthDeg: -4,
+        elevationDeg: 15,
+        rangeKm: 32,
+      },
+      {
+        timestampMs: 1_000,
+        lat: 0,
+        lon: 0,
+        altitudeMeters: 1000,
+        azimuthDeg: 0,
+        elevationDeg: 16,
+        rangeKm: 31.8,
+      },
+      {
+        timestampMs: 2_000,
+        lat: 0,
+        lon: 0,
+        altitudeMeters: 1000,
+        azimuthDeg: 4,
+        elevationDeg: 17,
+        rangeKm: 31.5,
+      },
+    ])
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'unavailable',
+      camera: 'unavailable',
+      orientation: 'unavailable',
+      demoScenarioId: 'tokyo-iss',
+    })
+
+    const marker = container.querySelector(
+      '[data-testid="sky-object-marker"][data-object-id="icao24-trailui"]',
+    ) as HTMLButtonElement | null
+
+    expect(marker).not.toBeNull()
+
+    await act(async () => {
+      marker?.click()
+    })
+    await flushEffects()
+
+    const trail = container.querySelector(
+      '[data-testid="aircraft-trail"][data-object-id="icao24-trailui"]',
+    )
+
+    expect(mockAircraftTracker.getTrail).toHaveBeenCalled()
+    expect(trail).not.toBeNull()
   })
 
   it('surfaces stale aircraft motion metadata in marker labels and opacity', async () => {
@@ -3124,7 +3266,7 @@ function createAircraftSnapshot(
     lon: number
     geoAltitudeM?: number
     velocityMps?: number
-    headingDeg?: number
+    trackDeg?: number
     azimuthDeg: number
     elevationDeg: number
     rangeKm: number
@@ -3132,13 +3274,17 @@ function createAircraftSnapshot(
 ) {
   return {
     fetchedAt,
+    snapshotTimeS: Math.floor(Date.parse(fetchedAt) / 1_000),
     observer: {
       lat: LIVE_OBSERVER_FIXTURE.lat,
       lon: LIVE_OBSERVER_FIXTURE.lon,
       altMeters: LIVE_OBSERVER_FIXTURE.altMeters,
     },
     availability: 'available' as const,
-    aircraft,
+    aircraft: aircraft.map(({ trackDeg, ...entry }) => ({
+      ...entry,
+      ...(typeof trackDeg === 'number' ? { trackDeg } : {}),
+    })),
   }
 }
 

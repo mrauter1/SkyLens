@@ -18,9 +18,14 @@ import {
   fetchAircraftSnapshot,
   getAircraftAvailabilityMessage,
 } from '../../lib/aircraft/client'
-import type { AircraftApiResponse, AircraftAvailability } from '../../lib/aircraft/contracts'
+import type { AircraftAvailability } from '../../lib/aircraft/contracts'
+import {
+  createAircraftTracker,
+  type AircraftTracker,
+} from '../../lib/aircraft/tracker'
 import {
   getDemoScenario,
+  getDemoAircraftSnapshotAtTime,
   listDemoScenarios,
   type DemoScenarioId,
 } from '../../lib/demo/scenarios'
@@ -30,6 +35,7 @@ import {
 } from '../../lib/health/contracts'
 import {
   type EnabledLayer,
+  POLL_INTERVAL_MS_BY_QUALITY,
   PRIVACY_REASSURANCE_COPY,
   getPublicConfig,
 } from '../../lib/config'
@@ -162,12 +168,6 @@ type SceneSnapshot = {
   error: string | null
 }
 
-type AircraftTemporalState = {
-  currentSnapshot: AircraftApiResponse | null
-  previousSnapshot: AircraftApiResponse | null
-  transitionStartedAtMs: number | null
-}
-
 type CalibrationTarget = {
   id: string
   label: string
@@ -257,13 +257,12 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const [viewerSettings, setViewerSettings] = useState(persistedViewerSettings)
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null)
   const [astronomyFailureBanner, setAstronomyFailureBanner] = useState<string | null>(null)
-  const [aircraftTemporalState, setAircraftTemporalState] = useState<AircraftTemporalState>({
-    currentSnapshot: null,
-    previousSnapshot: null,
-    transitionStartedAtMs: null,
-  })
+  const [aircraftRevision, setAircraftRevision] = useState(0)
   const [aircraftAvailability, setAircraftAvailability] = useState<AircraftAvailability>(
     'available',
+  )
+  const [latestAircraftSnapshotTimeS, setLatestAircraftSnapshotTimeS] = useState<number | null>(
+    null,
   )
   const [satelliteCatalog, setSatelliteCatalog] = useState<TleApiResponse | null>(null)
   const [liveCameraStreamActive, setLiveCameraStreamActive] = useState(false)
@@ -316,6 +315,10 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const [manualObserverDraft, setManualObserverDraft] = useState<ManualObserverDraft>(() =>
     createManualObserverDraft(persistedViewerSettings.manualObserver),
   )
+  void latestAircraftSnapshotTimeS
+  const [documentVisible, setDocumentVisible] = useState(() =>
+    typeof document === 'undefined' ? true : document.visibilityState === 'visible',
+  )
   const orientationControllerRef = useRef<ReturnType<typeof subscribeToOrientationPose> | null>(
     null,
   )
@@ -324,7 +327,9 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const cameraRequestIdRef = useRef(0)
   const lastOpenedCameraPreferenceRef = useRef<string | null>(null)
   const liveObserverRef = useRef<ObserverState | null>(persistedManualObserver)
+  const latestAircraftSnapshotTimeSRef = useRef<number | null>(null)
   const sceneTimeMsRef = useRef(sceneTimeMs)
+  const aircraftTrackerRef = useRef(createAircraftTracker())
   const poorSinceRef = useRef<number | null>(null)
   const dragRef = useRef<{
     pointerId: number
@@ -366,23 +371,22 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const cameraPose = manualMode
     ? createManualCameraPose(manualPoseState)
     : sensorCameraPose
-  const shouldPollAircraft =
-    state.entry !== 'demo' && hasLiveSessionStarted && observer !== null && enabledLayers.aircraft
-  const activeAircraftSnapshot = shouldPollAircraft ? aircraftTemporalState.currentSnapshot : null
-  const activeAircraftPreviousSnapshot =
-    shouldPollAircraft ? aircraftTemporalState.previousSnapshot : null
-  const activeAircraftTransitionStartedAtMs =
-    shouldPollAircraft ? aircraftTemporalState.transitionStartedAtMs : null
-  const demoAircraftSnapshot = state.entry === 'demo' ? demoScenario.aircraftSnapshot : null
-  const activeAircraftData = demoAircraftSnapshot ?? activeAircraftSnapshot
+  const shouldFetchAircraft =
+    state.entry !== 'demo' &&
+    hasLiveSessionStarted &&
+    observer !== null &&
+    enabledLayers.aircraft &&
+    documentVisible
   const activeAircraftAvailability =
     state.entry === 'demo'
       ? demoScenario.aircraftSnapshot.availability
-      : shouldPollAircraft
+      : enabledLayers.aircraft
         ? aircraftAvailability
         : 'available'
   const activeSatelliteCatalog =
     state.entry === 'demo' ? demoScenario.satelliteCatalog : satelliteCatalog
+  const demoAircraftSeedTimeMs =
+    Math.floor(sceneTimeMs / POLL_INTERVAL_MS_BY_QUALITY.high) * POLL_INTERVAL_MS_BY_QUALITY.high
   const sceneSnapshot = observer
     ? buildSceneSnapshot({
         observer,
@@ -390,10 +394,8 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         enabledLayers,
         likelyVisibleOnly,
         focusedObjectId: selectedObjectId,
-        aircraftSnapshot: activeAircraftData,
-        aircraftPreviousSnapshot: state.entry === 'demo' ? null : activeAircraftPreviousSnapshot,
-        aircraftTransitionStartedAtMs:
-          state.entry === 'demo' ? null : activeAircraftTransitionStartedAtMs,
+        aircraftTracker: aircraftTrackerRef.current,
+        aircraftRevision,
         satelliteCatalog: activeSatelliteCatalog,
       })
     : EMPTY_SCENE_SNAPSHOT
@@ -547,6 +549,42 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const renderedCenterLockedObject = hasMounted ? centerLockedObject : null
   const renderedSelectedDetailObject = hasMounted ? selectedDetailObject : null
   const renderedActiveSummaryObject = hasMounted ? activeSummaryObject : null
+  const focusedAircraftTrailIds = [...new Set(
+    [selectedObject, centerLockedObject]
+      .filter((object): object is ProjectedSkyObject => object !== null && object.type === 'aircraft')
+      .map((object) => object.id),
+  )]
+  const focusedAircraftTrails =
+    hasMounted && observer && enabledLayers.aircraft
+      ? focusedAircraftTrailIds
+          .map((id) => ({
+            id,
+            points: aircraftTrackerRef.current
+              .getTrail({
+                id,
+                observer,
+                nowMs: sceneTimeMs,
+              })
+              .map((point) =>
+                projectWorldPointToScreen(
+                  cameraPose,
+                  {
+                    azimuthDeg: point.azimuthDeg,
+                    elevationDeg: point.elevationDeg,
+                  },
+                  {
+                    ...viewport,
+                    sourceWidth: cameraFrameLayout?.sourceWidth,
+                    sourceHeight: cameraFrameLayout?.sourceHeight,
+                  },
+                  viewerSettings.verticalFovAdjustmentDeg,
+                ),
+              )
+              .filter((projection) => projection.visible)
+              .map((projection) => `${projection.x},${projection.y}`),
+          }))
+          .filter((trail) => trail.points.length >= 2)
+      : []
   const visibilityDiagnosticsNote =
     renderedMarkerObjects.length === 0
       ? likelyVisibleOnly
@@ -1226,6 +1264,59 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   }, [])
 
   useEffect(() => {
+    if (typeof document === 'undefined') {
+      return
+    }
+
+    const syncVisibility = () => {
+      setDocumentVisible(document.visibilityState === 'visible')
+    }
+
+    syncVisibility()
+    document.addEventListener('visibilitychange', syncVisibility)
+
+    return () => {
+      document.removeEventListener('visibilitychange', syncVisibility)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (state.entry !== 'demo') {
+      return
+    }
+
+    aircraftTrackerRef.current.reset()
+    setAircraftRevision((current) => current + 1)
+  }, [demoScenario, state.entry])
+
+  useEffect(() => {
+    if (state.entry !== 'demo') {
+      return
+    }
+
+    const snapshot = getDemoAircraftSnapshotAtTime(demoScenario, demoAircraftSeedTimeMs)
+
+    aircraftTrackerRef.current.ingest(snapshot)
+    aircraftTrackerRef.current.prune(demoAircraftSeedTimeMs)
+    setAircraftAvailability(snapshot.availability)
+    latestAircraftSnapshotTimeSRef.current = snapshot.snapshotTimeS
+    setLatestAircraftSnapshotTimeS(snapshot.snapshotTimeS)
+    setAircraftRevision((current) => current + 1)
+  }, [demoAircraftSeedTimeMs, demoScenario, state.entry])
+
+  useEffect(() => {
+    if (state.entry === 'demo') {
+      return
+    }
+
+    aircraftTrackerRef.current.reset()
+    setAircraftAvailability('available')
+    latestAircraftSnapshotTimeSRef.current = null
+    setLatestAircraftSnapshotTimeS(null)
+    setAircraftRevision((current) => current + 1)
+  }, [state.entry])
+
+  useEffect(() => {
     if (
       prefersReducedMotion ||
       !activeMotionAffordanceObjectId ||
@@ -1271,44 +1362,83 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   ])
 
   useEffect(() => {
-    if (!shouldPollAircraft || !observer) {
+    if (!shouldFetchAircraft || !observer || typeof window === 'undefined') {
       return
     }
 
     let disposed = false
+    let timeoutId: number | null = null
+    let abortController: AbortController | null = null
+    let lastSnapshotTimeS = latestAircraftSnapshotTimeSRef.current
+
+    const scheduleNextPoll = (snapshotTimeS?: number | null) => {
+      if (disposed) {
+        return
+      }
+
+      const delayMs = getAircraftPollDelayMs({
+        motionQuality: viewerSettings.motionQuality,
+        snapshotTimeS,
+        nowMs: getCurrentTimestampMs(),
+      })
+
+      timeoutId = window.setTimeout(() => {
+        void refreshAircraft()
+      }, delayMs)
+    }
 
     const refreshAircraft = async () => {
-      try {
-        const nextSnapshot = await fetchAircraftSnapshot(observer)
+      abortController?.abort()
+      const requestController = new AbortController()
+      abortController = requestController
 
-        if (!disposed) {
-          setAircraftTemporalState((current) => ({
-            currentSnapshot: nextSnapshot,
-            previousSnapshot: current.currentSnapshot,
-            transitionStartedAtMs: getCurrentTimestampMs(),
-          }))
-          setAircraftAvailability(nextSnapshot.availability)
+      try {
+        const nextSnapshot = await fetchAircraftSnapshot(
+          observer,
+          ((input: RequestInfo | URL, init?: RequestInit) =>
+            fetch(input, {
+              ...init,
+              signal: requestController.signal,
+            })) as typeof fetch,
+        )
+
+        if (disposed) {
+          return
         }
+
+        aircraftTrackerRef.current.ingest(nextSnapshot)
+        aircraftTrackerRef.current.prune(getCurrentTimestampMs())
+        setAircraftAvailability(nextSnapshot.availability)
+        latestAircraftSnapshotTimeSRef.current = nextSnapshot.snapshotTimeS
+        setLatestAircraftSnapshotTimeS(nextSnapshot.snapshotTimeS)
+        lastSnapshotTimeS = nextSnapshot.snapshotTimeS
+        setAircraftRevision((current) => current + 1)
+        scheduleNextPoll(nextSnapshot.snapshotTimeS)
       } catch {
-        if (!disposed) {
-          setAircraftAvailability('degraded')
+        if (disposed || requestController.signal.aborted) {
+          return
         }
+
+        setAircraftAvailability('degraded')
+        aircraftTrackerRef.current.prune(getCurrentTimestampMs())
+        scheduleNextPoll(lastSnapshotTimeS)
       }
     }
 
     void refreshAircraft()
 
-    const intervalId = window.setInterval(() => {
-      void refreshAircraft()
-    }, 10_000)
-
     return () => {
       disposed = true
-      window.clearInterval(intervalId)
+      abortController?.abort()
+
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId)
+      }
     }
   }, [
     observer,
-    shouldPollAircraft,
+    shouldFetchAircraft,
+    viewerSettings.motionQuality,
   ])
 
   useEffect(() => {
@@ -2294,6 +2424,19 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
           </div>
         ) : null}
         <svg className="pointer-events-none absolute inset-0 h-full w-full">
+          {focusedAircraftTrails.map((trail) => (
+            <polyline
+              key={trail.id}
+              data-testid="aircraft-trail"
+              data-object-id={trail.id}
+              points={trail.points.join(' ')}
+              fill="none"
+              stroke="rgba(56, 189, 248, 0.5)"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          ))}
           {renderMotionAffordance(activeMotionAffordance, activeMotionAffordanceKind)}
           {renderedLineSegments.map((segment, index) => (
             <line
@@ -3265,6 +3408,30 @@ function getMotionAffordanceKind(motionQuality: MotionQuality) {
   return motionQuality === 'low' ? 'vector' : 'trail'
 }
 
+function getAircraftPollDelayMs({
+  motionQuality,
+  snapshotTimeS,
+  nowMs,
+}: {
+  motionQuality: MotionQuality
+  snapshotTimeS?: number | null
+  nowMs: number
+}) {
+  const intervalMs = POLL_INTERVAL_MS_BY_QUALITY[motionQuality]
+
+  if (motionQuality !== 'high' || typeof snapshotTimeS !== 'number') {
+    return intervalMs
+  }
+
+  const nextBucketMs = (snapshotTimeS + 10) * 1_000 + 250
+
+  if (nextBucketMs <= nowMs) {
+    return intervalMs
+  }
+
+  return Math.max(250, nextBucketMs - nowMs)
+}
+
 function renderMotionAffordance(
   samples: MotionAffordanceSample[],
   kind: 'vector' | 'trail' | null,
@@ -3992,9 +4159,8 @@ function buildSceneSnapshot({
   enabledLayers,
   likelyVisibleOnly,
   focusedObjectId,
-  aircraftSnapshot,
-  aircraftPreviousSnapshot,
-  aircraftTransitionStartedAtMs,
+  aircraftTracker,
+  aircraftRevision: _aircraftRevision,
   satelliteCatalog,
 }: {
   observer: ObserverState
@@ -4002,11 +4168,12 @@ function buildSceneSnapshot({
   enabledLayers: Record<EnabledLayer, boolean>
   likelyVisibleOnly: boolean
   focusedObjectId: string | null
-  aircraftSnapshot: AircraftApiResponse | null
-  aircraftPreviousSnapshot: AircraftApiResponse | null
-  aircraftTransitionStartedAtMs: number | null
+  aircraftTracker: AircraftTracker | null
+  aircraftRevision: number
   satelliteCatalog: TleApiResponse | null
 }): SceneSnapshot {
+  void _aircraftRevision
+
   try {
     const celestial = normalizeCelestialObjects({
       observer,
@@ -4027,9 +4194,7 @@ function buildSceneSnapshot({
 
     try {
       aircraft = resolveAircraftMotionObjects({
-        snapshot: aircraftSnapshot,
-        previousSnapshot: aircraftPreviousSnapshot,
-        transitionStartedAtMs: aircraftTransitionStartedAtMs,
+        tracker: aircraftTracker,
         timeMs,
         observer,
         enabledLayers,
@@ -4107,8 +4272,8 @@ function getDetailRows(object: SkyObject) {
           label: 'Altitude',
           value: `${Math.round(aircraftDetail?.altitudeFeet ?? 0).toLocaleString()} ft / ${Math.round(aircraftDetail?.altitudeMeters ?? 0).toLocaleString()} m`,
         },
-        ...(aircraftDetail?.headingCardinal
-          ? [{ label: 'Heading', value: aircraftDetail.headingCardinal }]
+        ...(aircraftDetail?.trackCardinal
+          ? [{ label: 'Track', value: aircraftDetail.trackCardinal }]
           : []),
         ...(typeof aircraftDetail?.speedKph === 'number'
           ? [{ label: 'Speed', value: `${Math.round(aircraftDetail.speedKph)} km/h` }]
@@ -4252,7 +4417,6 @@ function getMovingObjectMotionState(object: SkyObject): MovingObjectMotionState 
   const motionState = object.metadata.motionState
 
   switch (motionState) {
-    case 'interpolated':
     case 'estimated':
     case 'stale':
     case 'propagated':
@@ -4548,7 +4712,7 @@ function describeRuntimeExperience({
 
 function resolveStartupState({
   orientationStatus,
-  cameraStatus: _cameraStatus,
+  cameraStatus,
   hasObserver,
   orientationNeedsCalibration = false,
   orientationAbsolute = true,
@@ -4559,6 +4723,8 @@ function resolveStartupState({
   orientationNeedsCalibration?: boolean
   orientationAbsolute?: boolean
 }): StartupState {
+  void cameraStatus
+
   if (orientationStatus !== 'granted') {
     return 'manual'
   }

@@ -2210,7 +2210,7 @@ describe('ViewerShell celestial behavior', () => {
               typeLabel: 'Aircraft',
               altitudeFeet: 35000,
               altitudeMeters: 10668,
-              headingCardinal: 'SE',
+              trackCardinal: 'SE',
               speedKph: 864,
               rangeKm: 31.8,
               originCountry: 'Canada',
@@ -2231,7 +2231,7 @@ describe('ViewerShell celestial behavior', () => {
     expect(container.textContent).toContain('Aircraft')
     expect(container.textContent).toContain('Altitude')
     expect(container.textContent).toContain('35,000 ft / 10,668 m')
-    expect(container.textContent).toContain('Heading')
+    expect(container.textContent).toContain('Track')
     expect(container.textContent).toContain('SE')
     expect(container.textContent).toContain('Speed')
     expect(container.textContent).toContain('864 km/h')
