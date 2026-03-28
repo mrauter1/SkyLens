@@ -1,0 +1,8 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260328T044746Z-271598a8" ts="2026-03-28T04:47:46.720680+00:00" />
+ViewerShell should become the only owner of document/body scroll-lock side effects; SettingsSheet should keep only local open, focus, and panel rendering concerns.
+Prefer a minimal SettingsSheet controlled-open interface for ViewerShell rather than introducing a shared scroll-lock helper or broader modal abstraction.
+The combined camera+motion recovery path must preserve the existing motion denial alert text and route-state sync while keeping the current camera retry sequencing intact.
+<autoloop-decisions-header version="1" block_seq="2" owner="implementer" phase_id="fix-scroll-lock-and-motion-retry" pair="implement" turn_seq="1" run_id="run-20260328T044746Z-271598a8" ts="2026-03-28T04:49:58.203514+00:00" />
+When combined camera+motion recovery hits an orientation-permission exception, ViewerShell now preserves the current orientation route state, keeps camera/location recovery running, and surfaces the existing motion retry error instead of collapsing into the generic startup failure path.
+<autoloop-decisions-header version="1" block_seq="3" owner="test_author" phase_id="fix-scroll-lock-and-motion-retry" pair="test" turn_seq="1" run_id="run-20260328T044746Z-271598a8" ts="2026-03-28T05:00:41.739104+00:00" />
+SettingsSheet tests now reset document/body overflow styles in setup and teardown so viewer-shell scroll-lock side effects cannot leak into settings-only assertions and create false positives.

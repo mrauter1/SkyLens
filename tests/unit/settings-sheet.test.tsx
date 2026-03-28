@@ -17,6 +17,10 @@ describe('SettingsSheet', () => {
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
+    document.documentElement.style.overflow = ''
+    document.documentElement.style.overscrollBehavior = ''
+    document.body.style.overflow = ''
+    document.body.style.overscrollBehavior = ''
   })
 
   afterEach(async () => {
@@ -24,6 +28,10 @@ describe('SettingsSheet', () => {
       root.unmount()
     })
     container.remove()
+    document.documentElement.style.overflow = ''
+    document.documentElement.style.overscrollBehavior = ''
+    document.body.style.overflow = ''
+    document.body.style.overscrollBehavior = ''
   })
 
   it('renders subtle aircraft availability messaging inside the sheet', async () => {
@@ -113,10 +121,13 @@ describe('SettingsSheet', () => {
   })
 
   it('uses a fixed shell with an internal scroll region when open', async () => {
+    const onOpenChange = vi.fn()
+
     await act(async () => {
       root.render(
         React.createElement(SettingsSheet, {
           onEnterDemoMode: vi.fn(),
+          onOpenChange,
           onFixAlignment: vi.fn(),
           onRecenter: vi.fn(),
           canFixAlignment: true,
@@ -172,8 +183,70 @@ describe('SettingsSheet', () => {
     expect(scrollRegion?.className).toContain('flex-1')
     expect(scrollRegion?.className).toContain('overflow-y-auto')
     expect(scrollRegion?.className).toContain('overscroll-contain')
-    expect(document.documentElement.style.overflow).toBe('hidden')
-    expect(document.body.style.overflow).toBe('hidden')
+    expect(onOpenChange).toHaveBeenLastCalledWith(true)
+    expect(document.documentElement.style.overflow).toBe('')
+    expect(document.body.style.overflow).toBe('')
+
+    const closeButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Close'),
+    )
+
+    expect(closeButton).toBeDefined()
+
+    await act(async () => {
+      closeButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(onOpenChange).toHaveBeenLastCalledWith(false)
+  })
+
+  it('clears the reported open state when the sheet unmounts while open', async () => {
+    const onOpenChange = vi.fn()
+
+    await act(async () => {
+      root.render(
+        React.createElement(SettingsSheet, {
+          onEnterDemoMode: vi.fn(),
+          onOpenChange,
+          onFixAlignment: vi.fn(),
+          onRecenter: vi.fn(),
+          canFixAlignment: true,
+          canRecenter: true,
+          layers: {
+            aircraft: true,
+            satellites: true,
+            planets: true,
+            stars: true,
+            constellations: true,
+          },
+          likelyVisibleOnly: true,
+          labelDisplayMode: 'center_only',
+          motionQuality: 'balanced',
+          onLayerToggle: vi.fn(),
+          onLikelyVisibleOnlyChange: vi.fn(),
+          onLabelDisplayModeChange: vi.fn(),
+          onMotionQualityChange: vi.fn(),
+        }),
+      )
+    })
+
+    const settingsButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Settings'),
+    )
+
+    expect(settingsButton).toBeDefined()
+
+    await act(async () => {
+      settingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(onOpenChange).toHaveBeenLastCalledWith(true)
+
+    await act(async () => {
+      root.render(React.createElement(React.Fragment))
+    })
+
+    expect(onOpenChange).toHaveBeenLastCalledWith(false)
   })
 
   it('delegates alignment to the viewer-owned opener and closes the sheet', async () => {

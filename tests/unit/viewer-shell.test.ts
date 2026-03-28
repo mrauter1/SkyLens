@@ -744,6 +744,7 @@ describe('ViewerShell startup gating', () => {
     ) as HTMLButtonElement | null
 
     expect(permissionButton?.textContent).toContain('Enable camera')
+    const observerRequestCallsBefore = mockRequestStartupObserverState.mock.calls.length
 
     await act(async () => {
       permissionButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
@@ -751,7 +752,7 @@ describe('ViewerShell startup gating', () => {
     await flushEffects()
 
     expect(mockRequestOrientationPermission).not.toHaveBeenCalled()
-    expect(mockRequestStartupObserverState).not.toHaveBeenCalled()
+    expect(mockRequestStartupObserverState.mock.calls.length).toBe(observerRequestCallsBefore)
     expect(mockRequestRearCameraStream).toHaveBeenCalledTimes(1)
     expect(mockRouterReplace).toHaveBeenCalledWith(
       buildViewerHref({
@@ -778,6 +779,7 @@ describe('ViewerShell startup gating', () => {
     ) as HTMLButtonElement | null
 
     expect(permissionButton?.textContent).toContain('Enable camera')
+    const observerRequestCallsBefore = mockRequestStartupObserverState.mock.calls.length
 
     await act(async () => {
       permissionButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
@@ -785,7 +787,7 @@ describe('ViewerShell startup gating', () => {
     await flushEffects()
 
     expect(mockRequestOrientationPermission).not.toHaveBeenCalled()
-    expect(mockRequestStartupObserverState).not.toHaveBeenCalled()
+    expect(mockRequestStartupObserverState.mock.calls.length).toBe(observerRequestCallsBefore)
     expect(mockRequestRearCameraStream).toHaveBeenCalledTimes(1)
     expect(mockRouterReplace).toHaveBeenCalledWith(
       buildViewerHref({
@@ -1476,6 +1478,86 @@ describe('ViewerShell startup gating', () => {
     expect(document.body.style.overflow).toBe('hidden')
   })
 
+  it('locks and unlocks document scroll from ViewerShell when the settings sheet reports open state', async () => {
+    await renderViewer({
+      entry: 'demo',
+      location: 'unavailable',
+      camera: 'unavailable',
+      orientation: 'unavailable',
+      demoScenarioId: 'sf-evening',
+    })
+
+    const latestSettingsProps = () =>
+      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+        | {
+            onOpenChange?: (open: boolean) => void
+          }
+        | undefined
+
+    expect(document.documentElement.style.overflow).toBe('')
+    expect(document.body.style.overflow).toBe('')
+
+    await act(async () => {
+      latestSettingsProps()?.onOpenChange?.(true)
+    })
+    await flushEffects()
+
+    expect(document.documentElement.style.overflow).toBe('hidden')
+    expect(document.body.style.overflow).toBe('hidden')
+
+    await act(async () => {
+      latestSettingsProps()?.onOpenChange?.(false)
+    })
+    await flushEffects()
+
+    expect(document.documentElement.style.overflow).toBe('')
+    expect(document.body.style.overflow).toBe('')
+  })
+
+  it('keeps the viewer-level scroll lock active when settings stays open after the live camera lock clears', async () => {
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'granted',
+    })
+
+    const latestSettingsProps = () =>
+      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+        | {
+            onOpenChange?: (open: boolean) => void
+            onEnterDemoMode?: () => void
+          }
+        | undefined
+
+    expect(document.documentElement.style.overflow).toBe('hidden')
+    expect(document.body.style.overflow).toBe('hidden')
+
+    await act(async () => {
+      latestSettingsProps()?.onOpenChange?.(true)
+    })
+    await flushEffects()
+
+    expect(document.documentElement.style.overflow).toBe('hidden')
+    expect(document.body.style.overflow).toBe('hidden')
+
+    await act(async () => {
+      latestSettingsProps()?.onEnterDemoMode?.()
+    })
+    await flushEffects()
+
+    expect(document.documentElement.style.overflow).toBe('hidden')
+    expect(document.body.style.overflow).toBe('hidden')
+
+    await act(async () => {
+      latestSettingsProps()?.onOpenChange?.(false)
+    })
+    await flushEffects()
+
+    expect(document.documentElement.style.overflow).toBe('')
+    expect(document.body.style.overflow).toBe('')
+  })
+
   it('makes the compact alignment panel internally scrollable on mobile', async () => {
     mockSubscribeToOrientationPose.mockImplementationOnce((onPose: (state: unknown) => void) => {
       onPose({
@@ -1627,6 +1709,78 @@ describe('ViewerShell startup gating', () => {
         orientation: 'granted',
       }),
     )
+  })
+
+  it('preserves motion denial messaging when the combined recovery CTA retries camera and motion together', async () => {
+    mockRequestOrientationPermission.mockResolvedValueOnce('denied')
+
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
+
+    const enableCameraAndMotionButton = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.includes('Enable camera and motion'),
+    )
+
+    expect(enableCameraAndMotionButton).toBeDefined()
+
+    await act(async () => {
+      enableCameraAndMotionButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(mockRequestOrientationPermission).toHaveBeenCalledTimes(1)
+    expect(mockRequestRearCameraStream).toHaveBeenCalledTimes(1)
+    expect(mockRouterReplace).toHaveBeenCalledWith(
+      buildViewerHref({
+        entry: 'live',
+        location: 'granted',
+        camera: 'granted',
+        orientation: 'denied',
+      }),
+    )
+    expect(container.textContent).toContain('Motion recovery')
+    expect(container.textContent).toContain(
+      'Motion access is still denied. Check iOS Settings → Safari → Motion & Orientation Access, then retry.',
+    )
+  })
+
+  it('keeps camera recovery active when combined motion retry throws and surfaces the motion retry error', async () => {
+    mockRequestOrientationPermission.mockRejectedValueOnce(new Error('motion retry failed'))
+
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
+
+    const enableCameraAndMotionButton = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.includes('Enable camera and motion'),
+    )
+
+    expect(enableCameraAndMotionButton).toBeDefined()
+
+    await act(async () => {
+      enableCameraAndMotionButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(mockRequestOrientationPermission).toHaveBeenCalledTimes(1)
+    expect(mockRequestRearCameraStream).toHaveBeenCalledTimes(1)
+    expect(mockRouterReplace).toHaveBeenCalledWith(
+      buildViewerHref({
+        entry: 'live',
+        location: 'granted',
+        camera: 'granted',
+        orientation: 'denied',
+      }),
+    )
+    expect(container.textContent).toContain('Motion recovery')
+    expect(container.textContent).toContain('Unable to retry motion permission right now.')
   })
 
   it('keeps motion recovery visible and syncs denied retry state to the route', async () => {

@@ -311,6 +311,8 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     MotionAffordanceSample[]
   >([])
   const [isMobileOverlayOpen, setIsMobileOverlayOpen] = useState(false)
+  const [isDesktopSettingsSheetOpen, setIsDesktopSettingsSheetOpen] = useState(false)
+  const [isMobileSettingsSheetOpen, setIsMobileSettingsSheetOpen] = useState(false)
   const [isAlignmentPanelOpen, setIsAlignmentPanelOpen] = useState(false)
   const [isMobileAlignmentFocusActive, setIsMobileAlignmentFocusActive] = useState(false)
   const [motionRetryError, setMotionRetryError] = useState<string | null>(null)
@@ -600,7 +602,9 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const showMobileAlignAction = state.entry === 'live' && !isMobileAlignmentFocusActive
   const permissionRecoveryAction = getPermissionRecoveryAction(state)
   const activeLiveCameraStage = state.entry === 'live' && cameraStreamActive
-  const shouldLockViewerScroll = activeLiveCameraStage || isMobileAlignmentFocusActive
+  const isSettingsSheetOpen = isDesktopSettingsSheetOpen || isMobileSettingsSheetOpen
+  const shouldLockViewerScroll =
+    activeLiveCameraStage || isMobileAlignmentFocusActive || isSettingsSheetOpen
   const usesCameraStageAlignmentFocus =
     state.entry === 'live' && cameraStreamActive && !manualMode
   const shouldUseCompactNonScrollingOverlay = activeLiveCameraStage && !manualMode
@@ -770,6 +774,46 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     }
   }
 
+  const applyOrientationRetryResult = ({
+    orientation,
+    nextState,
+    hasObserver,
+    orientationNeedsCalibration = startupState === 'sensor-relative-needs-calibration',
+  }: {
+    orientation: PermissionStatusValue
+    nextState: ViewerRouteState
+    hasObserver: boolean
+    orientationNeedsCalibration?: boolean
+  }) => {
+    commitViewerRouteState(nextState)
+    setStartupState(
+      resolveStartupState({
+        orientationStatus: orientation,
+        cameraStatus: nextState.camera,
+        hasObserver,
+        orientationNeedsCalibration,
+        orientationAbsolute,
+      }),
+    )
+
+    if (orientation !== 'granted') {
+      setMotionRetryError(
+        orientation === 'denied'
+          ? 'Motion access is still denied. Check iOS Settings → Safari → Motion & Orientation Access, then retry.'
+          : 'Motion sensors are unavailable on this device/browser right now.',
+      )
+    }
+  }
+
+  const requestOrientationRetry = async () => {
+    try {
+      return await requestOrientationPermission()
+    } catch {
+      setMotionRetryError('Unable to retry motion permission right now.')
+      return null
+    }
+  }
+
   const handleRetryPermissions = () => {
     setRetryError(null)
     setAstronomyFailureBanner(null)
@@ -798,7 +842,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       setLiveLocationError(null)
 
       try {
-        const orientation = await requestOrientationPermission()
+        const orientation = await requestOrientationRetry()
         let camera: PermissionStatusValue = 'unknown'
 
         try {
@@ -811,7 +855,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         const observerResult = await requestInitialObserver()
         const nextState: ViewerRouteState = {
           ...state,
-          orientation,
+          orientation: orientation ?? state.orientation,
           camera,
           location: observerResult.locationStatus,
         }
@@ -819,15 +863,26 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         setSelectedObjectId(null)
         setMotionAffordanceSamples([])
         setSceneTimeMs(getCurrentTimestampMs())
-        commitViewerRouteState(nextState)
-        setStartupState(
-          resolveStartupState({
-            orientationStatus: orientation,
-            cameraStatus: camera,
-            hasObserver: observerResult.hasObserver,
-            orientationNeedsCalibration: false,
-          }),
-        )
+        if (orientation === null) {
+          commitViewerRouteState(nextState)
+          setStartupState(
+            resolveStartupState({
+              orientationStatus: nextState.orientation,
+              cameraStatus: camera,
+              hasObserver: observerResult.hasObserver,
+              orientationNeedsCalibration: false,
+              orientationAbsolute,
+            }),
+          )
+          return
+        }
+
+        applyOrientationRetryResult({
+          orientation,
+          nextState,
+          hasObserver: observerResult.hasObserver,
+          orientationNeedsCalibration: false,
+        })
       } catch {
         setStartupState('error')
         setRetryError('SkyLens could not complete startup. Try again or switch to demo mode.')
@@ -884,36 +939,20 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     setMotionRetryError(null)
 
     startTransition(async () => {
-      try {
-        const orientation = await requestOrientationPermission()
+      const orientation = await requestOrientationRetry()
 
-        if (state.entry === 'live') {
-          const nextState: ViewerRouteState = {
-            ...state,
-            orientation,
-          }
-
-          commitViewerRouteState(nextState)
-          setStartupState(
-            resolveStartupState({
-              orientationStatus: orientation,
-              cameraStatus: state.camera,
-              hasObserver: observer !== null,
-              orientationNeedsCalibration: startupState === 'sensor-relative-needs-calibration',
-            }),
-          )
-        }
-
-        if (orientation !== 'granted') {
-          setMotionRetryError(
-            orientation === 'denied'
-              ? 'Motion access is still denied. Check iOS Settings → Safari → Motion & Orientation Access, then retry.'
-              : 'Motion sensors are unavailable on this device/browser right now.',
-          )
-        }
-      } catch {
-        setMotionRetryError('Unable to retry motion permission right now.')
+      if (orientation === null || state.entry !== 'live') {
+        return
       }
+
+      applyOrientationRetryResult({
+        orientation,
+        nextState: {
+          ...state,
+          orientation,
+        },
+        hasObserver: observer !== null,
+      })
     })
   }
 
@@ -2035,6 +2074,14 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       }))
     },
   }
+  const desktopSettingsSheetProps = {
+    ...settingsSheetProps,
+    onOpenChange: setIsDesktopSettingsSheetOpen,
+  }
+  const mobileSettingsSheetProps = {
+    ...settingsSheetProps,
+    onOpenChange: setIsMobileSettingsSheetOpen,
+  }
   const motionDisabledWarning =
     state.entry !== 'demo' && state.orientation !== 'granted'
       ? {
@@ -2409,7 +2456,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             </div>
           </div>
           <div className="pointer-events-auto">
-            <SettingsSheet {...settingsSheetProps} />
+            <SettingsSheet {...desktopSettingsSheetProps} />
           </div>
         </header>
 
@@ -2743,7 +2790,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                   </div>
                   <div className="flex shrink-0 items-start gap-2">
                     <div>
-                      <SettingsSheet {...settingsSheetProps} />
+                      <SettingsSheet {...mobileSettingsSheetProps} />
                     </div>
                     <button
                       type="button"
