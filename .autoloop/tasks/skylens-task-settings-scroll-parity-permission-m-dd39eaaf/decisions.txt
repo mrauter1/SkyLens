@@ -1,0 +1,7 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260328T035739Z-1c550d60" ts="2026-03-28T03:57:40.024574+00:00" />
+Keep the blocked-state Start AR button and copy intact; permission-specific Enable camera and motion / Enable camera / Enable motion labels apply only to recovery surfaces once camera and motion statuses are known.
+Persist only durable user-owned calibration configuration across reloads, including pose calibration and any explicit alignment target preference override, and leave transient overlay/banner/session state unpersisted.
+Use backward-compatible optional-field normalization under the existing skylens.viewer-settings.v1 storage key rather than introducing a new storage version for this slice.
+<autoloop-decisions-header version="1" block_seq="2" owner="implementer" phase_id="ship-settings-scroll-permission-persistence-parity" pair="implement" turn_seq="1" run_id="run-20260328T035739Z-1c550d60" ts="2026-03-28T04:01:24.561473+00:00" />
+Persist the manual alignment target override as viewerSettings.alignmentTargetPreference, using null to preserve automatic target resolution when no durable override has been chosen.
+Make SettingsSheet its own fixed viewport overlay with a dedicated overflow-y-auto content region and local document scroll lock so the viewer stage stays visually fixed while settings scroll internally.

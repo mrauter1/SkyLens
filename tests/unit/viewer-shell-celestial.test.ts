@@ -610,6 +610,66 @@ describe('ViewerShell celestial behavior', () => {
     expect(latestSettingsProps()?.alignmentTargetFallbackLabel).toBe('Sun')
   })
 
+  it('restores a persisted manual alignment target override after reload', async () => {
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabledLayers: {
+          aircraft: true,
+          satellites: true,
+          planets: true,
+          stars: true,
+          constellations: true,
+        },
+        likelyVisibleOnly: false,
+        labelDisplayMode: 'center_only',
+        motionQuality: 'balanced',
+        alignmentTargetPreference: 'moon',
+        verticalFovAdjustmentDeg: 0,
+        onboardingCompleted: false,
+      }),
+    )
+
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: 14,
+      objects: [
+        {
+          id: 'sun',
+          type: 'sun',
+          label: 'Sun',
+          azimuthDeg: 0,
+          elevationDeg: 18,
+          importance: 95,
+          metadata: {
+            detail: {
+              typeLabel: 'Sun',
+              elevationDeg: 18,
+              azimuthDeg: 0,
+            },
+          },
+        },
+      ],
+    })
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
+
+    const latestSettingsProps = () =>
+      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+        | {
+            alignmentTargetPreference?: 'sun' | 'moon'
+            alignmentTargetFallbackLabel?: string | null
+          }
+        | undefined
+
+    expect(latestSettingsProps()?.alignmentTargetPreference).toBe('moon')
+    expect(latestSettingsProps()?.alignmentTargetFallbackLabel).toBe('Sun')
+  })
+
   it('falls back from suppressed sun to moon, then brightest planet, then brightest star', async () => {
     mockNormalizeCelestialObjects.mockReturnValue({
       sunAltitudeDeg: -12,

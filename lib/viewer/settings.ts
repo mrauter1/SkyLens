@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { getPublicConfig, type EnabledLayer } from '../config'
+import type { AlignmentTargetPreference } from './alignment-tutorial'
 import {
   createIdentityPoseCalibration,
   createPoseCalibration,
@@ -24,6 +25,7 @@ export interface ViewerSettings {
   labelDisplayMode: LabelDisplayMode
   motionQuality: MotionQuality
   poseCalibration: PoseCalibration
+  alignmentTargetPreference: AlignmentTargetPreference | null
   verticalFovAdjustmentDeg: number
   selectedCameraDeviceId: string | null
   manualObserver: ManualObserverSettings | null
@@ -48,6 +50,7 @@ const SettingsSchema = z.object({
   motionQuality: z.enum(['low', 'balanced', 'high']).optional(),
   headingOffsetDeg: z.number().optional(),
   pitchOffsetDeg: z.number().optional(),
+  alignmentTargetPreference: z.enum(['sun', 'moon']).nullable().optional(),
   poseCalibration: z
     .object({
       offsetQuaternion: z.tuple([z.number(), z.number(), z.number(), z.number()]),
@@ -90,6 +93,7 @@ export function getDefaultViewerSettings(): ViewerSettings {
     labelDisplayMode: 'center_only',
     motionQuality: 'balanced',
     poseCalibration: createIdentityPoseCalibration(),
+    alignmentTargetPreference: null,
     verticalFovAdjustmentDeg: 0,
     selectedCameraDeviceId: null,
     manualObserver: null,
@@ -169,6 +173,9 @@ export function normalizeViewerSettings(settings: ViewerSettings): ViewerSetting
     labelDisplayMode: settings.labelDisplayMode,
     motionQuality: normalizeMotionQuality(settings.motionQuality),
     poseCalibration: createPoseCalibration(settings.poseCalibration),
+    alignmentTargetPreference: normalizeAlignmentTargetPreference(
+      settings.alignmentTargetPreference,
+    ),
     verticalFovAdjustmentDeg: clamp(settings.verticalFovAdjustmentDeg, -30, 30),
     selectedCameraDeviceId:
       typeof settings.selectedCameraDeviceId === 'string' &&
@@ -203,6 +210,18 @@ function normalizeMotionQuality(
       return motionQuality
     default:
       return 'balanced'
+  }
+}
+
+function normalizeAlignmentTargetPreference(
+  alignmentTargetPreference: AlignmentTargetPreference | null | undefined,
+): AlignmentTargetPreference | null {
+  switch (alignmentTargetPreference) {
+    case 'sun':
+    case 'moon':
+      return alignmentTargetPreference
+    default:
+      return null
   }
 }
 

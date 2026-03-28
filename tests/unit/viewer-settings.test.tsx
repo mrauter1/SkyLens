@@ -118,9 +118,35 @@ describe('ViewerShell settings integration', () => {
       likelyVisibleOnly: false,
       labelDisplayMode: 'on_objects',
       motionQuality: 'balanced',
+      alignmentTargetPreference: null,
       verticalFovAdjustmentDeg: 6,
       onboardingCompleted: false,
     })
+  })
+
+  it('restores a persisted alignment target preference while keeping older payloads readable', () => {
+    expect(readViewerSettings().alignmentTargetPreference).toBeNull()
+
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabledLayers: {
+          aircraft: false,
+          satellites: true,
+          planets: true,
+          stars: true,
+          constellations: true,
+        },
+        likelyVisibleOnly: false,
+        labelDisplayMode: 'on_objects',
+        motionQuality: 'balanced',
+        alignmentTargetPreference: 'moon',
+        verticalFovAdjustmentDeg: 6,
+        onboardingCompleted: false,
+      }),
+    )
+
+    expect(readViewerSettings().alignmentTargetPreference).toBe('moon')
   })
 
   it('loads persisted settings, preserves offsets on recenter, and routes demo mode from the sheet', async () => {
