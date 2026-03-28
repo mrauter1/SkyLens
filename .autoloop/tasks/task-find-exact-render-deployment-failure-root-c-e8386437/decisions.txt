@@ -1,0 +1,26 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260328T175629Z-e01435c7" ts="2026-03-28T17:56:29.405346+00:00" />
+Local `pnpm install --frozen-lockfile`, `pnpm build`, and a timed `PORT=3005 pnpm start` smoke check pass at current HEAD, so the exact root cause must be tied to the failing Render deploy context rather than assumed from a repo-only failure.
+Because the repo has no checked-in Render config or Dockerfile and carries both npm and pnpm lockfiles without a pinned package manager/runtime in package.json, the plan must verify the failing deploy's actual install/build/start commands and runtime before choosing a fix.
+Keep the final implementation scoped to the diagnosed failure surface; do not absorb unrelated viewer-shell cleanup unless the Render evidence points directly to that code path.
+<autoloop-decisions-header version="1" block_seq="2" owner="planner" phase_id="task-global" pair="plan" turn_seq="2" run_id="run-20260328T175629Z-e01435c7" ts="2026-03-28T18:00:07.460025+00:00" />
+Local `pnpm install --frozen-lockfile`, `pnpm build`, and a timed `PORT=3005 pnpm start` smoke check pass at current HEAD, so later phases must anchor root-cause claims to the failing Render deploy context rather than a guessed repo-only failure.
+Because Render config is external to the repo here and package-manager/runtime selection is not pinned in package.json, the next phase must verify the failing deploy's actual install/build/start commands and runtime before choosing any fix.
+Keep the implementation scoped to the diagnosed failure surface and avoid unrelated viewer-shell cleanup unless the Render evidence points directly to that code path.
+Next 16.2.1 is now a concrete deployment-runtime constraint: the build passes locally on Node 20.19.6 but fails immediately on Node 18.20.8 with `For Next.js, Node.js version ">=20.9.0" is required.`
+Treat the deployment-runtime pin as the primary fix surface; do not plan or implement ViewerShell rollback/refactor work unless a post-runtime-fix Render error directly implicates that code.
+<autoloop-decisions-header version="1" block_seq="3" owner="implementer" phase_id="diagnose-render-failure" pair="implement" turn_seq="1" run_id="run-20260328T175629Z-e01435c7" ts="2026-03-28T18:02:12.636158+00:00" />
+<autoloop-decisions-header version="1" block_seq="4" owner="implementer" phase_id="diagnose-render-failure" pair="implement" turn_seq="2" run_id="run-20260328T175629Z-e01435c7" ts="2026-03-28T18:03:52.894189+00:00" />
+The Node 18 / Next 16 mismatch remains the leading hypothesis, but it is not the authoritative root cause for service srv-d72i29q4d50c738q0o10 until the failing Render deploy log confirms the runtime version, command, and first fatal line.
+Later phases must choose the fix surface from exact Render evidence first; acceptable scoped fixes include a repo-visible runtime pin, a Render service-setting correction, or another equally local build/start fix if the deploy log points elsewhere.
+<autoloop-decisions-header version="1" block_seq="5" owner="runtime" phase_id="diagnose-render-failure" pair="implement" turn_seq="1" run_id="run-20260328T175629Z-e01435c7" ts="2026-03-28T18:10:10.769208+00:00" entry="questions" qa_seq="1" />
+WARNING: I can reproduce a likely runtime failure locally, but I cannot verify the exact Render root cause for service `srv-d72i29q4d50c738q0o10` from this environment because the failing deploy log and service settings are not available here.
+1) Can you provide either the failing Render deploy log for the most recent failed deploy of `srv-d72i29q4d50c738q0o10` or Render API access/token so I can inspect that deploy directly? Answer YES or NO.
+Best supposition: the leading hypothesis is that Render is building with Node below `20.9.0`, which hard-fails `next@16.2.1`, but I should verify that against the actual failing deploy before changing repo or service configuration.
+<autoloop-decisions-header version="1" block_seq="6" owner="runtime" phase_id="diagnose-render-failure" pair="implement" turn_seq="1" run_id="run-20260328T175629Z-e01435c7" ts="2026-03-28T18:10:10.770175+00:00" entry="answers" qa_seq="1" source="auto" />
+I’m checking the task snapshot and raw phase log to answer strictly from the repository context and existing evidence.
+
+I have the file reads running; next I’m pulling their output to see whether the environment includes any Render log access or only local reproduction evidence.
+
+The shell startup looks noisy enough to suppress the initial reads, so I’m re-running with a non-login shell to get the actual file contents.
+
+NO

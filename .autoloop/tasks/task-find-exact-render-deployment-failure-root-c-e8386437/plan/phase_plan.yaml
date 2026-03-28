@@ -1,0 +1,43 @@
+version: 1
+task_id: task-find-exact-render-deployment-failure-root-c-e8386437
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/task-find-exact-render-deployment-failure-root-c-e8386437/runs/run-20260328T175629Z-e01435c7/request.md
+phases:
+  - phase_id: recover-render-deploy-failure
+    title: Recover Render Deploy Failure
+    objective: Capture the exact failing Render deploy evidence, apply the minimum fix to the actual failing surface, and validate the corrected Render-equivalent build/start flow before redeploy.
+    status: planned
+    in_scope:
+      - Capture the concrete failing deploy evidence for service srv-d72i29q4d50c738q0o10, including runtime version, install/build/start commands, and the first fatal log line
+      - Compare the failing Render step against the locally reproduced Node-version gate and any other repo or service-setting surfaces implicated by that evidence
+      - Apply the smallest fix to the actual diagnosed failure surface, which may be a repo runtime declaration, a Render service-setting correction, or another scoped build/start fix
+      - Run local validation that mirrors the corrected Render build and start path
+      - Keep any app-code verification targeted to the recent ViewerShell regression surface only if code outside deployment config changes
+      - Prepare a redeploy summary with exact root cause, fix scope, validation, and rollback notes
+    out_of_scope:
+      - Unrelated viewer-shell refactors or UI behavior changes
+      - Dependency upgrades or lockfile churn beyond what is strictly required for the exact diagnosed fix
+      - Autoloop artifact files in the final code change set
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: The exact Render failure mechanism is documented with concrete evidence from the failing deploy, including the command, runtime, and first fatal log line.
+      - id: AC-2
+        text: The fix is limited to the actual diagnosed failure surface and does not pre-commit to a runtime pin unless the Render evidence confirms that as the failing mechanism.
+      - id: AC-3
+        text: Local Render-equivalent validation passes for the corrected deployment contract, including build and production start.
+      - id: AC-4
+        text: If any application code changes are required, targeted ViewerShell regression checks are run to keep mobile and desktop behavior safe.
+      - id: AC-5
+        text: The repo is ready for redeploy with a concise explanation of why the applied fix resolves the failure.
+    deliverables:
+      - Evidence-backed root cause summary for service srv-d72i29q4d50c738q0o10
+      - Scoped fix to the exact diagnosed failure surface, with repo-visible runtime pinning only if the Render evidence confirms the Node mismatch
+      - Passing local build/start validation for the corrected Render path
+      - A redeploy-ready summary including rollout and rollback guidance
+    risks:
+      - The local Node mismatch reproduction may be real while the failing Render deploy still has a different first fatal step.
+      - Render may surface a second failure only after the first exact deploy blocker is fixed.
+      - Editing UI code before confirming the deploy log could introduce avoidable mobile or desktop regressions.
+    rollback:
+      - Revert only the scoped fix if later evidence proves it is unrelated to the failing deploy step.
+      - Keep recent ViewerShell behavior untouched unless a post-diagnosis error directly implicates that code.
