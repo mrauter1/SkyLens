@@ -1,0 +1,103 @@
+version: 1
+task_id: improve-orientation-motion-serverless
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/improve-orientation-motion-serverless/runs/run-20260328T220654Z-04289b02/request.md
+phases:
+- phase_id: orientation-runtime-coordinator
+  title: Refactor Orientation Runtime And Provider Arbitration
+  objective: Replace the current single-sensor/event selection flow with the spec-defined
+    capability detection, prompt-only permission handling, provider ladder, Safari
+    compass validation, and failover coordinator in lib/sensors/orientation.ts.
+  status: planned
+  in_scope:
+  - Extend public/internal orientation types and runtime capability helpers exactly
+    as specified.
+  - Convert requestOrientationPermission() into prompt-only behavior and add sensor
+    permission hint querying.
+  - Add relative sensor support, dual event listeners, raw quaternion handling, Safari
+    compass validation, and provider restart/upgrade logic in subscribeToOrientationPose().
+  - Add lifecycle and rotation handling so providers stop on hidden/pagehide, restart
+    arbitration on visible/pageshow, and keep screen correction correct for event-frame
+    samples without double-correcting screen-frame sensors.
+  out_of_scope:
+  - Manual pan control redesign.
+  - devicemotion as a pose source.
+  - User-agent-based provider selection.
+  dependencies: []
+  acceptance_criteria:
+  - id: AC-1
+    text: orientation.ts exposes the new types and runtime helpers required by the
+      source spec without adding a public compass-specific source enum.
+  - id: AC-2
+    text: Provider startup/arbitration follows the required absolute-to-relative ladder,
+      supports late absolute upgrades, and restarts after provider stall/error while
+      preserving calibration.
+  - id: AC-3
+    text: Safari compass-backed events remain relative until validation succeeds,
+      then upgrade/downgrade through the existing public absolute/relative source
+      labels.
+  - id: AC-4
+    text: Orientation lifecycle handling stops providers on hidden/pagehide, re-arbitrates
+      on visible/pageshow, and preserves correct screen-angle handling for event providers
+      without applying extra correction to screen-frame sensors.
+  deliverables:
+  - Updated SkyLensServerless/lib/sensors/orientation.ts
+  - Orientation runtime/provider test hooks sufficient for mocked browser coverage
+  risks:
+  - Breaking current iOS Safari event behavior while adding validation and failover
+    logic
+  - Double-applying screen correction when quaternion-backed samples are introduced
+  - Incorrectly suppressing sensor startup when Permissions API hints are unsupported
+  rollback:
+  - Revert coordinator changes to the prior event-plus-absolute-sensor selection flow
+  - Disable quaternion-backed/provider-upgrade logic if it causes pose regressions
+- phase_id: viewer-integration-and-verification
+  title: Wire Viewer Readiness, Diagnostics, And Tests
+  objective: Update ViewerShell, align the permissions-policy/embed contract with
+    the source spec, and add the test coverage needed for the new readiness model
+    and browser/provider matrix.
+  status: planned
+  in_scope:
+  - Change viewer startup so permission prompting is separate from orientation readiness
+    and route/UI state stays unknown until a usable sample arrives.
+  - Add source-specific motion labels, browser-family recovery copy, and development
+    diagnostics tied to the selected provider state.
+  - Add tests/unit/orientation.test.ts and update tests/unit/viewer-shell.test.ts.
+  - Update and verify the narrowed sensor-only permissions-policy/embed contract across
+    next.config.ts, public/_headers, app/embed-validation/page.tsx, and the affected
+    unit/e2e validation tests.
+  out_of_scope:
+  - Broad UI redesign outside motion/orientation status and diagnostics surfaces
+  - Deployment/runtime changes outside SkyLensServerless/
+  dependencies:
+  - orientation-runtime-coordinator
+  acceptance_criteria:
+  - id: AC-1
+    text: Viewer startup keeps route orientation unknown until the first usable sample,
+      preserves denied handling, and distinguishes unavailable versus denied no-provider
+      failures after user action.
+  - id: AC-2
+    text: Motion status text and diagnostics reflect provider kind, absoluteness,
+      compass backing, and calibration/upgrade state without using browser family
+      for provider selection.
+  - id: AC-3
+    text: Unit tests cover iOS Safari, Chrome Android, Firefox Android, Samsung Internet,
+      and generic failover cases described in the source spec, and the permissions-policy/embed
+      contract matches the spec’s sensor-only allowlist.
+  deliverables:
+  - Updated SkyLensServerless/components/viewer/viewer-shell.tsx
+  - New SkyLensServerless/tests/unit/orientation.test.ts
+  - Updated SkyLensServerless/tests/unit/viewer-shell.test.ts
+  - Updated SkyLensServerless/app/embed-validation/page.tsx and any affected embed/config
+    tests that assert header text or iframe allow delegation
+  - Updated SkyLensServerless/next.config.ts and SkyLensServerless/public/_headers
+    if needed to match the sensor-only allowlist, plus any affected embed/config tests
+  risks:
+  - Route state or startup badges incorrectly switching to granted on prompt success
+    alone
+  - Diagnostics or recovery copy drifting into provider-selection logic
+  - Header/config changes landing without the embed-validation copy/test updates needed
+    to keep the public contract coherent
+  - Existing tests encoding the old readiness model and masking regressions
+  rollback:
+  - Revert viewer startup/status changes while keeping the runtime refactor isolated
+  - Drop diagnostics/copy additions if they interfere with existing live viewer flows

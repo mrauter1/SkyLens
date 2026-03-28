@@ -60,6 +60,7 @@ const SettingsSchema = z.object({
       sourceAtCalibration: z
         .enum([
           'absolute-sensor',
+          'relative-sensor',
           'deviceorientation-absolute',
           'deviceorientation-relative',
           'manual',

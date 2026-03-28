@@ -18,6 +18,7 @@ const {
   mockRequestRearCameraStream,
   mockStopMediaStream,
   mockRequestOrientationPermission,
+  mockGetOrientationCapabilities,
   mockFetchAircraftSnapshot,
   mockGetAircraftAvailabilityMessage,
   mockFetchSatelliteCatalog,
@@ -34,6 +35,7 @@ const {
   mockRequestRearCameraStream: vi.fn(),
   mockStopMediaStream: vi.fn(),
   mockRequestOrientationPermission: vi.fn(),
+  mockGetOrientationCapabilities: vi.fn(),
   mockFetchAircraftSnapshot: vi.fn(),
   mockGetAircraftAvailabilityMessage: vi.fn(),
   mockFetchSatelliteCatalog: vi.fn(),
@@ -100,6 +102,7 @@ vi.mock('../../lib/sensors/orientation', async () => {
     ...actual,
     subscribeToOrientationPose: mockSubscribeToOrientationPose,
     requestOrientationPermission: mockRequestOrientationPermission,
+    getOrientationCapabilities: mockGetOrientationCapabilities,
   }
 })
 
@@ -212,6 +215,11 @@ describe('ViewerShell startup gating', () => {
         enumerateDevices: vi.fn(async () => []),
       },
     })
+    Object.defineProperty(navigator, 'userAgent', {
+      configurable: true,
+      value:
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+    })
     Object.defineProperty(window, 'matchMedia', {
       configurable: true,
       writable: true,
@@ -228,6 +236,7 @@ describe('ViewerShell startup gating', () => {
     mockStopMediaStream.mockReset()
     mockFetchAircraftSnapshot.mockReset()
     mockRequestOrientationPermission.mockReset()
+    mockGetOrientationCapabilities.mockReset()
     mockGetAircraftAvailabilityMessage.mockReset()
     mockFetchSatelliteCatalog.mockReset()
     mockResolveAircraftMotionObjects.mockReset()
@@ -263,6 +272,13 @@ describe('ViewerShell startup gating', () => {
       fetchedAt: '2026-03-26T00:00:00.000Z',
       expiresAt: '2026-03-26T06:00:00.000Z',
       satellites: [],
+    })
+    mockGetOrientationCapabilities.mockReturnValue({
+      hasEvents: true,
+      hasAbsoluteEvent: true,
+      hasAbsoluteSensor: false,
+      hasRelativeSensor: false,
+      canRequestPermission: true,
     })
     mockResolveAircraftMotionObjects.mockReturnValue([])
     mockResolveSatelliteMotionObjects.mockReturnValue([])
@@ -361,6 +377,166 @@ describe('ViewerShell startup gating', () => {
     expect(mockRequestOrientationPermission).toHaveBeenCalledTimes(1)
     expect(mockRequestRearCameraStream).toHaveBeenCalledTimes(1)
     expect(mockRequestStartupObserverState).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps route orientation unknown until the first usable sample arrives', async () => {
+    let emitPose:
+      | ((state: ReturnType<typeof createMockOrientationPoseUpdate>) => void)
+      | null = null
+
+    mockSubscribeToOrientationPose.mockImplementation((onPose: (state: unknown) => void) => {
+      emitPose = onPose as (state: ReturnType<typeof createMockOrientationPoseUpdate>) => void
+      return SENSOR_CONTROLLER
+    })
+
+    await renderViewer({
+      entry: 'live',
+      location: 'unknown',
+      camera: 'unknown',
+      orientation: 'unknown',
+    })
+
+    const startArButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Start AR'),
+    )
+
+    await act(async () => {
+      startArButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+    await flushEffects()
+
+    expect(mockRouterReplace).toHaveBeenCalledWith(
+      buildViewerHref({
+        entry: 'live',
+        location: 'granted',
+        camera: 'granted',
+        orientation: 'unknown',
+      }),
+    )
+    expect(mockSubscribeToOrientationPose).toHaveBeenCalled()
+    expect(emitPose).not.toBeNull()
+    expect(container.textContent).toContain('Waiting for motion data.')
+    expect(container.textContent).toContain('Motion: Pending')
+
+    await act(async () => {
+      emitPose?.(
+        createMockOrientationPoseUpdate({
+          source: 'deviceorientation-absolute',
+          providerKind: 'event',
+          absolute: true,
+        }),
+      )
+    })
+    await flushEffects()
+    await act(async () => {
+      emitPose?.(
+        createMockOrientationPoseUpdate({
+          source: 'deviceorientation-absolute',
+          providerKind: 'event',
+          absolute: true,
+        }),
+      )
+    })
+    await flushEffects()
+
+    expect(mockRouterReplace).toHaveBeenLastCalledWith(
+      buildViewerHref({
+        entry: 'live',
+        location: 'granted',
+        camera: 'granted',
+        orientation: 'granted',
+      }),
+    )
+    expect(container.textContent).not.toContain('Waiting for motion data.')
+  })
+
+  it('times out unknown startup to denied when orientation APIs exist but no provider emits', async () => {
+    vi.useFakeTimers()
+
+    mockSubscribeToOrientationPose.mockImplementationOnce(() => SENSOR_CONTROLLER)
+    mockGetOrientationCapabilities.mockReturnValue({
+      hasEvents: true,
+      hasAbsoluteEvent: false,
+      hasAbsoluteSensor: false,
+      hasRelativeSensor: false,
+      canRequestPermission: false,
+    })
+
+    await renderViewer({
+      entry: 'live',
+      location: 'unknown',
+      camera: 'unknown',
+      orientation: 'unknown',
+    })
+
+    const startArButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Start AR'),
+    )
+
+    await act(async () => {
+      startArButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_600)
+    })
+    await flushEffects()
+
+    expect(mockRouterReplace).toHaveBeenLastCalledWith(
+      buildViewerHref({
+        entry: 'live',
+        location: 'granted',
+        camera: 'granted',
+        orientation: 'denied',
+      }),
+    )
+    expect(container.textContent).toContain('Motion recovery')
+    expect(container.textContent).toContain('Motion access is still denied.')
+  })
+
+  it('times out unknown startup to unavailable when no orientation APIs exist', async () => {
+    vi.useFakeTimers()
+
+    mockSubscribeToOrientationPose.mockImplementationOnce(() => SENSOR_CONTROLLER)
+    mockGetOrientationCapabilities.mockReturnValue({
+      hasEvents: false,
+      hasAbsoluteEvent: false,
+      hasAbsoluteSensor: false,
+      hasRelativeSensor: false,
+      canRequestPermission: false,
+    })
+
+    await renderViewer({
+      entry: 'live',
+      location: 'unknown',
+      camera: 'unknown',
+      orientation: 'unknown',
+    })
+
+    const startArButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Start AR'),
+    )
+
+    await act(async () => {
+      startArButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_600)
+    })
+    await flushEffects()
+
+    expect(mockRouterReplace).toHaveBeenLastCalledWith(
+      buildViewerHref({
+        entry: 'live',
+        location: 'granted',
+        camera: 'granted',
+        orientation: 'unavailable',
+      }),
+    )
+    expect(container.textContent).toContain('Motion recovery')
+    expect(container.textContent).toContain('Motion sensors are unavailable')
   })
 
   it(
@@ -1789,7 +1965,16 @@ describe('ViewerShell startup gating', () => {
     expect(startAlignmentButton?.disabled).toBe(false)
   })
 
-  it('surfaces motion recovery guidance and retries orientation permission', async () => {
+  it('keeps motion-only retries pending until a usable sample arrives', async () => {
+    let emitPose:
+      | ((state: ReturnType<typeof createMockOrientationPoseUpdate>) => void)
+      | null = null
+
+    mockSubscribeToOrientationPose.mockImplementation((onPose: (state: unknown) => void) => {
+      emitPose = onPose as (state: ReturnType<typeof createMockOrientationPoseUpdate>) => void
+      return SENSOR_CONTROLLER
+    })
+
     await renderViewer({
       entry: 'live',
       location: 'granted',
@@ -1812,8 +1997,40 @@ describe('ViewerShell startup gating', () => {
     await flushEffects()
 
     expect(mockRequestOrientationPermission).toHaveBeenCalledTimes(1)
-    expect(mockRouterReplace).toHaveBeenCalled()
     expect(mockRouterReplace).toHaveBeenCalledWith(
+      buildViewerHref({
+        entry: 'live',
+        location: 'granted',
+        camera: 'granted',
+        orientation: 'unknown',
+      }),
+    )
+    expect(container.textContent).toContain('Waiting for motion data.')
+    expect(container.textContent).toContain('Motion: Pending')
+    expect(emitPose).not.toBeNull()
+
+    await act(async () => {
+      emitPose?.(
+        createMockOrientationPoseUpdate({
+          source: 'deviceorientation-absolute',
+          providerKind: 'event',
+          absolute: true,
+        }),
+      )
+    })
+    await flushEffects()
+    await act(async () => {
+      emitPose?.(
+        createMockOrientationPoseUpdate({
+          source: 'deviceorientation-absolute',
+          providerKind: 'event',
+          absolute: true,
+        }),
+      )
+    })
+    await flushEffects()
+
+    expect(mockRouterReplace).toHaveBeenLastCalledWith(
       buildViewerHref({
         entry: 'live',
         location: 'granted',
@@ -1822,6 +2039,81 @@ describe('ViewerShell startup gating', () => {
       }),
     )
     expect(container.textContent).not.toContain('Motion recovery')
+  })
+
+  it('times out a motion-only retry back to denied when no provider emits after the prompt succeeds', async () => {
+    vi.useFakeTimers()
+
+    mockSubscribeToOrientationPose.mockImplementationOnce(() => SENSOR_CONTROLLER)
+    mockGetOrientationCapabilities.mockReturnValue({
+      hasEvents: true,
+      hasAbsoluteEvent: false,
+      hasAbsoluteSensor: false,
+      hasRelativeSensor: false,
+      canRequestPermission: false,
+    })
+
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'denied',
+    })
+
+    const enableMotionButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Enable motion'),
+    )
+
+    expect(enableMotionButton).toBeDefined()
+
+    await act(async () => {
+      enableMotionButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_600)
+    })
+    await flushEffects()
+
+    expect(mockRouterReplace).toHaveBeenNthCalledWith(
+      1,
+      buildViewerHref({
+        entry: 'live',
+        location: 'granted',
+        camera: 'granted',
+        orientation: 'unknown',
+      }),
+    )
+    expect(mockRouterReplace).toHaveBeenLastCalledWith(
+      buildViewerHref({
+        entry: 'live',
+        location: 'granted',
+        camera: 'granted',
+        orientation: 'denied',
+      }),
+    )
+    expect(container.textContent).toContain('Motion recovery')
+    expect(container.textContent).toContain('Motion access is still denied.')
+  })
+
+  it('switches motion recovery help copy by browser family without changing the provider flow', async () => {
+    Object.defineProperty(navigator, 'userAgent', {
+      configurable: true,
+      value:
+        'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Mobile Safari/537.36',
+    })
+
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'denied',
+    })
+
+    expect(container.textContent).toContain('Motion recovery')
+    expect(container.textContent).toContain(
+      'On Chrome for Android, confirm site motion sensors are allowed for this origin, then retry from the viewer.',
+    )
   })
 
   it('reuses the combined recovery CTA inside the motion panel when camera and motion are both missing', async () => {
@@ -2040,8 +2332,8 @@ describe('ViewerShell startup gating', () => {
       /Center .* in the crosshair, then press the middle of the screen to align before trusting label placement\./,
     )
     expect(container.querySelector('[data-testid="alignment-instructions-panel"]')).toBeNull()
-    expect(container.textContent).toContain('Motion: Align first')
-    expect(container.textContent).toContain('Sensor: Relative')
+    expect(container.textContent).toContain('Motion: Relative event')
+    expect(container.textContent).toContain('Sensor: Calibrate')
   })
 
   it('distinguishes absolute-sensor mode from relative and manual fallbacks', async () => {
@@ -2102,6 +2394,60 @@ describe('ViewerShell startup gating', () => {
     expect(container.textContent).toContain('Motion: Absolute sensor')
     expect(container.textContent).toContain('Sensor: Absolute sensor')
     expect(container.textContent).not.toContain('Relative sensor mode needs alignment.')
+  })
+
+  it('renders development diagnostics from the selected provider state', async () => {
+    let emitPose:
+      | ((state: ReturnType<typeof createMockOrientationPoseUpdate>) => void)
+      | null = null
+
+    mockSubscribeToOrientationPose.mockImplementation((onPose: (state: unknown) => void) => {
+      emitPose = onPose as (state: ReturnType<typeof createMockOrientationPoseUpdate>) => void
+      return SENSOR_CONTROLLER
+    })
+
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'granted',
+    })
+    await flushEffects()
+    await act(async () => {
+      emitPose?.(
+        createMockOrientationPoseUpdate({
+          source: 'absolute-sensor',
+          providerKind: 'sensor',
+          absolute: true,
+          calibrated: true,
+        }),
+      )
+    })
+    await flushEffects()
+    await act(async () => {
+      emitPose?.(
+        createMockOrientationPoseUpdate({
+          source: 'absolute-sensor',
+          providerKind: 'sensor',
+          absolute: true,
+          calibrated: true,
+        }),
+      )
+    })
+    await flushEffects()
+
+    const diagnostics = container.querySelector(
+      '[data-testid="orientation-diagnostics"]',
+    ) as HTMLElement | null
+
+    expect(diagnostics).not.toBeNull()
+    expect(diagnostics?.textContent).toContain('Orientation diagnostics')
+    expect(diagnostics?.textContent).toContain('Selected source')
+    expect(diagnostics?.textContent).toContain('absolute-sensor')
+    expect(diagnostics?.textContent).toContain('Provider kind')
+    expect(diagnostics?.textContent).toContain('sensor')
+    expect(diagnostics?.textContent).toContain('Calibration active')
+    expect(diagnostics?.textContent).toContain('yes')
   })
 
   it('advances demo scene time continuously with the animation-driven cadence', async () => {
@@ -3185,8 +3531,8 @@ describe('ViewerShell startup gating', () => {
       orientation: 'granted',
     })
 
-    expect(container.textContent).toContain('Sensor: Relative')
-    expect(container.textContent).toContain('Motion: Align first')
+    expect(container.textContent).toContain('Sensor: Calibrate')
+    expect(container.textContent).toContain('Motion: Relative event')
     expect(container.textContent).toContain('Relative sensor mode needs alignment.')
   })
 
@@ -3232,6 +3578,76 @@ describe('ViewerShell startup gating', () => {
     })
   }
 })
+
+function createMockOrientationPoseUpdate({
+  source,
+  providerKind,
+  absolute,
+  compassBacked = false,
+  compassHeadingDeg,
+  compassAccuracyDeg,
+  calibrated = false,
+  timestampMs = Date.UTC(2026, 2, 26, 0, 45, 6),
+}: {
+  source: 'absolute-sensor' | 'relative-sensor' | 'deviceorientation-absolute' | 'deviceorientation-relative'
+  providerKind: 'sensor' | 'event'
+  absolute: boolean
+  compassBacked?: boolean
+  compassHeadingDeg?: number
+  compassAccuracyDeg?: number
+  calibrated?: boolean
+  timestampMs?: number
+}) {
+  return {
+    pose: {
+      yawDeg: 0,
+      pitchDeg: 0,
+      rollDeg: 0,
+      quaternion: [0, 0, 0, 1],
+      alignmentHealth: absolute ? 'good' : 'poor',
+      mode: 'sensor' as const,
+    },
+    sample: {
+      source,
+      absolute,
+      needsCalibration: !absolute && !calibrated,
+      timestampMs,
+      headingDeg: 0,
+      pitchDeg: 0,
+      rollDeg: 0,
+      quaternion: [0, 0, 0, 1] as [number, number, number, number],
+      rawQuaternion: [0, 0, 0, 1] as [number, number, number, number],
+      rawSample: {
+        source,
+        providerKind,
+        localFrame: providerKind === 'sensor' ? 'screen' : 'device',
+        absolute,
+        timestampMs,
+        worldFromLocal: [
+          [1, 0, 0],
+          [0, 1, 0],
+          [0, 0, 1],
+        ] as [[number, number, number], [number, number, number], [number, number, number]],
+        compassBacked,
+        compassHeadingDeg,
+        compassAccuracyDeg,
+      },
+      reportedCompassHeadingDeg: compassHeadingDeg,
+      compassAccuracyDeg,
+      compassBacked,
+    },
+    history: [],
+    orientationSource: source,
+    orientationAbsolute: absolute,
+    orientationNeedsCalibration: !absolute && !calibrated,
+    poseCalibration: {
+      offsetQuaternion: [0, 0, 0, 1] as [number, number, number, number],
+      calibrated,
+      sourceAtCalibration: calibrated ? source : null,
+      lastCalibratedAtMs: calibrated ? timestampMs : null,
+    },
+  }
+}
 
 function dispatchPointerEvent(
   target: EventTarget,

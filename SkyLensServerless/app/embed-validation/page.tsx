@@ -11,7 +11,7 @@ export default function EmbedValidationPage() {
             This route exists to validate the shipped iframe delegation contract for the
             live AR screen. The embedded viewer below must keep the same-origin
             `Permissions-Policy` header and the explicit `allow` delegation required for
-            camera, geolocation, and motion sensors.
+            accelerometer, gyroscope, and magnetometer.
           </p>
         </header>
 
@@ -20,7 +20,7 @@ export default function EmbedValidationPage() {
             title="Embedded SkyLens viewer"
             data-testid="viewer-embed-frame"
             src="/view?entry=live&location=unknown&camera=unknown&orientation=unknown"
-            allow="camera; geolocation; accelerometer; gyroscope; magnetometer"
+            allow="accelerometer; gyroscope; magnetometer"
             className="h-[960px] w-full rounded-[1.25rem] border border-sky-100/10 bg-slate-950"
           />
         </section>
