@@ -1,0 +1,66 @@
+{
+  "task_id": "autoloop-task-browser-direct-opensky-multi-point-0fe8cdc9",
+  "created_at": "2026-03-28T13:15:54.486814+00:00",
+  "request_text": "# Autoloop Task: Browser-Direct OpenSky + Multi-Point Aircraft Tracker Refactor\n\nImplement the aircraft architecture refactor for SkyLens with **browser-direct anonymous OpenSky fetching** and a **multi-point aircraft tracker**.\n\n## Required execution mode\n- Use autoloop in **full auto**.\n- Use pairs: **plan,implement,test**.\n- **Do not set max_iterations**.\n- Complete the task end-to-end, preserving existing non-aircraft functionality.\n\n## Hard requirements (must implement exactly)\n1. Aircraft fetching becomes browser-direct and anonymous-only.\n2. Delete server-side aircraft fetch path.\n3. Do not add app-level aircraft cache.\n4. Replace two-snapshot aircraft interpolation with multi-point per-aircraft tracker.\n5. Do not use OpenSky `/tracks` endpoint.\n6. Keep satellites, stars, planets, constellations, demo mode, and alignment flows intact.\n7. Update privacy copy to reflect browser-direct third-party aircraft queries.\n\n## Architecture target\n- `components/viewer/viewer-shell.tsx`\n  - Own one browser-only aircraft polling loop.\n  - Own one persistent tracker instance via ref.\n  - Ingest each snapshot into tracker and rerender.\n  - Resolve aircraft each render from tracker at current scene time.\n- `lib/aircraft/client.ts`\n  - Thin browser facade calling browser-safe OpenSky fetcher.\n- `lib/aircraft/opensky-browser.ts` (new)\n  - Build bbox URL(s), antimeridian split, anonymous fetch to `/states/all`, normalize into `AircraftApiResponse`.\n- `lib/aircraft/tracker.ts` (new)\n  - Multi-sample history, recency-weighted kinematic estimation, straight vs turn mode, prediction, stale fade/drop, world-space trail points.\n- `lib/viewer/motion.ts`\n  - Keep satellite logic.\n  - Remove old aircraft interpolation/dead-reckoning helpers.\n  - Aircraft adapter should resolve via tracker and preserve motion state/opacity metadata.\n- Server\n  - No aircraft proxy route.\n  - No aircraft cache health.\n\n## File operations\n### Add\n- `lib/aircraft/opensky-browser.ts`\n- `lib/aircraft/tracker.ts`\n- `tests/unit/aircraft-client.test.ts`\n- `tests/unit/aircraft-tracker.test.ts`\n\n### Rewrite\n- `lib/aircraft/client.ts`\n- `lib/aircraft/contracts.ts`\n- `lib/viewer/motion.ts`\n- `components/viewer/viewer-shell.tsx`\n- `lib/demo/scenarios.ts`\n- `lib/config.ts`\n- `app/api/health/route.ts`\n- `lib/health/contracts.ts`\n- `tests/unit/viewer-shell.test.ts`\n\n### Delete\n- `app/api/aircraft/route.ts`\n- `lib/aircraft/opensky.ts`\n\nAlso remove stale references/docs/config mentioning aircraft proxy or OpenSky auth env vars.\n\n## Contract changes\nUpdate `lib/aircraft/contracts.ts`:\n- `AircraftApiResponse` fields:\n  - `fetchedAt: string`\n  - `snapshotTimeS: number`\n  - `observer`\n  - `availability`\n  - `aircraft`\n- Aircraft entry fields include:\n  - `id`, `callsign?`, `originCountry?`, `lat`, `lon`\n  - `geoAltitudeM?`, `baroAltitudeM?`\n  - `velocityMps?`, `trackDeg?`, `verticalRateMps?`\n  - `timePositionS?`, `lastContactS?`, `onGround?`, `positionSource?`, `category?`\n  - `azimuthDeg`, `elevationDeg`, `rangeKm`\n- Rename all aircraft `headingDeg` semantics to `trackDeg` in contracts/UI labels (\u201cTrack\u201d or \u201cDirection\u201d, not \u201cHeading\u201d).\n\n## Browser OpenSky fetcher behavior\nImplement in `lib/aircraft/opensky-browser.ts`:\n- Use anonymous browser `fetch` to `https://opensky-network.org/api/states/all`.\n- Build bbox from observer + radius.\n- Reuse antimeridian splitting logic.\n- Make one or two fetches and merge/dedupe by aircraft id.\n- Do not send `time` query for anonymous path.\n- Parse top-level `time` to `snapshotTimeS`.\n- Map state-vector indices exactly:\n  - 0 `icao24`, 1 `callsign`, 2 `origin_country`, 3 `time_position`, 4 `last_contact`,\n  - 5 `longitude`, 6 `latitude`, 7 `baro_altitude`, 8 `on_ground`,\n  - 9 `velocity`, 10 `true_track`, 11 `vertical_rate`, 13 `geo_altitude`,\n  - 16 `position_source`, 17 `category` (when present).\n- Drop rows missing id, lat/lon, or both altitudes.\n- Compute azimuth/elevation/range relative observer, filter by radius and min elevation.\n- Sort by range then id, apply display limit, return validated response.\n\n## Config/constants\nUse these constants:\n- `TRACK_HISTORY_LIMIT = 12`\n- `TRACK_ESTIMATION_WINDOW = 6`\n- `TRACK_HISTORY_MAX_AGE_MS = 120_000`\n- `POLL_INTERVAL_MS_BY_QUALITY = { low: 30_000, balanced: 15_000, high: 10_000 }`\n- `MIN_AIRCRAFT_ELEVATION_DEG = 2`\n- `STALE_AFTER_MS = 20_000`\n- `DROP_AFTER_MS = 30_000`\n- `MAX_PREDICTION_MS = 15_000`\n- `TURN_ENTER_THRESHOLD_DEG_PER_S = 0.8`\n- `TURN_EXIT_THRESHOLD_DEG_PER_S = 0.3`\n- `TRAIL_HISTORY_WINDOW_MS = 40_000`\n- `TRAIL_FUTURE_WINDOW_MS = 6_000`\n- `TRAIL_STEP_MS = 1_000`\n\nAlso change default aircraft radius from **250 km to 180 km**.\n\n## Tracker requirements (`lib/aircraft/tracker.ts`)\nExpose:\n- `createAircraftTracker(): AircraftTracker`\n- methods: `ingest`, `resolve`, `getTrail`, `reset`, `prune` with parameter shapes from plan.\n\nBehavior:\n- Per-aircraft history keyed by id; cap at 12 samples and 120s age.\n- Use recency-weighted multi-point estimate over recent up to 6 samples.\n- Primary timing from `timePositionMs`, fallback `snapshotTimeMs`.\n- Compute observed speed/track/vertical-rate from adjacent samples.\n- Blend reported + observed (speed 0.7/0.3, track circular blend, vertical rate 0.7/0.3).\n- Turn hysteresis:\n  - enter after 2 consecutive intervals > 0.8 deg/s,\n  - exit after 2 consecutive intervals < 0.3 deg/s.\n- Prediction:\n  - anchor `timePositionMs ?? snapshotTimeMs`\n  - horizon `clamp(now - anchor, 0, 15000)`\n  - straight model when not turning; constant-turn-rate when turning\n  - constant vertical velocity always\n  - propagate in local tangent plane and convert back lat/lon\n  - recompute az/el/range from current observer\n- Motion state:\n  - `live`, `estimated`, `stale`\n  - opacity 1 until 20s, fade to 0 by 30s, prune after 30s.\n\n## Viewer integration\nIn `viewer-shell.tsx`:\n- Remove `currentSnapshot`, `previousSnapshot`, `transitionStartedAtMs` state.\n- Add:\n  - `aircraftTrackerRef = useRef(createAircraftTracker())`\n  - `aircraftRevision` state bump on successful ingest\n  - `aircraftAvailability` state\n  - `latestAircraftSnapshotTimeS` state\n- Poll only in live mode + observer present + aircraft layer enabled + doc visible.\n- Use `AbortController` to cancel stale/in-flight requests on relevant changes/unmount.\n- Poll cadence from `motionQuality` (30s/15s/10s).\n- In 10s mode, align next poll just after next OpenSky bucket boundary using `snapshotTimeS`.\n- Success: ingest + set states.\n- Failure: availability degraded, do not clear tracker.\n- Build scene aircraft from tracker (no legacy two-snapshot logic).\n- For selected/center-locked aircraft, render trail from `tracker.getTrail()` projected each frame.\n\n## Health/privacy updates\n- Remove `aircraftCache` from `app/api/health/route.ts` and `lib/health/contracts.ts`.\n- Keep health behavior for satellite cache intact.\n- Update privacy reassurance copy to reflect browser-direct OpenSky queries:\n  - Camera stays on device.\n  - Approximate location-based aircraft queries go directly browser\u2192OpenSky.\n  - No camera frames uploaded.\n\n## Tests\nAdd/update tests to cover:\n- `tests/unit/aircraft-client.test.ts`:\n  - anonymous fetch success, antimeridian merge/dedupe, index mapping,\n  - `snapshotTimeS` from top-level `time`, optional fields preserved,\n  - filtering/sort/limit,\n  - network failure + 429 handling.\n- `tests/unit/aircraft-tracker.test.ts`:\n  - straight prediction,\n  - turn enter/exit hysteresis,\n  - stale fade/prune,\n  - fallback to observed deltas when reported kinematics missing,\n  - curved world-space trails,\n  - graceful decay on missed poll.\n- `tests/unit/viewer-shell.test.ts`:\n  - tracker-driven ingest behavior,\n  - failed polls don\u2019t immediately clear aircraft,\n  - motion quality cadence changes,\n  - aircraft trail rendered from tracker output,\n  - privacy copy update,\n  - health parsing without aircraftCache.\n\n## Cleanup grep (must run and resolve)\nSearch/remove stale references:\n- `/api/aircraft`\n- `aircraftCache`\n- `OPENSKY_CLIENT_ID`\n- `OPENSKY_CLIENT_SECRET`\n- `headingDeg`\n- `previousSnapshot`\n- `transitionStartedAtMs`\n\n## Acceptance criteria (must pass)\n1. Browser-direct aircraft fetch to OpenSky only.\n2. No runtime dependency on `/api/aircraft`.\n3. No aircraft server cache/auth path.\n4. Smooth between-poll motion.\n5. Sustained turns show curved motion.\n6. Missing updates fade out gracefully.\n7. Demo mode still works with seeded aircraft snapshots.\n8. Satellite behavior unchanged.\n9. Privacy copy accurate.\n10. `npm run lint`, `npm test`, and `npm run build` pass.\n\n## Implementation order (strict)\n1. Update contracts.\n2. Implement `opensky-browser.ts`.\n3. Rewrite `fetchAircraftSnapshot()` via browser client.\n4. Add tracker.\n5. Refactor `resolveAircraftMotionObjects()` via tracker.\n6. Refactor ViewerShell fetch state and polling.\n7. Replace aircraft trail rendering with tracker trails.\n8. Delete server aircraft route + old opensky module.\n9. Clean up health endpoint/contracts.\n10. Update privacy copy.\n11. Update demo scenarios.\n12. Add/rewrite tests.\n13. Run grep cleanup.\n14. Run lint/test/build and fix until green.",
+  "request_updated_at": "2026-03-28T13:15:54.486867+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/autoloop-task-browser-direct-opensky-multi-point-0fe8cdc9/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260328T131554Z-891540b6",
+    "mode": "single",
+    "phase_ids": [
+      "aircraft-browser-contracts-and-fetch",
+      "tracker-viewer-integration",
+      "cleanup-tests-and-validation"
+    ],
+    "explicit": true,
+    "current_phase_index": 3,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "aircraft-browser-contracts-and-fetch": "completed",
+    "tracker-viewer-integration": "completed",
+    "cleanup-tests-and-validation": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "aircraft-browser-contracts-and-fetch",
+      "run_id": "run-20260328T131554Z-891540b6",
+      "status": "in_progress",
+      "ts": "2026-03-28T13:20:38.124776+00:00"
+    },
+    {
+      "phase_id": "aircraft-browser-contracts-and-fetch",
+      "run_id": "run-20260328T131554Z-891540b6",
+      "status": "completed",
+      "ts": "2026-03-28T13:35:18.087831+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "tracker-viewer-integration",
+      "run_id": "run-20260328T131554Z-891540b6",
+      "status": "in_progress",
+      "ts": "2026-03-28T13:35:18.088885+00:00"
+    },
+    {
+      "phase_id": "tracker-viewer-integration",
+      "run_id": "run-20260328T131554Z-891540b6",
+      "status": "completed",
+      "ts": "2026-03-28T13:57:29.275650+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "cleanup-tests-and-validation",
+      "run_id": "run-20260328T131554Z-891540b6",
+      "status": "in_progress",
+      "ts": "2026-03-28T13:57:29.276913+00:00"
+    },
+    {
+      "phase_id": "cleanup-tests-and-validation",
+      "run_id": "run-20260328T131554Z-891540b6",
+      "status": "completed",
+      "ts": "2026-03-28T14:04:21.040258+00:00",
+      "pair": "test"
+    }
+  ]
+}

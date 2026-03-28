@@ -1,0 +1,98 @@
+version: 1
+task_id: autoloop-task-browser-direct-opensky-multi-point-0fe8cdc9
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/autoloop-task-browser-direct-opensky-multi-point-0fe8cdc9/runs/run-20260328T131554Z-891540b6/request.md
+phases:
+  - phase_id: aircraft-browser-contracts-and-fetch
+    title: Contracts and Browser Fetch
+    objective: Replace the server aircraft contract and fetch path with the browser-direct anonymous OpenSky contract required by the request.
+    status: planned
+    in_scope:
+      - Rewrite aircraft contracts around snapshotTimeS, trackDeg, observer-relative metadata, and 180 km defaults.
+      - Add lib/aircraft/opensky-browser.ts with anonymous bbox fetch, antimeridian split/merge, filtering, sorting, and typed transport/rate-limit failure signaling.
+      - Rewrite lib/aircraft/client.ts as the thin browser facade and remove /api/aircraft usage from aircraft client helpers.
+    out_of_scope:
+      - Tracker prediction and trail rendering internals.
+      - Viewer-shell polling ownership changes.
+      - Satellite logic changes.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: AircraftApiResponse and aircraft entries match the requested contract, including snapshotTimeS and trackDeg.
+      - id: AC-2
+        text: Browser aircraft fetches hit OpenSky /states/all directly with anonymous fetch only, including antimeridian merge/dedupe and explicit failure signaling for network and 429 errors instead of empty-snapshot fallback ingestion.
+      - id: AC-3
+        text: No aircraft client runtime dependency on /api/aircraft remains after this phase.
+    deliverables:
+      - Updated lib/aircraft/contracts.ts
+      - New lib/aircraft/opensky-browser.ts
+      - Rewritten lib/aircraft/client.ts
+    risks:
+      - OpenSky index mapping or bbox math may drift from the existing server implementation.
+      - Contract rename fallout can break tests and viewer consumers until later phases land.
+    rollback:
+      - Revert the aircraft contract, browser fetcher, and client facade together if consumer fallout proves broader than planned.
+  - phase_id: tracker-viewer-integration
+    title: Tracker and Viewer Integration
+    objective: Replace two-snapshot aircraft motion with a persistent multi-point tracker integrated into viewer-shell and motion adapters.
+    status: planned
+    in_scope:
+      - Add lib/aircraft/tracker.ts with bounded history, weighted estimation, turn hysteresis, prediction, prune, and trail generation.
+      - Refactor lib/viewer/motion.ts aircraft resolution to consume tracker output while keeping satellite logic intact.
+      - Refactor components/viewer/viewer-shell.tsx to own polling, tracker ingestion, visibility gating, motion-quality cadence, failure retention without empty-snapshot ingest, and tracker-driven trails.
+      - Update lib/demo/scenarios.ts so demo aircraft data fits the new contract and can seed tracker-driven rendering.
+      - Rewrite lib/config.ts ownership for public aircraft cadence/default/privacy settings.
+    out_of_scope:
+      - Server aircraft route or health cleanup.
+      - Repo-wide stale reference cleanup and final validation commands.
+    dependencies:
+      - aircraft-browser-contracts-and-fetch
+    acceptance_criteria:
+      - id: AC-1
+        text: ViewerShell no longer stores previousSnapshot or transitionStartedAtMs and instead resolves aircraft from a persistent tracker each render.
+      - id: AC-2
+        text: Aircraft motion supports smooth between-poll prediction, curved turn behavior, stale fading, and tracker-driven trails without clearing on a missed poll because failure paths do not ingest empty snapshots.
+      - id: AC-3
+        text: Demo-mode aircraft and non-aircraft scene behavior remain functional after the tracker migration.
+    deliverables:
+      - New lib/aircraft/tracker.ts
+      - Rewritten lib/viewer/motion.ts aircraft path
+      - Rewritten components/viewer/viewer-shell.tsx aircraft polling/rendering path
+      - Updated lib/demo/scenarios.ts
+      - Updated lib/config.ts
+    risks:
+      - Tracker estimation may introduce jumpy motion or wrong turn classification.
+      - Viewer effect rewrites may accidentally poll in hidden tabs or wrong runtime modes.
+    rollback:
+      - Revert tracker, motion adapter, viewer-shell aircraft state, and demo scenario changes together if motion regressions appear.
+  - phase_id: cleanup-tests-and-validation
+    title: Cleanup, Tests, and Validation
+    objective: Remove obsolete server aircraft surfaces, update health/privacy/docs/tests, clear stale references, and verify the full refactor end to end.
+    status: planned
+    in_scope:
+      - Delete app/api/aircraft/route.ts and lib/aircraft/opensky.ts.
+      - Remove aircraftCache from health route/contracts while preserving TLE health behavior.
+      - Update privacy copy, stale docs/config references, and grep targets including OpenSky auth env vars and headingDeg.
+      - Add or rewrite unit tests for aircraft client, tracker, viewer-shell, health, and any motion-contract fallout.
+      - Run lint, test, and build and fix breakage until green.
+    out_of_scope:
+      - New product features beyond the requested browser-direct tracker refactor.
+      - Satellite feature changes unrelated to fallout from aircraft contract updates.
+    dependencies:
+      - tracker-viewer-integration
+    acceptance_criteria:
+      - id: AC-1
+        text: No server aircraft proxy/cache/auth path remains and /api/health no longer exposes aircraftCache.
+      - id: AC-2
+        text: Privacy copy and docs accurately describe browser-direct OpenSky queries and on-device camera handling.
+      - id: AC-3
+        text: Required unit coverage is updated and npm run lint, npm test, and npm run build pass.
+    deliverables:
+      - Deleted app/api/aircraft/route.ts and lib/aircraft/opensky.ts
+      - Updated app/api/health/route.ts and lib/health/contracts.ts
+      - Updated privacy/config/docs references
+      - New or rewritten aircraft/viewer tests and green validation runs
+    risks:
+      - Legacy tests and docs contain many stale references and can hide incomplete cleanup.
+      - Health contract removal may break UI parsing unless all consumers change together.
+    rollback:
+      - Revert cleanup and contract-consumer changes as one slice if validation uncovers unresolved compatibility fallout.

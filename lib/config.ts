@@ -1,5 +1,13 @@
 import { z } from 'zod'
 
+export const DEFAULT_AIRCRAFT_RADIUS_KM = 180
+export const MIN_AIRCRAFT_ELEVATION_DEG = 2
+export const POLL_INTERVAL_MS_BY_QUALITY = {
+  low: 30_000,
+  balanced: 15_000,
+  high: 10_000,
+} as const
+
 const SatelliteGroupSchema = z.object({
   id: z.enum(['iss', 'stations', 'brightest']),
   label: z.string(),
@@ -9,7 +17,7 @@ const ConfigSchema = z.object({
   buildVersion: z.string(),
   defaults: z.object({
     maxLabels: z.literal(18),
-    radiusKm: z.literal(250),
+    radiusKm: z.literal(180),
     verticalFovDeg: z.literal(50),
     likelyVisibleOnly: z.literal(false),
     enabledLayers: z.tuple([
@@ -40,7 +48,8 @@ export const LANDING_DESCRIPTION = "Point your phone at the sky and see what's a
 
 export const PRIVACY_REASSURANCE_COPY = [
   'Camera stays on your device.',
-  'Location is used only to calculate what is above you right now.',
+  'Approximate location-based aircraft queries go directly from your browser to OpenSky.',
+  'No camera frames are uploaded.',
 ] as const
 
 export function getPublicConfig(): PublicConfig {
@@ -48,7 +57,7 @@ export function getPublicConfig(): PublicConfig {
     buildVersion: process.env.SKYLENS_BUILD_VERSION ?? 'dev',
     defaults: {
       maxLabels: 18,
-      radiusKm: 250,
+      radiusKm: DEFAULT_AIRCRAFT_RADIUS_KM,
       verticalFovDeg: 50,
       likelyVisibleOnly: false,
       enabledLayers: [

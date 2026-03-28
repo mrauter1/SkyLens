@@ -1,0 +1,66 @@
+{
+  "task_id": "skylens-serverless-migration-and-equivalence-tas-1962bcf4",
+  "created_at": "2026-03-28T15:20:27.142809+00:00",
+  "request_text": "# SkyLens Serverless Migration and Equivalence Task\n\n## Objective\nCreate a new folder named `SkyLensServerless` at the repository root and build a **full, complete, and working** version of SkyLens inside it that is fully serverless.\n\n## Hard Constraints\n1. **Do not edit files in the root SkyLens app implementation** (existing root project files must remain unchanged except for adding this task file and autoloop artifacts).\n2. All implementation for the new serverless app must be placed under `SkyLensServerless/`.\n3. If any existing SkyLens repository files can be reused as-is, copy them into `SkyLensServerless/`.\n4. Preserve equivalent UI and behavior.\n\n## Functional Requirements\n1. Identify every current server-side feature in SkyLens.\n2. Re-implement each server-side feature client-side within `SkyLensServerless`.\n3. Ensure no loss of capability versus the original app.\n4. Ensure UI/UX and user-visible behavior remain equivalent.\n\n## Verification Requirements\n1. Analyze and document feature parity between original SkyLens and SkyLensServerless.\n2. Verify correctness of each migrated feature.\n3. Add and run tests for equivalence and correctness.\n4. Ensure the new app builds and runs.\n\n## Execution Mode\nUse autoloop with iterative **plan \u2192 implement \u2192 test** pairs until complete.",
+  "request_updated_at": "2026-03-28T15:20:27.142873+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/skylens-serverless-migration-and-equivalence-tas-1962bcf4/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260328T152027Z-2ab1e610",
+    "mode": "single",
+    "phase_ids": [
+      "bootstrap-standalone-fork",
+      "replace-server-runtime-surfaces",
+      "verify-parity-and-document"
+    ],
+    "explicit": true,
+    "current_phase_index": 3,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "bootstrap-standalone-fork": "completed",
+    "replace-server-runtime-surfaces": "completed",
+    "verify-parity-and-document": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "bootstrap-standalone-fork",
+      "run_id": "run-20260328T152027Z-2ab1e610",
+      "status": "in_progress",
+      "ts": "2026-03-28T15:27:39.665711+00:00"
+    },
+    {
+      "phase_id": "bootstrap-standalone-fork",
+      "run_id": "run-20260328T152027Z-2ab1e610",
+      "status": "completed",
+      "ts": "2026-03-28T15:37:33.779095+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "replace-server-runtime-surfaces",
+      "run_id": "run-20260328T152027Z-2ab1e610",
+      "status": "in_progress",
+      "ts": "2026-03-28T15:37:33.780234+00:00"
+    },
+    {
+      "phase_id": "replace-server-runtime-surfaces",
+      "run_id": "run-20260328T152027Z-2ab1e610",
+      "status": "completed",
+      "ts": "2026-03-28T15:48:38.046373+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "verify-parity-and-document",
+      "run_id": "run-20260328T152027Z-2ab1e610",
+      "status": "in_progress",
+      "ts": "2026-03-28T15:48:38.047497+00:00"
+    },
+    {
+      "phase_id": "verify-parity-and-document",
+      "run_id": "run-20260328T152027Z-2ab1e610",
+      "status": "completed",
+      "ts": "2026-03-28T15:59:16.374867+00:00",
+      "pair": "test"
+    }
+  ]
+}

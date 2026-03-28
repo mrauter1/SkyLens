@@ -1,0 +1,1402 @@
+[
+  {
+    "id": "hip-32349",
+    "name": "Sirius",
+    "raDeg": 101.2872,
+    "decDeg": -16.7161,
+    "magnitude": -1.44
+  },
+  {
+    "id": "hip-30438",
+    "name": "Canopus",
+    "raDeg": 95.988,
+    "decDeg": -52.6957,
+    "magnitude": -0.62
+  },
+  {
+    "id": "hip-69673",
+    "name": "Arcturus",
+    "raDeg": 213.9153,
+    "decDeg": 19.1824,
+    "magnitude": -0.05
+  },
+  {
+    "id": "hip-71683",
+    "name": "Rigil Kentaurus",
+    "raDeg": 219.9021,
+    "decDeg": -60.834,
+    "magnitude": -0.01
+  },
+  {
+    "id": "hip-91262",
+    "name": "Vega",
+    "raDeg": 279.2347,
+    "decDeg": 38.7837,
+    "magnitude": 0.03
+  },
+  {
+    "id": "hip-24608",
+    "name": "Capella",
+    "raDeg": 79.1723,
+    "decDeg": 45.998,
+    "magnitude": 0.08
+  },
+  {
+    "id": "hip-24436",
+    "name": "Rigel",
+    "raDeg": 78.6345,
+    "decDeg": -8.2016,
+    "magnitude": 0.18
+  },
+  {
+    "id": "hip-37279",
+    "name": "Procyon",
+    "raDeg": 114.8255,
+    "decDeg": 5.225,
+    "magnitude": 0.4
+  },
+  {
+    "id": "hip-7588",
+    "name": "Achernar",
+    "raDeg": 24.4285,
+    "decDeg": -57.2368,
+    "magnitude": 0.45
+  },
+  {
+    "id": "hip-27989",
+    "name": "Betelgeuse",
+    "raDeg": 88.7929,
+    "decDeg": 7.4071,
+    "magnitude": 0.45
+  },
+  {
+    "id": "hip-68702",
+    "name": "Hadar",
+    "raDeg": 210.9559,
+    "decDeg": -60.373,
+    "magnitude": 0.61
+  },
+  {
+    "id": "hip-97649",
+    "name": "Altair",
+    "raDeg": 297.6958,
+    "decDeg": 8.8683,
+    "magnitude": 0.76
+  },
+  {
+    "id": "hip-60718",
+    "name": "Acrux",
+    "raDeg": 186.6496,
+    "decDeg": -63.0991,
+    "magnitude": 0.77
+  },
+  {
+    "id": "hip-21421",
+    "name": "Aldebaran",
+    "raDeg": 68.9802,
+    "decDeg": 16.5093,
+    "magnitude": 0.87
+  },
+  {
+    "id": "hip-65474",
+    "name": "Spica",
+    "raDeg": 201.2982,
+    "decDeg": -11.1613,
+    "magnitude": 0.98
+  },
+  {
+    "id": "hip-80763",
+    "name": "Antares",
+    "raDeg": 247.3519,
+    "decDeg": -26.432,
+    "magnitude": 1.06
+  },
+  {
+    "id": "hip-37826",
+    "name": "Pollux",
+    "raDeg": 116.329,
+    "decDeg": 28.0262,
+    "magnitude": 1.16
+  },
+  {
+    "id": "hip-113368",
+    "name": "Fomalhaut",
+    "raDeg": 344.4127,
+    "decDeg": -29.6222,
+    "magnitude": 1.17
+  },
+  {
+    "id": "hip-62434",
+    "name": "Mimosa",
+    "raDeg": 191.9303,
+    "decDeg": -59.6888,
+    "magnitude": 1.25
+  },
+  {
+    "id": "hip-102098",
+    "name": "Deneb",
+    "raDeg": 310.358,
+    "decDeg": 45.2803,
+    "magnitude": 1.25
+  },
+  {
+    "id": "hip-71681",
+    "name": "Toliman",
+    "raDeg": 219.8962,
+    "decDeg": -60.8372,
+    "magnitude": 1.35
+  },
+  {
+    "id": "hip-49669",
+    "name": "Regulus",
+    "raDeg": 152.093,
+    "decDeg": 11.9672,
+    "magnitude": 1.36
+  },
+  {
+    "id": "hip-33579",
+    "name": "Adhara",
+    "raDeg": 104.6565,
+    "decDeg": -28.9721,
+    "magnitude": 1.5
+  },
+  {
+    "id": "hip-36850",
+    "name": "Castor",
+    "raDeg": 113.6494,
+    "decDeg": 31.8883,
+    "magnitude": 1.58
+  },
+  {
+    "id": "hip-61084",
+    "name": "Gacrux",
+    "raDeg": 187.7915,
+    "decDeg": -57.1132,
+    "magnitude": 1.59
+  },
+  {
+    "id": "hip-85927",
+    "name": "Shaula",
+    "raDeg": 263.4022,
+    "decDeg": -37.1038,
+    "magnitude": 1.62
+  },
+  {
+    "id": "hip-25336",
+    "name": "Bellatrix",
+    "raDeg": 81.2828,
+    "decDeg": 6.3497,
+    "magnitude": 1.64
+  },
+  {
+    "id": "hip-25428",
+    "name": "Elnath",
+    "raDeg": 81.573,
+    "decDeg": 28.6075,
+    "magnitude": 1.65
+  },
+  {
+    "id": "hip-45238",
+    "name": "Miaplacidus",
+    "raDeg": 138.2999,
+    "decDeg": -69.7172,
+    "magnitude": 1.67
+  },
+  {
+    "id": "hip-26311",
+    "name": "Alnilam",
+    "raDeg": 84.0534,
+    "decDeg": -1.2019,
+    "magnitude": 1.69
+  },
+  {
+    "id": "hip-109268",
+    "name": "Alnair",
+    "raDeg": 332.0583,
+    "decDeg": -46.961,
+    "magnitude": 1.73
+  },
+  {
+    "id": "hip-26727",
+    "name": "Alnitak",
+    "raDeg": 85.1897,
+    "decDeg": -1.9426,
+    "magnitude": 1.74
+  },
+  {
+    "id": "hip-39953",
+    "name": "Regor",
+    "raDeg": 122.3831,
+    "decDeg": -47.3366,
+    "magnitude": 1.75
+  },
+  {
+    "id": "hip-62956",
+    "name": "Alioth",
+    "raDeg": 193.5073,
+    "decDeg": 55.9598,
+    "magnitude": 1.76
+  },
+  {
+    "id": "hip-15863",
+    "name": "Mirfak",
+    "raDeg": 51.0807,
+    "decDeg": 49.8612,
+    "magnitude": 1.79
+  },
+  {
+    "id": "hip-90185",
+    "name": "Kaus Australis",
+    "raDeg": 276.043,
+    "decDeg": -34.3846,
+    "magnitude": 1.79
+  },
+  {
+    "id": "hip-54061",
+    "name": "Dubhe",
+    "raDeg": 165.932,
+    "decDeg": 61.751,
+    "magnitude": 1.81
+  },
+  {
+    "id": "hip-34444",
+    "name": "Wezen",
+    "raDeg": 107.0979,
+    "decDeg": -26.3932,
+    "magnitude": 1.83
+  },
+  {
+    "id": "hip-67301",
+    "name": "Alkaid",
+    "raDeg": 206.8852,
+    "decDeg": 49.3133,
+    "magnitude": 1.85
+  },
+  {
+    "id": "hip-41037",
+    "name": "Avior",
+    "raDeg": 125.6285,
+    "decDeg": -59.5095,
+    "magnitude": 1.86
+  },
+  {
+    "id": "hip-86228",
+    "name": "Sargas",
+    "raDeg": 264.3297,
+    "decDeg": -42.9978,
+    "magnitude": 1.86
+  },
+  {
+    "id": "hip-28360",
+    "name": "Menkalinan",
+    "raDeg": 89.8822,
+    "decDeg": 44.9474,
+    "magnitude": 1.9
+  },
+  {
+    "id": "hip-82273",
+    "name": "Atria",
+    "raDeg": 252.1662,
+    "decDeg": -69.0277,
+    "magnitude": 1.91
+  },
+  {
+    "id": "hip-31681",
+    "name": "Alhena",
+    "raDeg": 99.4279,
+    "decDeg": 16.3993,
+    "magnitude": 1.93
+  },
+  {
+    "id": "hip-42913",
+    "name": "Alsephina",
+    "raDeg": 131.1759,
+    "decDeg": -54.7088,
+    "magnitude": 1.93
+  },
+  {
+    "id": "hip-100751",
+    "name": "Peacock",
+    "raDeg": 306.4119,
+    "decDeg": -56.7351,
+    "magnitude": 1.94
+  },
+  {
+    "id": "hip-11767",
+    "name": "Polaris",
+    "raDeg": 37.9545,
+    "decDeg": 89.2641,
+    "magnitude": 1.97
+  },
+  {
+    "id": "hip-30324",
+    "name": "Mirzam",
+    "raDeg": 95.6749,
+    "decDeg": -17.9559,
+    "magnitude": 1.98
+  },
+  {
+    "id": "hip-46390",
+    "name": "Alphard",
+    "raDeg": 141.8968,
+    "decDeg": -8.6586,
+    "magnitude": 1.99
+  },
+  {
+    "id": "hip-9884",
+    "name": "Hamal",
+    "raDeg": 31.7934,
+    "decDeg": 23.4624,
+    "magnitude": 2.01
+  },
+  {
+    "id": "hip-50583",
+    "name": "Algieba",
+    "raDeg": 154.9931,
+    "decDeg": 19.8415,
+    "magnitude": 2.01
+  },
+  {
+    "id": "hip-3419",
+    "name": "Diphda",
+    "raDeg": 10.8974,
+    "decDeg": -17.9866,
+    "magnitude": 2.04
+  },
+  {
+    "id": "hip-92855",
+    "name": "Nunki",
+    "raDeg": 283.8164,
+    "decDeg": -26.2967,
+    "magnitude": 2.05
+  },
+  {
+    "id": "hip-68933",
+    "name": "Menkent",
+    "raDeg": 211.6706,
+    "decDeg": -36.37,
+    "magnitude": 2.06
+  },
+  {
+    "id": "hip-677",
+    "name": "Alpheratz",
+    "raDeg": 2.0969,
+    "decDeg": 29.0904,
+    "magnitude": 2.07
+  },
+  {
+    "id": "hip-5447",
+    "name": "Mirach",
+    "raDeg": 17.433,
+    "decDeg": 35.6206,
+    "magnitude": 2.07
+  },
+  {
+    "id": "hip-27366",
+    "name": "Saiph",
+    "raDeg": 86.9391,
+    "decDeg": -9.6696,
+    "magnitude": 2.07
+  },
+  {
+    "id": "hip-72607",
+    "name": "Kochab",
+    "raDeg": 222.6764,
+    "decDeg": 74.1555,
+    "magnitude": 2.07
+  },
+  {
+    "id": "hip-112122",
+    "name": "Tiaki",
+    "raDeg": 340.6669,
+    "decDeg": -46.8846,
+    "magnitude": 2.07
+  },
+  {
+    "id": "hip-86032",
+    "name": "Rasalhague",
+    "raDeg": 263.7336,
+    "decDeg": 12.56,
+    "magnitude": 2.08
+  },
+  {
+    "id": "hip-14576",
+    "name": "Algol",
+    "raDeg": 47.0422,
+    "decDeg": 40.9556,
+    "magnitude": 2.09
+  },
+  {
+    "id": "hip-9640",
+    "name": "Almach",
+    "raDeg": 30.9748,
+    "decDeg": 42.3297,
+    "magnitude": 2.1
+  },
+  {
+    "id": "hip-57632",
+    "name": "Denebola",
+    "raDeg": 177.2649,
+    "decDeg": 14.5721,
+    "magnitude": 2.14
+  },
+  {
+    "id": "hip-4427",
+    "name": "Navi",
+    "raDeg": 14.1772,
+    "decDeg": 60.7167,
+    "magnitude": 2.15
+  },
+  {
+    "id": "hip-61932",
+    "name": "Muhlifain",
+    "raDeg": 190.3793,
+    "decDeg": -48.9599,
+    "magnitude": 2.2
+  },
+  {
+    "id": "hip-39429",
+    "name": "Naos",
+    "raDeg": 120.896,
+    "decDeg": -40.0031,
+    "magnitude": 2.21
+  },
+  {
+    "id": "hip-45556",
+    "name": "Aspidiske",
+    "raDeg": 139.2725,
+    "decDeg": -59.2752,
+    "magnitude": 2.21
+  },
+  {
+    "id": "hip-76267",
+    "name": "Alphecca",
+    "raDeg": 233.672,
+    "decDeg": 26.7147,
+    "magnitude": 2.22
+  },
+  {
+    "id": "hip-44816",
+    "name": "Suhail",
+    "raDeg": 136.999,
+    "decDeg": -43.4326,
+    "magnitude": 2.23
+  },
+  {
+    "id": "hip-65378",
+    "name": "Mizar",
+    "raDeg": 200.9814,
+    "decDeg": 54.9254,
+    "magnitude": 2.23
+  },
+  {
+    "id": "hip-100453",
+    "name": "Sadr",
+    "raDeg": 305.5571,
+    "decDeg": 40.2567,
+    "magnitude": 2.23
+  },
+  {
+    "id": "hip-3179",
+    "name": "Shedar",
+    "raDeg": 10.1268,
+    "decDeg": 56.5373,
+    "magnitude": 2.24
+  },
+  {
+    "id": "hip-87833",
+    "name": "Eltanin",
+    "raDeg": 269.1515,
+    "decDeg": 51.4889,
+    "magnitude": 2.24
+  },
+  {
+    "id": "hip-25930",
+    "name": "Mintaka",
+    "raDeg": 83.0017,
+    "decDeg": -0.2991,
+    "magnitude": 2.25
+  },
+  {
+    "id": "hip-746",
+    "name": "Caph",
+    "raDeg": 2.2945,
+    "decDeg": 59.1498,
+    "magnitude": 2.28
+  },
+  {
+    "id": "hip-66657",
+    "name": "ε Cen",
+    "raDeg": 204.9719,
+    "decDeg": -53.4664,
+    "magnitude": 2.29
+  },
+  {
+    "id": "hip-78401",
+    "name": "Dschubba",
+    "raDeg": 240.0834,
+    "decDeg": -22.6217,
+    "magnitude": 2.29
+  },
+  {
+    "id": "hip-82396",
+    "name": "Larawag",
+    "raDeg": 252.5409,
+    "decDeg": -34.2932,
+    "magnitude": 2.29
+  },
+  {
+    "id": "hip-71860",
+    "name": "Men",
+    "raDeg": 220.4823,
+    "decDeg": -47.3882,
+    "magnitude": 2.3
+  },
+  {
+    "id": "hip-71352",
+    "name": "η Cen",
+    "raDeg": 218.8768,
+    "decDeg": -42.1578,
+    "magnitude": 2.33
+  },
+  {
+    "id": "hip-53910",
+    "name": "Merak",
+    "raDeg": 165.4603,
+    "decDeg": 56.3824,
+    "magnitude": 2.34
+  },
+  {
+    "id": "hip-72105",
+    "name": "Izar",
+    "raDeg": 221.2467,
+    "decDeg": 27.0742,
+    "magnitude": 2.35
+  },
+  {
+    "id": "hip-107315",
+    "name": "Enif",
+    "raDeg": 326.0465,
+    "decDeg": 9.875,
+    "magnitude": 2.38
+  },
+  {
+    "id": "hip-86670",
+    "name": "Mula",
+    "raDeg": 265.622,
+    "decDeg": -39.03,
+    "magnitude": 2.39
+  },
+  {
+    "id": "hip-2081",
+    "name": "Ankaa",
+    "raDeg": 6.571,
+    "decDeg": -42.306,
+    "magnitude": 2.4
+  },
+  {
+    "id": "hip-58001",
+    "name": "Phecda",
+    "raDeg": 178.4577,
+    "decDeg": 53.6948,
+    "magnitude": 2.41
+  },
+  {
+    "id": "hip-84012",
+    "name": "Sabik",
+    "raDeg": 257.5945,
+    "decDeg": -15.7249,
+    "magnitude": 2.43
+  },
+  {
+    "id": "hip-113881",
+    "name": "Scheat",
+    "raDeg": 345.9436,
+    "decDeg": 28.0828,
+    "magnitude": 2.44
+  },
+  {
+    "id": "hip-35904",
+    "name": "Aludra",
+    "raDeg": 111.0238,
+    "decDeg": -29.3031,
+    "magnitude": 2.45
+  },
+  {
+    "id": "hip-105199",
+    "name": "Alderamin",
+    "raDeg": 319.6449,
+    "decDeg": 62.5856,
+    "magnitude": 2.45
+  },
+  {
+    "id": "hip-45941",
+    "name": "Markeb",
+    "raDeg": 140.5284,
+    "decDeg": -55.0107,
+    "magnitude": 2.47
+  },
+  {
+    "id": "hip-102488",
+    "name": "Aljanah",
+    "raDeg": 311.5528,
+    "decDeg": 33.9703,
+    "magnitude": 2.48
+  },
+  {
+    "id": "hip-113963",
+    "name": "Markab",
+    "raDeg": 346.1902,
+    "decDeg": 15.2053,
+    "magnitude": 2.49
+  },
+  {
+    "id": "hip-14135",
+    "name": "Menkar",
+    "raDeg": 45.5699,
+    "decDeg": 4.0897,
+    "magnitude": 2.54
+  },
+  {
+    "id": "hip-81377",
+    "name": "Saik",
+    "raDeg": 249.2897,
+    "decDeg": -10.5671,
+    "magnitude": 2.54
+  },
+  {
+    "id": "hip-68002",
+    "name": "Alnair",
+    "raDeg": 208.8849,
+    "decDeg": -47.2884,
+    "magnitude": 2.55
+  },
+  {
+    "id": "hip-54872",
+    "name": "Zosma",
+    "raDeg": 168.5271,
+    "decDeg": 20.5237,
+    "magnitude": 2.56
+  },
+  {
+    "id": "hip-78820",
+    "name": "Acrab",
+    "raDeg": 241.3593,
+    "decDeg": -19.8055,
+    "magnitude": 2.56
+  },
+  {
+    "id": "hip-25985",
+    "name": "Arneb",
+    "raDeg": 83.1826,
+    "decDeg": -17.8223,
+    "magnitude": 2.58
+  },
+  {
+    "id": "hip-59196",
+    "name": "δ Cen",
+    "raDeg": 182.0896,
+    "decDeg": -50.7224,
+    "magnitude": 2.58
+  },
+  {
+    "id": "hip-59803",
+    "name": "Gienah",
+    "raDeg": 183.9515,
+    "decDeg": -17.5419,
+    "magnitude": 2.58
+  },
+  {
+    "id": "hip-93506",
+    "name": "Ascella",
+    "raDeg": 285.653,
+    "decDeg": -29.8801,
+    "magnitude": 2.6
+  },
+  {
+    "id": "hip-74785",
+    "name": "Zubeneschamali",
+    "raDeg": 229.2517,
+    "decDeg": -9.3829,
+    "magnitude": 2.61
+  },
+  {
+    "id": "hip-77070",
+    "name": "Unukalhai",
+    "raDeg": 236.067,
+    "decDeg": 6.4256,
+    "magnitude": 2.63
+  },
+  {
+    "id": "hip-8903",
+    "name": "Sheratan",
+    "raDeg": 28.66,
+    "decDeg": 20.808,
+    "magnitude": 2.64
+  },
+  {
+    "id": "hip-26634",
+    "name": "Phact",
+    "raDeg": 84.9122,
+    "decDeg": -34.0741,
+    "magnitude": 2.65
+  },
+  {
+    "id": "hip-28380",
+    "name": "Mahasim",
+    "raDeg": 89.9303,
+    "decDeg": 37.2126,
+    "magnitude": 2.65
+  },
+  {
+    "id": "hip-61359",
+    "name": "Kraz",
+    "raDeg": 188.5968,
+    "decDeg": -23.3968,
+    "magnitude": 2.65
+  },
+  {
+    "id": "hip-6686",
+    "name": "Ruchbah",
+    "raDeg": 21.454,
+    "decDeg": 60.2353,
+    "magnitude": 2.66
+  },
+  {
+    "id": "hip-67927",
+    "name": "Muphrid",
+    "raDeg": 208.6712,
+    "decDeg": 18.3977,
+    "magnitude": 2.68
+  },
+  {
+    "id": "hip-73273",
+    "name": "KeKouan",
+    "raDeg": 224.633,
+    "decDeg": -43.134,
+    "magnitude": 2.68
+  },
+  {
+    "id": "hip-23015",
+    "name": "Hassaleh",
+    "raDeg": 74.2484,
+    "decDeg": 33.1661,
+    "magnitude": 2.69
+  },
+  {
+    "id": "hip-52727",
+    "name": "μ Vel",
+    "raDeg": 161.6924,
+    "decDeg": -49.4203,
+    "magnitude": 2.69
+  },
+  {
+    "id": "hip-61585",
+    "name": "α Mus",
+    "raDeg": 189.2959,
+    "decDeg": -69.1356,
+    "magnitude": 2.69
+  },
+  {
+    "id": "hip-85696",
+    "name": "Lesath",
+    "raDeg": 262.691,
+    "decDeg": -37.2958,
+    "magnitude": 2.7
+  },
+  {
+    "id": "hip-35264",
+    "name": "π Pup",
+    "raDeg": 109.2857,
+    "decDeg": -37.0975,
+    "magnitude": 2.71
+  },
+  {
+    "id": "hip-89931",
+    "name": "Kaus Media",
+    "raDeg": 275.2485,
+    "decDeg": -29.8281,
+    "magnitude": 2.72
+  },
+  {
+    "id": "hip-97278",
+    "name": "Tarazed",
+    "raDeg": 296.5649,
+    "decDeg": 10.6133,
+    "magnitude": 2.72
+  },
+  {
+    "id": "hip-79593",
+    "name": "Yed Prior",
+    "raDeg": 243.5864,
+    "decDeg": -3.6943,
+    "magnitude": 2.73
+  },
+  {
+    "id": "hip-80331",
+    "name": "Athebyne",
+    "raDeg": 245.9979,
+    "decDeg": 61.5142,
+    "magnitude": 2.73
+  },
+  {
+    "id": "hip-52419",
+    "name": "θ Car",
+    "raDeg": 160.7392,
+    "decDeg": -64.3945,
+    "magnitude": 2.74
+  },
+  {
+    "id": "hip-61941",
+    "name": "Porrima",
+    "raDeg": 190.4152,
+    "decDeg": -1.4494,
+    "magnitude": 2.74
+  },
+  {
+    "id": "hip-26241",
+    "name": "Hatysa",
+    "raDeg": 83.8583,
+    "decDeg": -5.9099,
+    "magnitude": 2.75
+  },
+  {
+    "id": "hip-65109",
+    "name": "ι Cen",
+    "raDeg": 200.1492,
+    "decDeg": -36.7123,
+    "magnitude": 2.75
+  },
+  {
+    "id": "hip-72622",
+    "name": "Zubenelgenubi",
+    "raDeg": 222.7196,
+    "decDeg": -16.0418,
+    "magnitude": 2.75
+  },
+  {
+    "id": "hip-86742",
+    "name": "Cebalrai",
+    "raDeg": 265.8681,
+    "decDeg": 4.5673,
+    "magnitude": 2.76
+  },
+  {
+    "id": "hip-23875",
+    "name": "Cursa",
+    "raDeg": 76.9624,
+    "decDeg": -5.0864,
+    "magnitude": 2.78
+  },
+  {
+    "id": "hip-80816",
+    "name": "Kornephoros",
+    "raDeg": 247.555,
+    "decDeg": 21.4896,
+    "magnitude": 2.78
+  },
+  {
+    "id": "hip-84345",
+    "name": "Rasalgethi",
+    "raDeg": 258.6619,
+    "decDeg": 14.3903,
+    "magnitude": 2.78
+  },
+  {
+    "id": "hip-59747",
+    "name": "Imai",
+    "raDeg": 183.7863,
+    "decDeg": -58.7489,
+    "magnitude": 2.79
+  },
+  {
+    "id": "hip-85670",
+    "name": "Rastaban",
+    "raDeg": 262.6082,
+    "decDeg": 52.3014,
+    "magnitude": 2.79
+  },
+  {
+    "id": "hip-76297",
+    "name": "γ Lup",
+    "raDeg": 233.7852,
+    "decDeg": -41.1668,
+    "magnitude": 2.8
+  },
+  {
+    "id": "hip-25606",
+    "name": "Nihal",
+    "raDeg": 82.0613,
+    "decDeg": -20.7594,
+    "magnitude": 2.81
+  },
+  {
+    "id": "hip-81693",
+    "name": "Rutilicus",
+    "raDeg": 250.3215,
+    "decDeg": 31.6027,
+    "magnitude": 2.81
+  },
+  {
+    "id": "hip-2021",
+    "name": "β Hyi",
+    "raDeg": 6.4378,
+    "decDeg": -77.2542,
+    "magnitude": 2.82
+  },
+  {
+    "id": "hip-81266",
+    "name": "Paikauhale",
+    "raDeg": 248.9706,
+    "decDeg": -28.216,
+    "magnitude": 2.82
+  },
+  {
+    "id": "hip-90496",
+    "name": "Kaus Borealis",
+    "raDeg": 276.9927,
+    "decDeg": -25.4217,
+    "magnitude": 2.82
+  },
+  {
+    "id": "hip-1067",
+    "name": "Algenib",
+    "raDeg": 3.309,
+    "decDeg": 15.1836,
+    "magnitude": 2.83
+  },
+  {
+    "id": "hip-39757",
+    "name": "Tureis",
+    "raDeg": 121.886,
+    "decDeg": -24.3043,
+    "magnitude": 2.83
+  },
+  {
+    "id": "hip-77952",
+    "name": "β TrA",
+    "raDeg": 238.7857,
+    "decDeg": -63.4307,
+    "magnitude": 2.83
+  },
+  {
+    "id": "hip-18246",
+    "name": "Atik",
+    "raDeg": 58.533,
+    "decDeg": 31.8836,
+    "magnitude": 2.84
+  },
+  {
+    "id": "hip-85258",
+    "name": "β Ara",
+    "raDeg": 261.325,
+    "decDeg": -55.5299,
+    "magnitude": 2.84
+  },
+  {
+    "id": "hip-85792",
+    "name": "Choo",
+    "raDeg": 262.9604,
+    "decDeg": -49.8761,
+    "magnitude": 2.84
+  },
+  {
+    "id": "hip-17702",
+    "name": "Alcyone",
+    "raDeg": 56.8712,
+    "decDeg": 24.1051,
+    "magnitude": 2.85
+  },
+  {
+    "id": "hip-63608",
+    "name": "Vindemiatrix",
+    "raDeg": 195.5442,
+    "decDeg": 10.9592,
+    "magnitude": 2.85
+  },
+  {
+    "id": "hip-107556",
+    "name": "Deneb Algedi",
+    "raDeg": 326.7602,
+    "decDeg": -16.1273,
+    "magnitude": 2.85
+  },
+  {
+    "id": "hip-9236",
+    "name": "α Hyi",
+    "raDeg": 29.6925,
+    "decDeg": -61.5699,
+    "magnitude": 2.86
+  },
+  {
+    "id": "hip-97165",
+    "name": "Fawaris",
+    "raDeg": 296.2437,
+    "decDeg": 45.1308,
+    "magnitude": 2.86
+  },
+  {
+    "id": "hip-30343",
+    "name": "Tejat",
+    "raDeg": 95.7401,
+    "decDeg": 22.5136,
+    "magnitude": 2.87
+  },
+  {
+    "id": "hip-74946",
+    "name": "γ TrA",
+    "raDeg": 229.7274,
+    "decDeg": -68.6795,
+    "magnitude": 2.87
+  },
+  {
+    "id": "hip-110130",
+    "name": "α Tuc",
+    "raDeg": 334.6254,
+    "decDeg": -60.2596,
+    "magnitude": 2.87
+  },
+  {
+    "id": "hip-13847",
+    "name": "Acamar",
+    "raDeg": 44.5653,
+    "decDeg": -40.3047,
+    "magnitude": 2.88
+  },
+  {
+    "id": "hip-94141",
+    "name": "Albaldah",
+    "raDeg": 287.441,
+    "decDeg": -21.0236,
+    "magnitude": 2.88
+  },
+  {
+    "id": "hip-36188",
+    "name": "Gomeisa",
+    "raDeg": 111.7877,
+    "decDeg": 8.2893,
+    "magnitude": 2.89
+  },
+  {
+    "id": "hip-63125",
+    "name": "Cor Caroli",
+    "raDeg": 194.0069,
+    "decDeg": 38.3184,
+    "magnitude": 2.89
+  },
+  {
+    "id": "hip-78265",
+    "name": "Fang",
+    "raDeg": 239.713,
+    "decDeg": -26.1141,
+    "magnitude": 2.89
+  },
+  {
+    "id": "hip-18532",
+    "name": "ε Per",
+    "raDeg": 59.4635,
+    "decDeg": 40.0102,
+    "magnitude": 2.9
+  },
+  {
+    "id": "hip-80112",
+    "name": "Alniyat",
+    "raDeg": 245.2972,
+    "decDeg": -25.5928,
+    "magnitude": 2.9
+  },
+  {
+    "id": "hip-106278",
+    "name": "Sadalsuud",
+    "raDeg": 322.8897,
+    "decDeg": -5.5712,
+    "magnitude": 2.9
+  },
+  {
+    "id": "hip-14328",
+    "name": "γ Per",
+    "raDeg": 46.1991,
+    "decDeg": 53.5064,
+    "magnitude": 2.91
+  },
+  {
+    "id": "hip-48002",
+    "name": "υ Car",
+    "raDeg": 146.7755,
+    "decDeg": -65.072,
+    "magnitude": 2.92
+  },
+  {
+    "id": "hip-112158",
+    "name": "Matar",
+    "raDeg": 340.7506,
+    "decDeg": 30.2212,
+    "magnitude": 2.93
+  },
+  {
+    "id": "hip-32768",
+    "name": "τ Pup",
+    "raDeg": 102.484,
+    "decDeg": -50.6146,
+    "magnitude": 2.94
+  },
+  {
+    "id": "hip-60965",
+    "name": "Algorab",
+    "raDeg": 187.4661,
+    "decDeg": -16.5154,
+    "magnitude": 2.94
+  },
+  {
+    "id": "hip-109074",
+    "name": "Sadalmelik",
+    "raDeg": 331.446,
+    "decDeg": -0.3199,
+    "magnitude": 2.95
+  },
+  {
+    "id": "hip-18543",
+    "name": "Zaurak",
+    "raDeg": 59.5074,
+    "decDeg": -13.5085,
+    "magnitude": 2.97
+  },
+  {
+    "id": "hip-26451",
+    "name": "Tianguan",
+    "raDeg": 84.4112,
+    "decDeg": 21.1425,
+    "magnitude": 2.97
+  },
+  {
+    "id": "hip-47908",
+    "name": "Algenubi",
+    "raDeg": 146.4628,
+    "decDeg": 23.7743,
+    "magnitude": 2.97
+  },
+  {
+    "id": "hip-88635",
+    "name": "Alnasl",
+    "raDeg": 271.452,
+    "decDeg": -30.4241,
+    "magnitude": 2.98
+  },
+  {
+    "id": "hip-64962",
+    "name": "γ Hya",
+    "raDeg": 199.7304,
+    "decDeg": -23.1715,
+    "magnitude": 2.99
+  },
+  {
+    "id": "hip-87073",
+    "name": "Girtab",
+    "raDeg": 266.8962,
+    "decDeg": -40.127,
+    "magnitude": 2.99
+  },
+  {
+    "id": "hip-93747",
+    "name": "Okab",
+    "raDeg": 286.3525,
+    "decDeg": 13.8635,
+    "magnitude": 2.99
+  },
+  {
+    "id": "hip-10064",
+    "name": "Mizan",
+    "raDeg": 32.3859,
+    "decDeg": 34.9873,
+    "magnitude": 3
+  },
+  {
+    "id": "hip-54539",
+    "name": "ψ UMa",
+    "raDeg": 167.4159,
+    "decDeg": 44.4985,
+    "magnitude": 3
+  },
+  {
+    "id": "hip-75097",
+    "name": "Pherkad",
+    "raDeg": 230.1821,
+    "decDeg": 71.834,
+    "magnitude": 3
+  },
+  {
+    "id": "hip-82514",
+    "name": "Xamidimura",
+    "raDeg": 252.9676,
+    "decDeg": -38.0474,
+    "magnitude": 3
+  },
+  {
+    "id": "hip-108085",
+    "name": "Aldhanab",
+    "raDeg": 328.4822,
+    "decDeg": -37.3649,
+    "magnitude": 3
+  },
+  {
+    "id": "hip-17358",
+    "name": "δ Per",
+    "raDeg": 55.7313,
+    "decDeg": 47.7876,
+    "magnitude": 3.01
+  },
+  {
+    "id": "hip-30122",
+    "name": "Furud",
+    "raDeg": 95.0783,
+    "decDeg": -30.0634,
+    "magnitude": 3.02
+  },
+  {
+    "id": "hip-33977",
+    "name": "Al Zara",
+    "raDeg": 105.7561,
+    "decDeg": -23.8333,
+    "magnitude": 3.02
+  },
+  {
+    "id": "hip-59316",
+    "name": "Minkar",
+    "raDeg": 182.5312,
+    "decDeg": -22.6198,
+    "magnitude": 3.02
+  },
+  {
+    "id": "hip-23416",
+    "name": "Almaaz",
+    "raDeg": 75.4922,
+    "decDeg": 43.8233,
+    "magnitude": 3.03
+  },
+  {
+    "id": "hip-62322",
+    "name": "β Mus",
+    "raDeg": 191.57,
+    "decDeg": -68.1081,
+    "magnitude": 3.04
+  },
+  {
+    "id": "hip-71075",
+    "name": "Seginus",
+    "raDeg": 218.0195,
+    "decDeg": 38.3083,
+    "magnitude": 3.04
+  },
+  {
+    "id": "hip-95947",
+    "name": "Albireo",
+    "raDeg": 292.6803,
+    "decDeg": 27.9597,
+    "magnitude": 3.05
+  },
+  {
+    "id": "hip-100345",
+    "name": "Dabih",
+    "raDeg": 305.2528,
+    "decDeg": -14.7814,
+    "magnitude": 3.05
+  },
+  {
+    "id": "hip-32246",
+    "name": "Mebsuta",
+    "raDeg": 100.983,
+    "decDeg": 25.1311,
+    "magnitude": 3.06
+  },
+  {
+    "id": "hip-50801",
+    "name": "Tania Australis",
+    "raDeg": 155.5823,
+    "decDeg": 41.4995,
+    "magnitude": 3.06
+  },
+  {
+    "id": "hip-94376",
+    "name": "Altais",
+    "raDeg": 288.1388,
+    "decDeg": 67.6615,
+    "magnitude": 3.07
+  },
+  {
+    "id": "hip-89642",
+    "name": "Hamalwarid",
+    "raDeg": 274.4068,
+    "decDeg": -36.7617,
+    "magnitude": 3.1
+  },
+  {
+    "id": "hip-43813",
+    "name": "ζ Hya",
+    "raDeg": 133.8484,
+    "decDeg": 5.9456,
+    "magnitude": 3.11
+  },
+  {
+    "id": "hip-52943",
+    "name": "ν Hya",
+    "raDeg": 162.4062,
+    "decDeg": -16.1936,
+    "magnitude": 3.11
+  },
+  {
+    "id": "hip-56561",
+    "name": "λ Cen",
+    "raDeg": 173.9454,
+    "decDeg": -63.0198,
+    "magnitude": 3.11
+  },
+  {
+    "id": "hip-101772",
+    "name": "Persian",
+    "raDeg": 309.3918,
+    "decDeg": -47.2915,
+    "magnitude": 3.11
+  },
+  {
+    "id": "hip-27628",
+    "name": "Wazn",
+    "raDeg": 87.74,
+    "decDeg": -35.7683,
+    "magnitude": 3.12
+  },
+  {
+    "id": "hip-44127",
+    "name": "Talitha",
+    "raDeg": 134.8019,
+    "decDeg": 48.0418,
+    "magnitude": 3.12
+  },
+  {
+    "id": "hip-83081",
+    "name": "ζ Ara",
+    "raDeg": 254.655,
+    "decDeg": -55.9901,
+    "magnitude": 3.12
+  },
+  {
+    "id": "hip-84379",
+    "name": "Sarin",
+    "raDeg": 258.758,
+    "decDeg": 24.8392,
+    "magnitude": 3.12
+  },
+  {
+    "id": "hip-73334",
+    "name": "Ke Kwan",
+    "raDeg": 224.7904,
+    "decDeg": -42.1042,
+    "magnitude": 3.13
+  },
+  {
+    "id": "hip-45860",
+    "name": "α Lyn",
+    "raDeg": 140.2638,
+    "decDeg": 34.3926,
+    "magnitude": 3.14
+  }
+]

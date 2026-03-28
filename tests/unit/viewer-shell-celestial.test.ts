@@ -2279,7 +2279,7 @@ describe('ViewerShell celestial behavior', () => {
               typeLabel: 'Aircraft',
               altitudeFeet: 35000,
               altitudeMeters: 10668,
-              headingCardinal: 'SE',
+              trackCardinal: 'SE',
               speedKph: 864,
               rangeKm: 31.8,
               originCountry: 'Canada',

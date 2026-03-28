@@ -1,0 +1,161 @@
+[
+  {
+    "object": {
+      "id": "25544",
+      "type": "satellite",
+      "label": "ISS (ZARYA)",
+      "azimuthDeg": 16,
+      "elevationDeg": 42,
+      "rangeKm": 410.4,
+      "importance": 88,
+      "metadata": {
+        "isIss": true
+      }
+    },
+    "projection": {
+      "visible": true,
+      "inViewport": true,
+      "inOverscan": true,
+      "x": 198,
+      "y": 420,
+      "angularDistanceDeg": 0.6
+    }
+  },
+  {
+    "object": {
+      "id": "moon",
+      "type": "moon",
+      "label": "Moon",
+      "azimuthDeg": 15,
+      "elevationDeg": 39,
+      "importance": 96,
+      "metadata": {}
+    },
+    "projection": {
+      "visible": true,
+      "inViewport": true,
+      "inOverscan": true,
+      "x": 198,
+      "y": 420,
+      "angularDistanceDeg": 0.7
+    }
+  },
+  {
+    "object": {
+      "id": "icao24-alpha",
+      "type": "aircraft",
+      "label": "UAL123",
+      "azimuthDeg": 15,
+      "elevationDeg": 35,
+      "rangeKm": 31.8,
+      "importance": 84,
+      "metadata": {}
+    },
+    "projection": {
+      "visible": true,
+      "inViewport": true,
+      "inOverscan": true,
+      "x": 198,
+      "y": 420,
+      "angularDistanceDeg": 0.9
+    }
+  },
+  {
+    "object": {
+      "id": "icao24-bravo",
+      "type": "aircraft",
+      "label": "DAL456",
+      "azimuthDeg": 16,
+      "elevationDeg": 34,
+      "rangeKm": 41.4,
+      "importance": 83,
+      "metadata": {}
+    },
+    "projection": {
+      "visible": true,
+      "inViewport": true,
+      "inOverscan": true,
+      "x": 198,
+      "y": 420,
+      "angularDistanceDeg": 1.1
+    }
+  },
+  {
+    "object": {
+      "id": "sun",
+      "type": "sun",
+      "label": "Sun",
+      "azimuthDeg": 14,
+      "elevationDeg": 28,
+      "importance": 90,
+      "metadata": {}
+    },
+    "projection": {
+      "visible": true,
+      "inViewport": true,
+      "inOverscan": true,
+      "x": 214,
+      "y": 436,
+      "angularDistanceDeg": 1.3
+    }
+  },
+  {
+    "object": {
+      "id": "planet-venus",
+      "type": "planet",
+      "label": "Venus",
+      "azimuthDeg": 5,
+      "elevationDeg": 21,
+      "magnitude": -4.2,
+      "importance": 82,
+      "metadata": {}
+    },
+    "projection": {
+      "visible": true,
+      "inViewport": false,
+      "inOverscan": true,
+      "x": -18,
+      "y": 168,
+      "angularDistanceDeg": 3.8
+    }
+  },
+  {
+    "object": {
+      "id": "hip-32349",
+      "type": "star",
+      "label": "Sirius",
+      "azimuthDeg": 55,
+      "elevationDeg": 26,
+      "magnitude": -1.46,
+      "importance": 82,
+      "metadata": {}
+    },
+    "projection": {
+      "visible": true,
+      "inViewport": true,
+      "inOverscan": true,
+      "x": 280,
+      "y": 496,
+      "angularDistanceDeg": 5.1
+    }
+  },
+  {
+    "object": {
+      "id": "constellation-cygnus",
+      "type": "constellation",
+      "label": "Cygnus",
+      "azimuthDeg": 68,
+      "elevationDeg": 44,
+      "importance": 28,
+      "metadata": {}
+    },
+    "projection": {
+      "visible": true,
+      "inViewport": true,
+      "inOverscan": true,
+      "x": 305,
+      "y": 310,
+      "angularDistanceDeg": 7.2
+    }
+  }
+]
