@@ -1,0 +1,20 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260328T053410Z-e3305539" ts="2026-03-28T05:34:10.479235+00:00" />
+Treat the requested bottom stage control area as the mobile quick-actions block in ViewerShell rather than the settings sheet or desktop dock.
+Persist marker scale in the existing viewer settings payload as an optional field defaulting and clamping to 1..4 so older localStorage payloads remain readable.
+Apply marker scale after computing the scale-1 marker size so star markers can be 1 px at scale 1 and exactly 4 px at scale 4, while non-star minimums stay unchanged at scale 1.
+<autoloop-decisions-header version="1" block_seq="2" owner="implementer" phase_id="marker-scale-stage-controls" pair="implement" turn_seq="1" run_id="run-20260328T053410Z-e3305539" ts="2026-03-28T05:37:03.023083+00:00" />
+Change the star base-size branch itself to `1 + magnitudeBoost * 2`; removing only the shared minimum clamp would still leave stars at 6 px because the prior star formula already started at 6 px.
+<autoloop-decisions-header version="1" block_seq="3" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260328T053800Z-2c336be1" ts="2026-03-28T05:38:00.821535+00:00" />
+Reuse the existing ViewerSettings.markerScale field and clamp behavior; this task should not expand into new viewer-settings schema or storage-key changes.
+Implement the slider in ViewerShell's mobile quick-actions block above the existing buttons, because that is the current bottom stage control area named in the request.
+Compute the scale-1 marker size first, then apply markerScale, so the star-specific 1 px minimum and the required 1 px to 4 px behavior remain exact.
+<autoloop-decisions-header version="1" block_seq="4" owner="implementer" phase_id="marker-scale-stage-controls" pair="implement" turn_seq="1" run_id="run-20260328T053800Z-2c336be1" ts="2026-03-28T05:39:53.435721+00:00" />
+Star marker sizing must remove the leftover 6 px base in the star branch; otherwise the new 1 px minimum and 1->4 scale behavior never become reachable for dim stars even though the slider and post-scale floor logic are wired correctly.
+<autoloop-decisions-header version="1" block_seq="5" owner="implementer" phase_id="marker-scale-stage-controls" pair="implement" turn_seq="2" run_id="run-20260328T053410Z-e3305539" ts="2026-03-28T05:43:13.201091+00:00" />
+Preserve the legacy scale-1 star size for stars already above 6 px and only relax floored stars below 6 px; this satisfies the new 1 px minimum without shrinking ordinary stars at markerScale 1.
+<autoloop-decisions-header version="1" block_seq="6" owner="implementer" phase_id="marker-scale-stage-controls" pair="implement" turn_seq="2" run_id="run-20260328T053800Z-2c336be1" ts="2026-03-28T05:44:06.469855+00:00" />
+Preserve the legacy star size curve for stars that already resolved above 6 px at scale 1, and only switch to the relaxed 1 px curve when the legacy computation would have collapsed to the former 6 px floor.
+<autoloop-decisions-header version="1" block_seq="7" owner="test_author" phase_id="marker-scale-stage-controls" pair="test" turn_seq="1" run_id="run-20260328T053410Z-e3305539" ts="2026-03-28T05:45:46.089092+00:00" />
+Exercise marker-scale persistence with an in-test unmount/remount of ViewerShell so the test validates the real hydration path from localStorage without introducing browser-reload flake.
+<autoloop-decisions-header version="1" block_seq="8" owner="test_author" phase_id="marker-scale-stage-controls" pair="test" turn_seq="1" run_id="run-20260328T053800Z-2c336be1" ts="2026-03-28T05:46:06.416775+00:00" />
+Treat the initial low-quality motion-affordance vector in the celestial test as optional but require it to be zero-length when present, because the window timer harness runs zero-delay callbacks immediately before any scene-time advancement.

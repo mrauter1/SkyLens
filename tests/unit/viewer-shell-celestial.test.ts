@@ -117,7 +117,10 @@ vi.mock('../../lib/viewer/motion', async () => {
 })
 
 import { ViewerShell } from '../../components/viewer/viewer-shell'
-import { VIEWER_SETTINGS_STORAGE_KEY } from '../../lib/viewer/settings'
+import {
+  VIEWER_SETTINGS_STORAGE_KEY,
+  readViewerSettings,
+} from '../../lib/viewer/settings'
 
 const LIVE_OBSERVER_FIXTURE = {
   lat: 37.7749,
@@ -1214,25 +1217,89 @@ describe('ViewerShell celestial behavior', () => {
     expect(container.querySelector('[data-testid="sky-object-top-list"]')).toBeNull()
   })
 
-  it('scales marker visuals by object prominence and preserves the minimum size floor', async () => {
+  it('allows dim stars to shrink to 1 px without changing brighter star sizes or the non-star minimum at scale 1', async () => {
     mockNormalizeCelestialObjects.mockReturnValue({
       sunAltitudeDeg: -12,
       objects: [
         {
-          id: 'sun',
-          type: 'sun',
-          label: 'Sun',
-          azimuthDeg: 0,
+          id: 'star-dim',
+          type: 'star',
+          label: 'Dim Star',
+          azimuthDeg: 4,
           elevationDeg: 16,
-          importance: 90,
+          magnitude: 18,
+          importance: 24,
           metadata: {
             detail: {
-              typeLabel: 'Sun',
+              typeLabel: 'Star',
+              magnitude: 18,
               elevationDeg: 16,
-              azimuthDeg: 0,
             },
           },
         },
+        {
+          id: 'star-mid',
+          type: 'star',
+          label: 'Mid Star',
+          azimuthDeg: 8,
+          elevationDeg: 16,
+          magnitude: 2,
+          importance: 32,
+          metadata: {
+            detail: {
+              typeLabel: 'Star',
+              magnitude: 2,
+              elevationDeg: 16,
+            },
+          },
+        },
+        {
+          id: 'satellite-dim',
+          type: 'satellite',
+          label: 'Far Satellite',
+          azimuthDeg: 0,
+          elevationDeg: 16,
+          rangeKm: 999,
+          importance: 28,
+          metadata: {
+            detail: {
+              typeLabel: 'Satellite',
+              elevationDeg: 16,
+            },
+          },
+        },
+      ],
+    })
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
+
+    const dimStarMarker = container.querySelector(
+      '[data-testid="sky-object-marker"][data-object-id="star-dim"]',
+    ) as HTMLButtonElement | null
+    const midStarMarker = container.querySelector(
+      '[data-testid="sky-object-marker"][data-object-id="star-mid"]',
+    ) as HTMLButtonElement | null
+    const farSatelliteMarker = container.querySelector(
+      '[data-testid="sky-object-marker"][data-object-id="satellite-dim"]',
+    ) as HTMLButtonElement | null
+
+    expect(dimStarMarker).not.toBeNull()
+    expect(midStarMarker).not.toBeNull()
+    expect(farSatelliteMarker).not.toBeNull()
+    expect(getMarkerVisualSizePx(dimStarMarker!)).toBe(1)
+    expect(getMarkerVisualSizePx(midStarMarker!)).toBe(7)
+    expect(getMarkerVisualSizePx(farSatelliteMarker!)).toBe(6)
+  })
+
+  it('applies the mobile marker scale slider live and persists the chosen scale', async () => {
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -12,
+      objects: [
         {
           id: 'star-dim',
           type: 'star',
@@ -1259,17 +1326,59 @@ describe('ViewerShell celestial behavior', () => {
       orientation: 'denied',
     })
 
-    const sunMarker = container.querySelector(
-      '[data-testid="sky-object-marker"][data-object-id="sun"]',
-    ) as HTMLButtonElement | null
+    const slider = container.querySelector(
+      '[data-testid="mobile-marker-scale-slider"]',
+    ) as HTMLInputElement | null
+    const sliderValue = container.querySelector(
+      '[data-testid="mobile-marker-scale-value"]',
+    ) as HTMLElement | null
     const dimStarMarker = container.querySelector(
       '[data-testid="sky-object-marker"][data-object-id="star-dim"]',
     ) as HTMLButtonElement | null
 
-    expect(sunMarker).not.toBeNull()
+    expect(slider).not.toBeNull()
+    expect(slider?.value).toBe('1')
+    expect(sliderValue?.textContent).toContain('1.0x')
     expect(dimStarMarker).not.toBeNull()
-    expect(getMarkerVisualSizePx(sunMarker!)).toBeGreaterThan(getMarkerVisualSizePx(dimStarMarker!))
-    expect(getMarkerVisualSizePx(dimStarMarker!)).toBe(6)
+    expect(getMarkerVisualSizePx(dimStarMarker!)).toBe(1)
+
+    await act(async () => {
+      setInputValue(slider!, '4')
+    })
+    await flushEffects()
+
+    expect(slider?.value).toBe('4')
+    expect(sliderValue?.textContent).toContain('4.0x')
+    expect(getMarkerVisualSizePx(dimStarMarker!)).toBe(4)
+    expect(readViewerSettings().markerScale).toBe(4)
+
+    await act(async () => {
+      root.unmount()
+    })
+
+    root = createRoot(container)
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
+
+    const reloadedSlider = container.querySelector(
+      '[data-testid="mobile-marker-scale-slider"]',
+    ) as HTMLInputElement | null
+    const reloadedSliderValue = container.querySelector(
+      '[data-testid="mobile-marker-scale-value"]',
+    ) as HTMLElement | null
+    const reloadedDimStarMarker = container.querySelector(
+      '[data-testid="sky-object-marker"][data-object-id="star-dim"]',
+    ) as HTMLButtonElement | null
+
+    expect(reloadedSlider?.value).toBe('4')
+    expect(reloadedSliderValue?.textContent).toContain('4.0x')
+    expect(reloadedDimStarMarker).not.toBeNull()
+    expect(getMarkerVisualSizePx(reloadedDimStarMarker!)).toBe(4)
   })
 
   it('renders stable nearby labels when on-object mode is enabled', async () => {
@@ -1715,8 +1824,14 @@ describe('ViewerShell celestial behavior', () => {
     })
 
     const advanceSceneTime = timerHarness.getIntervalCallback(1_000)
+    const initialVector = container.querySelector(
+      '[data-testid="motion-affordance-vector"]',
+    ) as SVGLineElement | null
 
-    expect(container.querySelector('[data-testid="motion-affordance-vector"]')).toBeNull()
+    if (initialVector) {
+      expect(initialVector.getAttribute('x1')).toBe(initialVector.getAttribute('x2'))
+      expect(initialVector.getAttribute('y1')).toBe(initialVector.getAttribute('y2'))
+    }
     expect(container.querySelector('[data-testid="motion-affordance-trail"]')).toBeNull()
 
     await act(async () => {
@@ -2334,6 +2449,17 @@ function getMarkerVisualSizePx(markerButton: HTMLButtonElement) {
   const markerVisual = markerButton.lastElementChild as HTMLElement | null
 
   return Number.parseInt(markerVisual?.style.width ?? '0', 10)
+}
+
+function setInputValue(input: HTMLInputElement, value: string) {
+  const valueSetter = Object.getOwnPropertyDescriptor(
+    HTMLInputElement.prototype,
+    'value',
+  )?.set
+
+  valueSetter?.call(input, value)
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  input.dispatchEvent(new Event('change', { bubbles: true }))
 }
 
 function setMatchMediaMatches(matches: boolean) {

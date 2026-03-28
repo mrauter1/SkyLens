@@ -1,0 +1,50 @@
+version: 1
+task_id: autoloop-task-star-marker-minimum-stage-scale-sl-436d95b6
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/autoloop-task-star-marker-minimum-stage-scale-sl-436d95b6/runs/run-20260328T053800Z-2c336be1/request.md
+phases:
+- phase_id: marker-scale-stage-controls
+  title: Implement marker scale setting and star minimum sizing
+  objective: Add a persisted marker scale control in the stage quick-actions area
+    and update marker size math so stars can render at 1 px minimum without regressing
+    existing non-star behavior at scale 1.
+  status: planned
+  in_scope:
+  - Reuse the existing viewer settings markerScale field as the stage marker scaling
+    source of truth.
+  - Adjust stage marker sizing math for star-specific minimum sizing plus proportional
+    scale multiplication.
+  - Add the mobile stage quick-actions slider above the existing action buttons with
+    live updates.
+  - Add or update unit tests for sizing math, slider behavior, and persistence.
+  out_of_scope:
+  - Reworking desktop viewer dock layout.
+  - Moving the control into the settings sheet unless a small shared-control reuse
+    is needed to reduce risk.
+  - Changing unrelated marker styling, label placement, or ranking behavior.
+  dependencies: []
+  acceptance_criteria:
+  - id: AC-1
+    text: Stars can render at 1 px minimum at marker scale 1 while non-star marker
+      minimum behavior remains unchanged at marker scale 1.
+  - id: AC-2
+    text: A marker scale slider labeled clearly with its numeric value appears above
+      the bottom stage action buttons and updates marker sizes live.
+  - id: AC-3
+    text: Marker scale persists through the existing viewer settings architecture
+      by reusing the already-supported markerScale field, with older storage payloads
+      still hydrating to the default scale of 1.
+  - id: AC-4
+    text: Unit tests cover the star minimum, scale=4 multiplier behavior, and slider
+      persistence/update flow.
+  deliverables:
+  - Updated viewer marker sizing and stage quick-actions UI.
+  - Marker scale wired into the existing viewer settings persistence flow.
+  - Updated Vitest unit coverage and recorded test command results.
+  risks:
+  - Incorrect sizing-order math could break the required 1 px to 4 px scaling invariant.
+  - Added quick-actions UI could regress mobile action accessibility or crowding.
+  - Slider updates could bypass the existing normalized write path if wired outside
+    viewerSettings state.
+  rollback:
+  - Remove the marker scale setting and quick-actions slider from ViewerShell.
+  - Revert marker sizing to the previous global 6 px minimum if regressions surface.

@@ -118,6 +118,7 @@ describe('ViewerShell settings integration', () => {
       likelyVisibleOnly: false,
       labelDisplayMode: 'on_objects',
       motionQuality: 'balanced',
+      markerScale: 1,
       alignmentTargetPreference: null,
       verticalFovAdjustmentDeg: 6,
       onboardingCompleted: false,
@@ -147,6 +148,50 @@ describe('ViewerShell settings integration', () => {
     )
 
     expect(readViewerSettings().alignmentTargetPreference).toBe('moon')
+  })
+
+  it('clamps persisted marker scale values into the supported 1x to 4x range', () => {
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabledLayers: {
+          aircraft: false,
+          satellites: true,
+          planets: true,
+          stars: true,
+          constellations: true,
+        },
+        likelyVisibleOnly: false,
+        labelDisplayMode: 'on_objects',
+        motionQuality: 'balanced',
+        markerScale: 9,
+        verticalFovAdjustmentDeg: 6,
+        onboardingCompleted: false,
+      }),
+    )
+
+    expect(readViewerSettings().markerScale).toBe(4)
+
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabledLayers: {
+          aircraft: false,
+          satellites: true,
+          planets: true,
+          stars: true,
+          constellations: true,
+        },
+        likelyVisibleOnly: false,
+        labelDisplayMode: 'on_objects',
+        motionQuality: 'balanced',
+        markerScale: 0.4,
+        verticalFovAdjustmentDeg: 6,
+        onboardingCompleted: false,
+      }),
+    )
+
+    expect(readViewerSettings().markerScale).toBe(1)
   })
 
   it('loads persisted settings, preserves offsets on recenter, and routes demo mode from the sheet', async () => {
