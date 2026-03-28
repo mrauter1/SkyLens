@@ -214,6 +214,7 @@ const EMPTY_CONSTELLATION_SCENE = {
 }
 const WORLD_UP: [number, number, number] = [0, 0, 1]
 const SCENE_CLOCK_COARSE_INTERVAL_MS = 1_000
+const AIRCRAFT_REQUEST_TIMEOUT_MS = 8_000
 const SCENE_CLOCK_FRAME_INTERVAL_MS: Record<Exclude<MotionQuality, 'low'>, number> = {
   balanced: 1_000 / 15,
   high: 1_000 / 30,
@@ -1369,6 +1370,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     let disposed = false
     let timeoutId: number | null = null
     let abortController: AbortController | null = null
+    let requestTimeoutId: number | null = null
     let lastSnapshotTimeS = latestAircraftSnapshotTimeSRef.current
 
     const scheduleNextPoll = (snapshotTimeS?: number | null) => {
@@ -1389,8 +1391,17 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
 
     const refreshAircraft = async () => {
       abortController?.abort()
+      if (requestTimeoutId !== null) {
+        window.clearTimeout(requestTimeoutId)
+        requestTimeoutId = null
+      }
       const requestController = new AbortController()
+      let didTimeout = false
       abortController = requestController
+      requestTimeoutId = window.setTimeout(() => {
+        didTimeout = true
+        requestController.abort()
+      }, AIRCRAFT_REQUEST_TIMEOUT_MS)
 
       try {
         const nextSnapshot = await fetchAircraftSnapshot(
@@ -1415,13 +1426,18 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         setAircraftRevision((current) => current + 1)
         scheduleNextPoll(nextSnapshot.snapshotTimeS)
       } catch {
-        if (disposed || requestController.signal.aborted) {
+        if (disposed || (requestController.signal.aborted && !didTimeout)) {
           return
         }
 
         setAircraftAvailability('degraded')
         aircraftTrackerRef.current.prune(getCurrentTimestampMs())
         scheduleNextPoll(lastSnapshotTimeS)
+      } finally {
+        if (requestTimeoutId !== null) {
+          window.clearTimeout(requestTimeoutId)
+          requestTimeoutId = null
+        }
       }
     }
 
@@ -1430,6 +1446,10 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     return () => {
       disposed = true
       abortController?.abort()
+      if (requestTimeoutId !== null) {
+        window.clearTimeout(requestTimeoutId)
+        requestTimeoutId = null
+      }
 
       if (timeoutId !== null) {
         window.clearTimeout(timeoutId)

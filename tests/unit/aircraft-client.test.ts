@@ -192,6 +192,42 @@ describe('aircraft browser client', () => {
     })
   })
 
+  it('coarsens query bounds to location-safe buckets before requesting OpenSky', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input))
+      const bounds = ['lamin', 'lamax', 'lomin', 'lomax'].map((key) =>
+        Number(url.searchParams.get(key)),
+      )
+
+      for (const bound of bounds) {
+        expect(Number.isFinite(bound)).toBe(true)
+        expect(Math.abs(Number((bound * 4).toFixed(6)) % 1)).toBe(0)
+      }
+
+      return new Response(
+        JSON.stringify({
+          time: 1774634400,
+          states: [],
+        }),
+        { status: 200 },
+      )
+    }) as typeof fetch
+
+    await fetchOpenSkyAircraft(
+      {
+        lat: 37.7749,
+        lon: -122.4194,
+        altMeters: 0,
+        radiusKm: 180,
+        limit: 1,
+      },
+      fetchMock,
+      new Date('2026-03-26T00:00:00.000Z'),
+    )
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   it('filters, sorts by range then id, and applies the display limit', async () => {
     const payload = await fetchOpenSkyAircraft(
       {

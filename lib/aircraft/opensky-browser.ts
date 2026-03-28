@@ -10,6 +10,7 @@ import {
 
 const OPENSKY_STATES_URL = 'https://opensky-network.org/api/states/all'
 const EARTH_RADIUS_METERS = 6_371_000
+const QUERY_BOUND_BUCKET_DEG = 0.25
 
 type OpenSkyLongitudeRange = {
   lomin: number
@@ -234,16 +235,26 @@ function normalizeAircraftForObserver(
 function buildOpenSkyStatesUrls(lat: number, lon: number, radiusKm: number) {
   const latDeltaDeg = radiusKm / 111.32
   const lonDeltaDeg = radiusKm / (111.32 * Math.max(Math.cos(degreesToRadians(lat)), 0.01))
-  const lamin = clampLat(lat - latDeltaDeg)
-  const lamax = clampLat(lat + latDeltaDeg)
+  const lamin = quantizeBound(clampLat(lat - latDeltaDeg), 'min', -90, 90)
+  let lamax = quantizeBound(clampLat(lat + latDeltaDeg), 'max', -90, 90)
+
+  if (lamax <= lamin) {
+    lamax = clampLat(lamin + QUERY_BOUND_BUCKET_DEG)
+  }
 
   return buildOpenSkyLongitudeRanges(lon, lonDeltaDeg).map((range) => {
     const url = new URL(OPENSKY_STATES_URL)
+    const lomin = quantizeBound(range.lomin, 'min', -180, 180)
+    let lomax = quantizeBound(range.lomax, 'max', -180, 180)
 
-    url.searchParams.set('lamin', lamin.toFixed(4))
-    url.searchParams.set('lamax', lamax.toFixed(4))
-    url.searchParams.set('lomin', range.lomin.toFixed(4))
-    url.searchParams.set('lomax', range.lomax.toFixed(4))
+    if (lomax <= lomin) {
+      lomax = clampLon(lomin + QUERY_BOUND_BUCKET_DEG)
+    }
+
+    url.searchParams.set('lamin', lamin.toFixed(2))
+    url.searchParams.set('lamax', lamax.toFixed(2))
+    url.searchParams.set('lomin', lomin.toFixed(2))
+    url.searchParams.set('lomax', lomax.toFixed(2))
 
     return url
   })
@@ -344,6 +355,18 @@ function clampLon(value: number) {
   }
 
   return value
+}
+
+function quantizeBound(
+  value: number,
+  direction: 'min' | 'max',
+  min: number,
+  max: number,
+) {
+  const scaled = value / QUERY_BOUND_BUCKET_DEG
+  const rounded = direction === 'min' ? Math.floor(scaled) : Math.ceil(scaled)
+
+  return Math.min(max, Math.max(min, rounded * QUERY_BOUND_BUCKET_DEG))
 }
 
 function roundCoordinate(value: number) {
