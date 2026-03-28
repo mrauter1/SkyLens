@@ -1,0 +1,8 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260328T002852Z-1eb8acf2" ts="2026-03-28T00:28:52.814444+00:00" />
+Mobile live-camera alignment should remain a two-step flow: open the alignment options/instructions first, then enter crosshair tap mode only from an explicit Start alignment action.
+During active mobile crosshair focus, the alignment options panel and expanded mobile overlay must be hidden so calibration can only be applied from the center crosshair tap target.
+<autoloop-decisions-header version="1" block_seq="2" owner="planner" phase_id="task-global" pair="plan" turn_seq="2" run_id="run-20260328T002852Z-1eb8acf2" ts="2026-03-28T00:31:26.214435+00:00" />
+The mobile align view should always show a visible Start alignment control when the alignment panel is open; if live calibration cannot run yet, disable the control and keep the blocker guidance instead of hiding the action.
+The single implementation phase must explicitly include the requested broader validation commands for tests, lint, and type checking so later phases do not stop at focused viewer-shell tests.
+<autoloop-decisions-header version="1" block_seq="3" owner="implementer" phase_id="mobile-alignment-focus-decoupling" pair="implement" turn_seq="1" run_id="run-20260328T002852Z-1eb8acf2" ts="2026-03-28T00:32:33.370987+00:00" />
+The mobile Align quick action remains enabled so users can always open the alignment panel; only the panel-level Start alignment CTA is gated by live calibration availability.

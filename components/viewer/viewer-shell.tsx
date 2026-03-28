@@ -561,7 +561,8 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     alignmentTargetPreference,
   )
   const calibrationTarget = calibrationTargetResolution.target
-  const shouldShowAlignmentInstructions = !manualMode && isAlignmentPanelOpen
+  const shouldShowAlignmentInstructions =
+    !manualMode && isAlignmentPanelOpen && !isMobileAlignmentFocusActive
   const calibrationStatus = describeCalibrationStatus({
     startupState,
     cameraPose,
@@ -617,7 +618,18 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     setShowAlignmentGuidance(false)
     setIsMobileOverlayOpen(false)
     setIsAlignmentPanelOpen(true)
-    setIsMobileAlignmentFocusActive(usesCameraStageAlignmentFocus)
+    setIsMobileAlignmentFocusActive(false)
+  }
+
+  const startAlignmentFocus = () => {
+    if (!usesCameraStageAlignmentFocus || !canAlignCalibration) {
+      return
+    }
+
+    setShowAlignmentGuidance(false)
+    setIsMobileOverlayOpen(false)
+    setIsAlignmentPanelOpen(false)
+    setIsMobileAlignmentFocusActive(true)
   }
 
   const closeAlignmentExperience = () => {
@@ -1708,8 +1720,19 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       return
     }
 
-    setIsAlignmentPanelOpen(false)
-    setIsMobileAlignmentFocusActive(false)
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) {
+        return
+      }
+
+      setIsAlignmentPanelOpen(false)
+      setIsMobileAlignmentFocusActive(false)
+    })
+
+    return () => {
+      cancelled = true
+    }
   }, [manualMode])
 
   useEffect(() => {
@@ -1717,12 +1740,33 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       return
     }
 
+    let cancelled = false
+
     if (state.entry !== 'live' || manualMode || !cameraStreamActive) {
-      setIsMobileAlignmentFocusActive(false)
-      return
+      queueMicrotask(() => {
+        if (cancelled) {
+          return
+        }
+
+        setIsMobileAlignmentFocusActive(false)
+      })
+
+      return () => {
+        cancelled = true
+      }
     }
 
-    setIsMobileOverlayOpen(false)
+    queueMicrotask(() => {
+      if (cancelled) {
+        return
+      }
+
+      setIsMobileOverlayOpen(false)
+    })
+
+    return () => {
+      cancelled = true
+    }
   }, [
     cameraStreamActive,
     isMobileAlignmentFocusActive,
@@ -1854,6 +1898,22 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     })
 
     updatePoseCalibration(nextCalibration)
+  }
+
+  const mobileAlignmentPanelProps = {
+    targetLabel: calibrationTarget.label,
+    nextAction: alignmentTutorial.nextAction,
+    notices: alignmentTutorial.notices,
+    selectedTarget: alignmentTargetPreference,
+    availability: calibrationTargetResolution.availability,
+    onSelectTarget: handleAlignmentTargetPreferenceChange,
+    onResetCalibration: resetCalibration,
+    onFineAdjustCalibration: fineAdjustCalibration,
+    canResetCalibration,
+    onClose: closeAlignmentExperience,
+    onStartAlignment: startAlignmentFocus,
+    canStartAlignment: canAlignCalibration,
+    showStartAlignmentAction: usesCameraStageAlignmentFocus,
   }
 
   const settingsSheetProps = {
@@ -2423,6 +2483,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                   onFineAdjustCalibration={fineAdjustCalibration}
                   canResetCalibration={canResetCalibration}
                   onClose={closeAlignmentExperience}
+                  showStartAlignmentAction={false}
                 />
               ) : null}
               <section className="pointer-events-auto shell-panel rounded-[2rem] p-5 sm:p-6">
@@ -2671,6 +2732,9 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                         body={`Move phone in a figure eight or open Alignment to use ${calibrationTarget.label}.`}
                       />
                     ) : null}
+                    {shouldShowAlignmentInstructions ? (
+                      <AlignmentInstructionsPanel {...mobileAlignmentPanelProps} />
+                    ) : null}
                     <section className="rounded-[1.25rem] border border-sky-100/10 bg-white/5 p-4">
                       <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">
                         Viewer snapshot
@@ -2819,18 +2883,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                           />
                         ) : null}
                         {shouldShowAlignmentInstructions ? (
-                          <AlignmentInstructionsPanel
-                            targetLabel={calibrationTarget.label}
-                            nextAction={alignmentTutorial.nextAction}
-                            notices={alignmentTutorial.notices}
-                            selectedTarget={alignmentTargetPreference}
-                            availability={calibrationTargetResolution.availability}
-                            onSelectTarget={handleAlignmentTargetPreferenceChange}
-                            onResetCalibration={resetCalibration}
-                            onFineAdjustCalibration={fineAdjustCalibration}
-                            canResetCalibration={canResetCalibration}
-                            onClose={closeAlignmentExperience}
-                          />
+                          <AlignmentInstructionsPanel {...mobileAlignmentPanelProps} />
                         ) : null}
                         <section className="rounded-[1.25rem] border border-sky-100/10 bg-white/5 p-4">
                           <div className="flex flex-col gap-4">
@@ -2960,16 +3013,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             {shouldShowAlignmentInstructions ? (
               <div className="pointer-events-auto">
                 <AlignmentInstructionsPanel
-                  targetLabel={calibrationTarget.label}
-                  nextAction={alignmentTutorial.nextAction}
-                  notices={alignmentTutorial.notices}
-                  selectedTarget={alignmentTargetPreference}
-                  availability={calibrationTargetResolution.availability}
-                  onSelectTarget={handleAlignmentTargetPreferenceChange}
-                  onResetCalibration={resetCalibration}
-                  onFineAdjustCalibration={fineAdjustCalibration}
-                  canResetCalibration={canResetCalibration}
-                  onClose={closeAlignmentExperience}
+                  {...mobileAlignmentPanelProps}
                   compact
                 />
               </div>
@@ -3006,9 +3050,8 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                 <button
                   type="button"
                   onClick={openAlignmentExperience}
-                  disabled={!canAlignCalibration}
                   data-testid="mobile-align-action"
-                  className="min-h-11 rounded-full border border-sky-100/15 bg-slate-950/80 px-5 py-3 text-sm font-semibold text-sky-50 shadow-[0_12px_30px_rgba(3,7,13,0.32)] disabled:cursor-not-allowed disabled:text-sky-100/45"
+                  className="min-h-11 rounded-full border border-sky-100/15 bg-slate-950/80 px-5 py-3 text-sm font-semibold text-sky-50 shadow-[0_12px_30px_rgba(3,7,13,0.32)]"
                 >
                   Align
                 </button>
@@ -3550,6 +3593,9 @@ function AlignmentInstructionsPanel({
   onFineAdjustCalibration,
   canResetCalibration,
   onClose,
+  onStartAlignment,
+  canStartAlignment = false,
+  showStartAlignmentAction = false,
   compact = false,
 }: {
   targetLabel: string
@@ -3568,6 +3614,9 @@ function AlignmentInstructionsPanel({
   }) => void
   canResetCalibration: boolean
   onClose: () => void
+  onStartAlignment?: () => void
+  canStartAlignment?: boolean
+  showStartAlignmentAction?: boolean
   compact?: boolean
 }) {
   return (
@@ -3626,6 +3675,19 @@ function AlignmentInstructionsPanel({
       >
         {nextAction}
       </div>
+      {showStartAlignmentAction ? (
+        <div className={`mt-3 ${compact ? '' : 'sm:max-w-xs'}`}>
+          <button
+            type="button"
+            onClick={onStartAlignment}
+            disabled={!canStartAlignment}
+            data-testid="alignment-start-action"
+            className="min-h-11 rounded-2xl bg-emerald-300 px-4 py-3 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:bg-emerald-100"
+          >
+            Start alignment
+          </button>
+        </div>
+      ) : null}
       <div className={`mt-3 ${compact ? '' : 'sm:max-w-xs'}`}>
         <button
           type="button"

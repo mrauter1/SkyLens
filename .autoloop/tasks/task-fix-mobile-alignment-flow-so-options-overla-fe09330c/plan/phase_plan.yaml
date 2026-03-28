@@ -1,0 +1,42 @@
+version: 1
+task_id: task-fix-mobile-alignment-flow-so-options-overla-fe09330c
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/task-fix-mobile-alignment-flow-so-options-overla-fe09330c/runs/run-20260328T002852Z-1eb8acf2/request.md
+phases:
+  - phase_id: mobile-alignment-focus-decoupling
+    title: Decouple mobile alignment options from active crosshair focus
+    objective: Make mobile alignment a two-step flow so the options panel closes before center-crosshair tap mode becomes active, while preserving existing calibration and cancel behavior.
+    status: planned
+    in_scope:
+      - Update the mobile alignment transition in `components/viewer/viewer-shell.tsx` so opening alignment and entering focus mode are separate actions.
+      - Add the explicit `Start alignment` action/callback needed by the mobile alignment instructions/options panel and keep that action visible in the panel even when calibration is temporarily unavailable.
+      - Ensure mobile render conditions hide the overlay/panel during active crosshair focus and restore quick actions on cancel or completion.
+      - Extend `tests/unit/viewer-shell.test.ts` with focused assertions for start, hide, close, and apply-calibration transitions.
+      - Run the requested validation commands for tests, lint, and type checking after the focused viewer-shell test updates.
+    out_of_scope:
+      - Refactoring the broader viewer state model beyond the existing alignment/overlay booleans.
+      - Changing desktop layout, route/query parameters, persisted settings, or calibration math.
+      - Altering demo or manual-pan behavior outside directly related regression coverage.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: Triggering the mobile Align flow presents a clear Start alignment action before crosshair focus mode begins, and that action remains visible in a disabled state when calibration cannot run yet.
+      - id: AC-2
+        text: Activating Start alignment hides the alignment options panel and any overlapping mobile overlay chrome while leaving the center crosshair action visible and clickable.
+      - id: AC-3
+        text: Closing/canceling alignment restores the normal mobile quick actions without applying calibration.
+      - id: AC-4
+        text: Tapping the center crosshair applies calibration, exits focus mode, and existing alignment regressions remain covered by updated viewer-shell tests.
+      - id: AC-5
+        text: The final implementation is validated with the requested test, lint, and type-check commands in addition to the focused viewer-shell assertions.
+    deliverables:
+      - Local `ViewerShell`/alignment panel updates for the mobile two-step alignment flow
+      - Focused viewer-shell unit tests covering mobile alignment start, cancel, and completion transitions
+      - Recorded results from the requested test, lint, and type-check validation commands
+    risks:
+      - Shared panel changes could accidentally alter desktop alignment presentation.
+      - Render-condition changes could hide both the panel and the user’s recovery path if cancel/restore wiring is incomplete.
+      - Tests could miss the overlap regression if they do not assert the panel is absent during focus mode.
+      - Validation coverage could drift from the request if only the focused viewer-shell test is run and the broader repo-required commands are skipped.
+    rollback:
+      - Revert the mobile alignment transition/render changes while leaving unrelated viewer behavior untouched.
+      - Revert only the focused test expectation changes if the implementation contract is revised.

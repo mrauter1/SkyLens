@@ -1,0 +1,36 @@
+{
+  "task_id": "task-fix-mobile-alignment-flow-so-options-overla-fe09330c",
+  "created_at": "2026-03-28T00:28:52.706384+00:00",
+  "request_text": "# Task: Fix mobile alignment flow so options overlay does not block center-tap calibration\n\n## Objective\nImplement a UX/interaction fix for the mobile align flow in the viewer so that after starting alignment, the alignment options overlay closes and the user can tap the center crosshair to apply alignment.\n\n## Required behavior\n1. On the align view, provide/keep a clear **Start alignment** action.\n2. When Start alignment is triggered:\n   - the alignment options overlay/panel must close (or be hidden), and\n   - center crosshair tap mode must become active.\n3. While center crosshair tap mode is active, the alignment options panel must not sit on top of / block the center tap target.\n4. Tapping the center crosshair should apply alignment calibration and then exit alignment focus as appropriate.\n5. Close/cancel behavior should safely restore normal quick actions without forcing calibration.\n\n## Implementation guidance\n- Work in existing mobile alignment flow state handling (likely in `components/viewer/viewer-shell.tsx`).\n- Separate concerns between:\n  - options panel visibility state, and\n  - focus/crosshair alignment state.\n- Add/update callbacks to support explicit start action from the alignment instructions/options panel.\n- Ensure rendering conditions prevent panel overlap during focus mode.\n\n## Testing requirements\nUpdate and run relevant tests, especially mobile alignment tests in:\n- `tests/unit/viewer-shell.test.ts`\n\nInclude assertions that:\n- options panel is hidden during active crosshair focus mode,\n- crosshair alignment action remains visible/clickable in focus mode,\n- start/close transitions work correctly,\n- regression checks for existing alignment behavior still pass.\n\nRun project tests/lint/types as needed to verify no regressions.\n\n## Constraints\n- Implement via code changes in repo.\n- Keep solution minimal and aligned with current architecture/style.\n- No unrelated refactors.",
+  "request_updated_at": "2026-03-28T00:28:52.706451+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/task-fix-mobile-alignment-flow-so-options-overla-fe09330c/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260328T002852Z-1eb8acf2",
+    "mode": "single",
+    "phase_ids": [
+      "mobile-alignment-focus-decoupling"
+    ],
+    "explicit": true,
+    "current_phase_index": 1,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "mobile-alignment-focus-decoupling": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "mobile-alignment-focus-decoupling",
+      "run_id": "run-20260328T002852Z-1eb8acf2",
+      "status": "in_progress",
+      "ts": "2026-03-28T00:32:33.312097+00:00"
+    },
+    {
+      "phase_id": "mobile-alignment-focus-decoupling",
+      "run_id": "run-20260328T002852Z-1eb8acf2",
+      "status": "completed",
+      "ts": "2026-03-28T00:45:33.348549+00:00",
+      "pair": "test"
+    }
+  ]
+}
