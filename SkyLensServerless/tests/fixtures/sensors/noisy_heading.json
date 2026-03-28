@@ -1,0 +1,11 @@
+[
+  { "headingDeg": 2, "pitchDeg": 6, "rollDeg": 1, "timestampMs": 0 },
+  { "headingDeg": 3, "pitchDeg": 6, "rollDeg": 1, "timestampMs": 1500 },
+  { "headingDeg": 4, "pitchDeg": 6, "rollDeg": 1, "timestampMs": 3000 },
+  { "headingDeg": 5, "pitchDeg": 6, "rollDeg": 1, "timestampMs": 4500 },
+  { "headingDeg": 28, "pitchDeg": 6, "rollDeg": 1, "timestampMs": 6000 },
+  { "headingDeg": 29, "pitchDeg": 6, "rollDeg": 1, "timestampMs": 7500 },
+  { "headingDeg": 30, "pitchDeg": 6, "rollDeg": 1, "timestampMs": 9000 },
+  { "headingDeg": 31, "pitchDeg": 6, "rollDeg": 1, "timestampMs": 10500 },
+  { "headingDeg": 32, "pitchDeg": 6, "rollDeg": 1, "timestampMs": 12000 }
+]
