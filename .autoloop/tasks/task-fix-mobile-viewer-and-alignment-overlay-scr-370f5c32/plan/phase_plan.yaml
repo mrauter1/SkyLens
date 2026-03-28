@@ -1,0 +1,38 @@
+version: 1
+task_id: task-fix-mobile-viewer-and-alignment-overlay-scr-370f5c32
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/task-fix-mobile-viewer-and-alignment-overlay-scr-370f5c32/runs/run-20260328T010700Z-47761ced/request.md
+phases:
+  - phase_id: mobile-overlay-scroll-fix
+    title: Fix compact mobile overlay and alignment scrolling
+    objective: Make the compact live-camera viewer overlay and compact alignment panel vertically scrollable without re-enabling page or stage scrolling, then lock the behavior with targeted tests.
+    status: planned
+    in_scope:
+      - Update the compact/live mobile overlay container and content sizing in components/viewer/viewer-shell.tsx.
+      - Ensure the compact alignment instructions path remains reachable via internal scrolling on short mobile screens.
+      - Preserve overlay trigger, backdrop close, interaction isolation, and existing mobile/alignment test IDs.
+      - Add or update focused unit and e2e coverage for compact overlay scrollability and mobile reachability.
+    out_of_scope:
+      - Desktop viewer layout changes.
+      - Permission-flow logic changes unrelated to overlay scroll behavior.
+      - Route, storage, API, or configuration changes.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: In live camera compact mode, document/stage scroll remains locked while the opened mobile overlay exposes a bounded vertical scroll region for overflow content.
+      - id: AC-2
+        text: The compact alignment panel allows short-screen users to reach alignment instructions and bottom actions, including the start action when shown.
+      - id: AC-3
+        text: Existing mobile overlay trigger, panel click isolation, and backdrop close behavior continue to work with preserved selectors.
+      - id: AC-4
+        text: Focused unit tests and mobile e2e coverage validate the new scroll behavior and guard against regressions.
+    deliverables:
+      - Updated mobile overlay and alignment panel layout in components/viewer/viewer-shell.tsx.
+      - Updated unit coverage in tests/unit/viewer-shell.test.ts.
+      - Updated focused mobile e2e coverage in tests/e2e.
+    risks:
+      - Overlay wrapper changes can unintentionally break modal click handling or safe-area sizing.
+      - A partial fix that only changes the overlay shell may leave compact alignment controls clipped.
+      - Tests that only inspect presence, not scroll container ownership, may miss stage-scroll regressions.
+    rollback:
+      - Revert the compact overlay/layout class changes if modal behavior regresses.
+      - Preserve new regression tests and rework the wrapper structure with a smaller local change.

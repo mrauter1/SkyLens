@@ -72,3 +72,31 @@ test('orientation denial enters the manual-pan fallback shell', async ({ page })
   await expect(mobileOverlay.getByText('Motion: Manual pan')).toBeVisible()
   await expect(mobileOverlay.getByRole('button', { name: 'Enable motion' })).toBeVisible()
 })
+
+test('compact alignment panel keeps lower controls reachable on a short viewport', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 412, height: 520 })
+  await page.goto('/view?entry=live&location=granted&camera=granted&orientation=granted')
+
+  const alignButton = page.getByTestId('mobile-align-action')
+
+  await expect(alignButton).toBeVisible()
+  await alignButton.click()
+
+  const alignmentPanel = page
+    .getByTestId('mobile-viewer-quick-actions')
+    .getByTestId('alignment-instructions-panel')
+  const lowestNudgeControl = alignmentPanel.getByRole('button', { name: 'Nudge down' })
+
+  await expect(alignmentPanel).toBeVisible()
+  expect(
+    await alignmentPanel.evaluate((element) => element.scrollHeight > element.clientHeight),
+  ).toBe(true)
+
+  await alignmentPanel.evaluate((element) => {
+    element.scrollTop = element.scrollHeight
+  })
+
+  await expect(lowestNudgeControl).toBeInViewport()
+})

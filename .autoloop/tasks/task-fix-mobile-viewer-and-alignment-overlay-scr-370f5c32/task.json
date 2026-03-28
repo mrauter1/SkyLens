@@ -1,0 +1,36 @@
+{
+  "task_id": "task-fix-mobile-viewer-and-alignment-overlay-scr-370f5c32",
+  "created_at": "2026-03-28T01:07:00.277204+00:00",
+  "request_text": "# Task: Fix mobile viewer and alignment overlay scrolling behavior\n\nImplement the following UX fixes in SkyLens viewer:\n\n## Goal\n- Keep the **camera stage / background view non-scrollable**.\n- Make the **Open viewer overlay** scrollable when content exceeds viewport height.\n- Make the **Alignment overlay/panel** scrollable so all controls are reachable on short mobile screens.\n\n## Constraints\n- Do not regress existing overlay open/close behavior.\n- Preserve existing test IDs where possible:\n  - `mobile-viewer-overlay-shell`\n  - `mobile-viewer-overlay-scroll-region`\n  - `mobile-viewer-overlay`\n  - `mobile-viewer-overlay-backdrop`\n  - `alignment-instructions-panel`\n  - `alignment-start-action`\n- Keep current camera-stage lock behavior that prevents the underlying view from scrolling.\n\n## Required implementation details\n1. In `components/viewer/viewer-shell.tsx`, update mobile overlay container behavior so the overlay itself can vertically scroll in live camera mode (currently compact mode uses `overflow-hidden`).\n2. Ensure compact/mobile overlay content has an explicit max-height strategy and internal vertical scrolling so long content is not clipped.\n3. Ensure alignment instructions/actions in compact mode are reachable via scroll.\n4. Preserve tap-on-backdrop close behavior and interaction isolation from the underlying stage.\n\n## Tests to add/update\n- Update/add unit tests in `tests/unit/viewer-shell.test.ts` to verify:\n  - live camera compact overlay path remains non-scrolling for stage but scrolling for overlay content,\n  - alignment panel in mobile compact mode is scroll-capable/reachable,\n  - existing overlay trigger and backdrop close behavior still works.\n- Update/add e2e test(s) in `tests/e2e` to verify bottom controls in mobile overlay are reachable in small viewport scenarios.\n\n## Validation commands\n- `npm run test -- tests/unit/viewer-shell.test.ts`\n- `npm run test:e2e -- tests/e2e/demo.spec.ts tests/e2e/permissions.spec.ts` (or nearest focused set)\n- `npm run test`\n\n## Execution style\nUse autoloop with **plan, implement, test** pairs and complete the full cycle.",
+  "request_updated_at": "2026-03-28T01:07:00.277254+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/task-fix-mobile-viewer-and-alignment-overlay-scr-370f5c32/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260328T010700Z-47761ced",
+    "mode": "single",
+    "phase_ids": [
+      "mobile-overlay-scroll-fix"
+    ],
+    "explicit": true,
+    "current_phase_index": 1,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "mobile-overlay-scroll-fix": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "mobile-overlay-scroll-fix",
+      "run_id": "run-20260328T010700Z-47761ced",
+      "status": "in_progress",
+      "ts": "2026-03-28T01:08:40.919317+00:00"
+    },
+    {
+      "phase_id": "mobile-overlay-scroll-fix",
+      "run_id": "run-20260328T010700Z-47761ced",
+      "status": "completed",
+      "ts": "2026-03-28T01:22:22.150020+00:00",
+      "pair": "test"
+    }
+  ]
+}

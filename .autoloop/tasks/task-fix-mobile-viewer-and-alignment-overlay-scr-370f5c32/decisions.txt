@@ -1,0 +1,7 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260328T010700Z-47761ced" ts="2026-03-28T01:07:00.381933+00:00" />
+Preserve the existing document/root overflow lock for live camera and mobile alignment focus; the fix must move scrolling into the overlay/panel only, not back to the page or stage.
+Treat the current mobile overlay and alignment test IDs plus backdrop-close behavior as compatibility constraints; adjust layout wrappers around them instead of renaming selectors or changing the close contract.
+<autoloop-decisions-header version="1" block_seq="2" owner="implementer" phase_id="mobile-overlay-scroll-fix" pair="implement" turn_seq="1" run_id="run-20260328T010700Z-47761ced" ts="2026-03-28T01:08:40.970606+00:00" />
+Keep the compact live-camera mobile overlay shell fixed and route overflow into the overlay card/content column so document and stage overflow locking remain unchanged.
+Use viewport-bounded max-height styles for the compact overlay card and compact alignment panel instead of renaming selectors or adding a new overlay abstraction.
+Target small-viewport reachability in e2e by scrolling existing mobile overlay and alignment-panel selectors rather than adding test-only DOM hooks.

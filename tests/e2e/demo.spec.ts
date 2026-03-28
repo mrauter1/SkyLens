@@ -9,8 +9,11 @@ test('demo mode renders deterministic labels and opens a detail card', async ({ 
   await page.goto(SF_DEMO_ROUTE)
   await ensureMobileViewerOverlayOpen(page)
   const mobileOverlay = page.getByTestId('mobile-viewer-overlay')
+  const overlayCloseButton = mobileOverlay.getByRole('button', { name: 'Close' })
 
   await expect(mobileOverlay.getByText('Demo mode is active.')).toBeVisible()
+  await overlayCloseButton.click()
+  await expect(mobileOverlay).toHaveCount(0)
 
   const aircraftLabel = page.getByRole('button', { name: /UAL123/i }).first()
   const stage = page.getByLabel('Sky viewer stage')
@@ -20,7 +23,8 @@ test('demo mode renders deterministic labels and opens a detail card', async ({ 
   await page.keyboard.press('ArrowRight')
 
   await expect(aircraftLabel).toBeVisible()
-  await aircraftLabel.click()
+  await aircraftLabel.click({ force: true })
+  await ensureMobileViewerOverlayOpen(page)
 
   await expect(mobileOverlay.getByText('Selected object')).toBeVisible()
   await expect(mobileOverlay.getByText('Altitude')).toBeVisible()
@@ -66,7 +70,30 @@ test('mobile overlay opens from the trigger and closes from the backdrop only', 
   await mobileOverlay.getByText('Privacy reassurance').click()
   await expect(mobileOverlay).toBeVisible()
 
-  await page.getByTestId('mobile-viewer-overlay-backdrop').click()
+  await page.getByTestId('mobile-viewer-overlay-backdrop').click({
+    position: { x: 8, y: 8 },
+  })
   await expect(page.getByTestId('mobile-viewer-overlay')).toHaveCount(0)
   await expect(trigger).toBeVisible()
+})
+
+test('mobile overlay keeps lower sections reachable on a short viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 412, height: 520 })
+  await page.goto(SF_DEMO_ROUTE)
+
+  await ensureMobileViewerOverlayOpen(page)
+
+  const scrollRegion = page.getByTestId('mobile-viewer-overlay-scroll-region')
+  const mobileOverlay = page.getByTestId('mobile-viewer-overlay')
+
+  await expect(scrollRegion).toBeVisible()
+  expect(
+    await scrollRegion.evaluate((element) => element.scrollHeight > element.clientHeight),
+  ).toBe(true)
+
+  await scrollRegion.evaluate((element) => {
+    element.scrollTop = element.scrollHeight
+  })
+
+  await expect(mobileOverlay.getByText('Privacy reassurance')).toBeInViewport()
 })
