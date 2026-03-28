@@ -1,0 +1,50 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260328T161301Z-4d8a300b" ts="2026-03-28T16:13:01.803153+00:00" />
+Static export enforcement should treat fork-managed Next response headers as unsupported in production export output; permissions-policy parity must be documented as a deployment-host responsibility while iframe allow attributes remain app-owned.
+NEXT_PUBLIC_SKYLENS_TLE_PROXY_URL_TEMPLATE remains the public relay env entrypoint but now needs backward-compatible support for a comma-separated ordered list of {url} templates.
+TLE refresh should exhaust configured relays per source before failing that source, and stale cache fallback should only activate after the refresh attempt still fails overall.
+<autoloop-decisions-header version="1" block_seq="2" owner="runtime" phase_id="task-global" pair="plan" turn_seq="2" run_id="run-20260328T161301Z-4d8a300b" ts="2026-03-28T16:19:13.698570+00:00" entry="questions" qa_seq="1" />
+WARNING: Enforcing static export appears to require changing the current `Permissions-Policy` contract: `SkyLensServerless/next.config.ts` currently emits that header and `tests/e2e/embed.spec.ts` asserts it, but the request also says to keep current behavior parity intact.
+
+1. May the plan intentionally move the `Permissions-Policy` guarantee from app-owned Next config to deployment-host documentation/ops as part of Fix 1? Answer YES or NO.
+Best supposition: NO — keep the current header behavior parity as a required constraint unless you explicitly approve that compatibility change.
+<autoloop-decisions-header version="1" block_seq="3" owner="runtime" phase_id="task-global" pair="plan" turn_seq="2" run_id="run-20260328T161301Z-4d8a300b" ts="2026-03-28T16:19:13.699049+00:00" entry="answers" qa_seq="1" source="auto" />
+I’m checking the request snapshot, raw log, and the current `Permissions-Policy` implementation/tests to answer against repository requirements rather than inference.
+
+NO
+
+Safest explicit assumption: keep the current `Permissions-Policy` behavior parity as a required constraint. The request says to keep current behavior parity intact, `SkyLensServerless/next.config.ts` currently owns that header, `tests/e2e/embed.spec.ts` asserts it, and the raw log shows no explicit approval to move that guarantee to deployment-host documentation/ops.
+<autoloop-decisions-header version="1" block_seq="4" owner="runtime" phase_id="task-global" pair="plan" turn_seq="3" run_id="run-20260328T161301Z-4d8a300b" ts="2026-03-28T16:20:32.867425+00:00" entry="questions" qa_seq="2" />
+WARNING: The new clarification says the current `Permissions-Policy` behavior parity must stay intact, but generic `output: 'export'` does not cleanly preserve the current app-owned `next.config.ts` header mechanism.
+
+1. May the plan preserve that header behavior by adding a repo-owned static-host artifact/config inside `SkyLensServerless/` and documenting that host contract as part of Fix 1? Answer YES or NO.
+Best supposition: YES — if static export must be enforced and the header must remain repo-owned, a repo-owned static-host contract is the only apparent safe path.
+
+2. If NO, should preserving the current `Permissions-Policy` behavior parity take precedence over hard `output: 'export'` enforcement? Answer YES or NO.
+Best supposition: YES — if no repo-owned static-host contract is allowed, the clarified parity constraint should win over a silent reduction in header behavior.
+<autoloop-decisions-header version="1" block_seq="5" owner="runtime" phase_id="task-global" pair="plan" turn_seq="3" run_id="run-20260328T161301Z-4d8a300b" ts="2026-03-28T16:20:32.867977+00:00" entry="answers" qa_seq="2" source="auto" />
+I’m checking the request snapshot, raw log, and current `SkyLensServerless` config to answer the precedence question against the repo’s actual constraints.
+
+1. YES
+
+Safest explicit assumption: YES. The request requires current behavior parity, the repo currently owns and tests the Permissions-Policy contract in SkyLensServerless/next.config.ts and SkyLensServerless/tests/unit/next-config.test.ts, and the scope allows fixes/docs inside SkyLensServerless/. A repo-owned static-host artifact/config documented in SkyLensServerless/ is the safest way to preserve that behavior while still pursuing static export.
+
+2. YES
+
+If that repo-owned static-host contract is not allowed, preserving the current Permissions-Policy behavior parity should take precedence over hard output: 'export' enforcement, because the parity requirement is explicit and a silent header regression would contradict the clarified constraint.
+<autoloop-decisions-header version="1" block_seq="6" owner="planner" phase_id="task-global" pair="plan" turn_seq="4" run_id="run-20260328T161301Z-4d8a300b" ts="2026-03-28T16:20:32.978737+00:00" />
+Earlier host-doc-only permissions-policy direction is superseded; Fix 1 must preserve current Permissions-Policy behavior parity through a repo-owned static-host artifact/config inside SkyLensServerless.
+Preferred static-host contract is a checked-in export artifact such as `public/_headers` so the static bundle carries the permissions-policy rule without relying on root-app changes or external ops-only documentation.
+If the repo-owned static-host artifact/config cannot preserve the current permissions-policy behavior during implementation, preserving parity takes precedence over silently forcing hard `output: 'export'` behavior.
+TLE relay failure diagnostics must explicitly include `groupId`, relay index, and relay path/template.
+<autoloop-decisions-header version="1" block_seq="7" owner="implementer" phase_id="static-export-contract" pair="implement" turn_seq="1" run_id="run-20260328T161301Z-4d8a300b" ts="2026-03-28T16:23:12.443862+00:00" />
+Keep `next.config.ts` `headers()` active for local Next dev/e2e parity, but treat checked-in `SkyLensServerless/public/_headers` as the production export contract; `next build` is allowed to warn that runtime headers do not apply to `output: 'export'` as long as `out/_headers` is emitted and verified.
+`SkyLensServerless/app/manifest.ts` must declare `export const dynamic = 'force-static'` so the metadata route remains compatible with `output: 'export'`.
+`SkyLensServerless/package.json` `start` now previews the built `out/` bundle through `SkyLensServerless/scripts/serve-export.mjs` instead of `next start`, keeping the fork on a static-hosting workflow without adding an external preview dependency.
+TLE relay exhaustion now keeps the public failure string `TLE data unavailable.` but attaches structured relay attempt context on `Error.cause`; stale-cache fallback logs the same structured context with `console.error` because no exception reaches the caller in that branch.
+The repo-local static export preview path must stay plain JavaScript executable by `node scripts/serve-export.mjs`; do not reintroduce TypeScript-only syntax into that runtime file.
+`npm run start` is part of the static-host contract now, so the preview server must load and apply the emitted `out/_headers` rules for matching routes instead of merely serving files.
+<autoloop-decisions-header version="1" block_seq="8" owner="implementer" phase_id="tle-relay-fallback-hardening" pair="implement" turn_seq="1" run_id="run-20260328T161301Z-4d8a300b" ts="2026-03-28T16:41:47.832480+00:00" />
+Current `SkyLensServerless` working tree already satisfies the ordered TLE relay fallback scope; this phase completed by validating the existing implementation rather than adding new product-code edits.
+Phase validation for relay fallback completion must include the focused unit tests, `npm run build`, and a direct check that `SkyLensServerless/out/_headers` is emitted despite the expected Next export warning about runtime `headers()`.
+<autoloop-decisions-header version="1" block_seq="9" owner="test_author" phase_id="tle-relay-fallback-hardening" pair="test" turn_seq="1" run_id="run-20260328T161301Z-4d8a300b" ts="2026-03-28T16:45:54.621073+00:00" />
+Relay fallback test coverage should explicitly guard both backward-compatible single-template env values and fail-fast invalid-template rejection so future refactors do not silently narrow the relay contract while keeping the requested retry scenarios green.

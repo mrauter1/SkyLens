@@ -1,0 +1,51 @@
+{
+  "task_id": "skylensserverless-follow-up-fixes-task-fixes-1-a-1fc787a5",
+  "created_at": "2026-03-28T16:13:01.640123+00:00",
+  "request_text": "# SkyLensServerless Follow-up Fixes Task (Fixes 1 and 2)\n\n## Context\nUser requested applying the previously identified Fix 1 and Fix 2 to `SkyLensServerless` using autoloop.\n\n## Scope constraints\n- Apply changes in `SkyLensServerless/` only (plus tests/docs needed for those fixes).\n- Do not modify the root SkyLens app implementation outside `SkyLensServerless` except unavoidable autoloop metadata/artifacts.\n- Keep UI and current behavior parity intact while hardening deployment guarantees and relay reliability.\n\n## Fix 1: Enforce static-only deployment mode\nImplement a robust static/serverless deployment contract for `SkyLensServerless`:\n1. Update `SkyLensServerless/next.config.ts` to enforce static-export-safe behavior.\n2. Update `SkyLensServerless/package.json` scripts to align with static hosting workflow.\n3. Extend `SkyLensServerless/tests/unit/next-config.test.ts` to assert static-export mode is enabled.\n4. Update `SkyLensServerless/PARITY.md` with a deployment-mode section documenting static/serverless guarantees and contributor constraints.\n\n## Fix 2: Harden TLE relay strategy\nImprove resilience of TLE relay fetching in `SkyLensServerless/lib/satellites/tle.ts`:\n1. Support ordered relay templates (e.g. comma-separated env var) rather than a single template.\n2. Attempt relays in order per source before failing.\n3. Preserve schema validation and stale-cache behavior.\n4. Emit structured error context for diagnosis (group ID + relay index/path).\n5. Add/extend tests in `SkyLensServerless/tests/unit/satellite-layer.test.ts` for:\n   - primary relay failure + secondary success,\n   - all relays failing with stale cache available,\n   - all relays failing without cache.\n\n## Validation requirements\n- Run and pass relevant unit tests in `SkyLensServerless`.\n- Run build checks needed to confirm static export configuration works.\n- Ensure no regressions to existing behavior.\n\n## Execution mode\nUse autoloop in full-auto mode with iterative pairs: plan, implement, test.",
+  "request_updated_at": "2026-03-28T16:13:01.640249+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/skylensserverless-follow-up-fixes-task-fixes-1-a-1fc787a5/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260328T161301Z-4d8a300b",
+    "mode": "single",
+    "phase_ids": [
+      "static-export-contract",
+      "tle-relay-fallback-hardening"
+    ],
+    "explicit": true,
+    "current_phase_index": 2,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "static-export-contract": "completed",
+    "tle-relay-fallback-hardening": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "static-export-contract",
+      "run_id": "run-20260328T161301Z-4d8a300b",
+      "status": "in_progress",
+      "ts": "2026-03-28T16:23:12.358513+00:00"
+    },
+    {
+      "phase_id": "static-export-contract",
+      "run_id": "run-20260328T161301Z-4d8a300b",
+      "status": "completed",
+      "ts": "2026-03-28T16:41:47.732121+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "tle-relay-fallback-hardening",
+      "run_id": "run-20260328T161301Z-4d8a300b",
+      "status": "in_progress",
+      "ts": "2026-03-28T16:41:47.733857+00:00"
+    },
+    {
+      "phase_id": "tle-relay-fallback-hardening",
+      "run_id": "run-20260328T161301Z-4d8a300b",
+      "status": "completed",
+      "ts": "2026-03-28T16:49:09.789546+00:00",
+      "pair": "test"
+    }
+  ]
+}

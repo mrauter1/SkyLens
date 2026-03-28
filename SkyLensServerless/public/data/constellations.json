@@ -1,0 +1,470 @@
+[
+  {
+    "id": "aql",
+    "name": "Aquila",
+    "lineSegments": [
+      [
+        "hip-97278",
+        "hip-97649"
+      ],
+      [
+        "hip-93747",
+        "hip-97649"
+      ]
+    ]
+  },
+  {
+    "id": "aur",
+    "name": "Auriga",
+    "lineSegments": [
+      [
+        "hip-28360",
+        "hip-24608"
+      ],
+      [
+        "hip-23015",
+        "hip-25428"
+      ],
+      [
+        "hip-25428",
+        "hip-28380"
+      ],
+      [
+        "hip-28380",
+        "hip-28360"
+      ],
+      [
+        "hip-24608",
+        "hip-23416"
+      ]
+    ]
+  },
+  {
+    "id": "boo",
+    "name": "Boötes",
+    "lineSegments": [
+      [
+        "hip-67927",
+        "hip-69673"
+      ],
+      [
+        "hip-72105",
+        "hip-69673"
+      ]
+    ]
+  },
+  {
+    "id": "cma",
+    "name": "Canis Major",
+    "lineSegments": [
+      [
+        "hip-30324",
+        "hip-32349"
+      ],
+      [
+        "hip-32349",
+        "hip-33977"
+      ],
+      [
+        "hip-33977",
+        "hip-34444"
+      ],
+      [
+        "hip-33579",
+        "hip-30122"
+      ],
+      [
+        "hip-35904",
+        "hip-34444"
+      ]
+    ]
+  },
+  {
+    "id": "car",
+    "name": "Carina",
+    "lineSegments": [
+      [
+        "hip-30438",
+        "hip-45238"
+      ],
+      [
+        "hip-45556",
+        "hip-41037"
+      ],
+      [
+        "hip-39953",
+        "hip-42913"
+      ],
+      [
+        "hip-42913",
+        "hip-45556"
+      ]
+    ]
+  },
+  {
+    "id": "cas",
+    "name": "Cassiopeia",
+    "lineSegments": [
+      [
+        "hip-6686",
+        "hip-4427"
+      ],
+      [
+        "hip-4427",
+        "hip-3179"
+      ],
+      [
+        "hip-3179",
+        "hip-746"
+      ]
+    ]
+  },
+  {
+    "id": "cen",
+    "name": "Centaurus",
+    "lineSegments": [
+      [
+        "hip-61932",
+        "hip-66657"
+      ],
+      [
+        "hip-66657",
+        "hip-68002"
+      ],
+      [
+        "hip-68933",
+        "hip-71352"
+      ],
+      [
+        "hip-71352",
+        "hip-73334"
+      ],
+      [
+        "hip-71681",
+        "hip-66657"
+      ],
+      [
+        "hip-66657",
+        "hip-68702"
+      ]
+    ]
+  },
+  {
+    "id": "crv",
+    "name": "Corvus",
+    "lineSegments": [
+      [
+        "hip-59316",
+        "hip-59803"
+      ],
+      [
+        "hip-59803",
+        "hip-60965"
+      ],
+      [
+        "hip-60965",
+        "hip-61359"
+      ],
+      [
+        "hip-61359",
+        "hip-59316"
+      ]
+    ]
+  },
+  {
+    "id": "cru",
+    "name": "Crux",
+    "lineSegments": [
+      [
+        "hip-62434",
+        "hip-59747"
+      ],
+      [
+        "hip-60718",
+        "hip-61084"
+      ]
+    ]
+  },
+  {
+    "id": "cyg",
+    "name": "Cygnus",
+    "lineSegments": [
+      [
+        "hip-102488",
+        "hip-100453"
+      ],
+      [
+        "hip-100453",
+        "hip-97165"
+      ],
+      [
+        "hip-102098",
+        "hip-100453"
+      ]
+    ]
+  },
+  {
+    "id": "gem",
+    "name": "Gemini",
+    "lineSegments": [
+      [
+        "hip-30343",
+        "hip-32246"
+      ],
+      [
+        "hip-36850",
+        "hip-37826"
+      ]
+    ]
+  },
+  {
+    "id": "her",
+    "name": "Hercules",
+    "lineSegments": [
+      [
+        "hip-80816",
+        "hip-81693"
+      ],
+      [
+        "hip-84345",
+        "hip-80816"
+      ]
+    ]
+  },
+  {
+    "id": "leo",
+    "name": "Leo",
+    "lineSegments": [
+      [
+        "hip-50583",
+        "hip-54872"
+      ],
+      [
+        "hip-54872",
+        "hip-57632"
+      ]
+    ]
+  },
+  {
+    "id": "oph",
+    "name": "Ophiuchus",
+    "lineSegments": [
+      [
+        "hip-86742",
+        "hip-86032"
+      ],
+      [
+        "hip-81377",
+        "hip-84012"
+      ],
+      [
+        "hip-86742",
+        "hip-84012"
+      ]
+    ]
+  },
+  {
+    "id": "ori",
+    "name": "Orion",
+    "lineSegments": [
+      [
+        "hip-27989",
+        "hip-25336"
+      ],
+      [
+        "hip-25930",
+        "hip-25336"
+      ],
+      [
+        "hip-27989",
+        "hip-26727"
+      ],
+      [
+        "hip-26727",
+        "hip-27366"
+      ],
+      [
+        "hip-26727",
+        "hip-26311"
+      ],
+      [
+        "hip-26311",
+        "hip-25930"
+      ]
+    ]
+  },
+  {
+    "id": "peg",
+    "name": "Pegasus",
+    "lineSegments": [
+      [
+        "hip-112158",
+        "hip-113881"
+      ],
+      [
+        "hip-113881",
+        "hip-677"
+      ],
+      [
+        "hip-677",
+        "hip-1067"
+      ],
+      [
+        "hip-1067",
+        "hip-113963"
+      ],
+      [
+        "hip-113963",
+        "hip-113881"
+      ]
+    ]
+  },
+  {
+    "id": "pup",
+    "name": "Puppis",
+    "lineSegments": [
+      [
+        "hip-39757",
+        "hip-39429"
+      ],
+      [
+        "hip-39429",
+        "hip-39953"
+      ]
+    ]
+  },
+  {
+    "id": "sgr",
+    "name": "Sagittarius",
+    "lineSegments": [
+      [
+        "hip-89642",
+        "hip-90185"
+      ],
+      [
+        "hip-90185",
+        "hip-89931"
+      ],
+      [
+        "hip-89931",
+        "hip-90496"
+      ],
+      [
+        "hip-89931",
+        "hip-88635"
+      ],
+      [
+        "hip-88635",
+        "hip-90185"
+      ],
+      [
+        "hip-90185",
+        "hip-93506"
+      ]
+    ]
+  },
+  {
+    "id": "sco",
+    "name": "Scorpius",
+    "lineSegments": [
+      [
+        "hip-78265",
+        "hip-78401"
+      ],
+      [
+        "hip-78401",
+        "hip-78820"
+      ],
+      [
+        "hip-78401",
+        "hip-80112"
+      ],
+      [
+        "hip-80112",
+        "hip-80763"
+      ],
+      [
+        "hip-80763",
+        "hip-81266"
+      ],
+      [
+        "hip-81266",
+        "hip-82396"
+      ],
+      [
+        "hip-82396",
+        "hip-82514"
+      ],
+      [
+        "hip-86228",
+        "hip-87073"
+      ],
+      [
+        "hip-87073",
+        "hip-86670"
+      ],
+      [
+        "hip-86670",
+        "hip-85927"
+      ]
+    ]
+  },
+  {
+    "id": "tra",
+    "name": "Triangulum Australe",
+    "lineSegments": [
+      [
+        "hip-82273",
+        "hip-77952"
+      ],
+      [
+        "hip-77952",
+        "hip-74946"
+      ],
+      [
+        "hip-74946",
+        "hip-82273"
+      ]
+    ]
+  },
+  {
+    "id": "uma",
+    "name": "Ursa Major",
+    "lineSegments": [
+      [
+        "hip-54061",
+        "hip-53910"
+      ],
+      [
+        "hip-53910",
+        "hip-58001"
+      ],
+      [
+        "hip-62956",
+        "hip-65378"
+      ],
+      [
+        "hip-65378",
+        "hip-67301"
+      ],
+      [
+        "hip-54539",
+        "hip-50801"
+      ]
+    ]
+  },
+  {
+    "id": "vel",
+    "name": "Vela",
+    "lineSegments": [
+      [
+        "hip-42913",
+        "hip-45941"
+      ],
+      [
+        "hip-44816",
+        "hip-39953"
+      ]
+    ]
+  }
+]

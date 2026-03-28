@@ -1,0 +1,95 @@
+version: 1
+task_id: skylens-serverless-migration-and-equivalence-tas-1962bcf4
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/skylens-serverless-migration-and-equivalence-tas-1962bcf4/runs/run-20260328T152027Z-2ab1e610/request.md
+phases:
+  - phase_id: bootstrap-standalone-fork
+    title: Bootstrap standalone SkyLensServerless app
+    objective: Copy the current SkyLens app into SkyLensServerless and make it build/test as an isolated fork without changing root-app files.
+    status: planned
+    in_scope:
+      - Create the SkyLensServerless directory with fork-local package/build/test configuration.
+      - Copy reusable app, component, lib, public, and test files into the fork.
+      - Resolve imports and scripts so the fork can run independently.
+    out_of_scope:
+      - Rewriting live-data plumbing beyond what is needed to establish the isolated baseline.
+      - Editing the root SkyLens implementation.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: SkyLensServerless exists as a standalone app and does not rely on runtime imports from the root app.
+      - id: AC-2
+        text: The fork has working install/build/test entry points and preserves the copied baseline UI/routes before serverless substitutions.
+    deliverables:
+      - Fork-local application scaffold under SkyLensServerless
+      - Fork-local scripts/config for build and tests
+    risks:
+      - Copy drift can introduce broken imports or hidden root-app coupling.
+      - Fork-local config can miss header or metadata behavior relied on by tests.
+    rollback:
+      - Remove or replace only SkyLensServerless files.
+      - Recopy the fork baseline from the root app if import resolution drifts.
+  - phase_id: replace-server-runtime-surfaces
+    title: Replace route handlers with browser-side services
+    objective: Remove fork-local app/api dependencies and preserve config, TLE, and health behavior with browser-safe implementations.
+    status: planned
+    in_scope:
+      - Replace /api/config usage with in-process browser-safe config bootstrap.
+      - Replace /api/tle with a browser-side provider that preserves TleApiResponse semantics, validation, deduping, freshness metadata, and stale fallback.
+      - Replace /api/health polling with local health derivation that preserves HealthApiResponse semantics and viewer copy.
+      - Make /view query-state handling static-safe for the fork.
+      - Preserve permissions-policy/embed contract through fork-local hosting configuration.
+    out_of_scope:
+      - Changing viewer UX, schemas, or settings behavior beyond what serverless migration requires.
+      - Accepting degraded live-data freshness via static bundled catalogs.
+    dependencies:
+      - bootstrap-standalone-fork
+    acceptance_criteria:
+      - id: AC-1
+        text: SkyLensServerless contains no app-owned route handlers for config, TLE, or health.
+      - id: AC-2
+        text: Viewer consumers receive the same config, satellite, and health contract shapes without fetching fork-local API routes.
+      - id: AC-3
+        text: Satellite freshness transitions still produce empty, fresh, stale, and expired states with the same refresh and stale windows.
+      - id: AC-4
+        text: The selected live-data provider/proxy path is documented and either preserves the current browser-direct privacy/data-flow contract or updates the affected reassurance copy and tests to stay truthful.
+    deliverables:
+      - Browser-side config, satellite, and health services in the fork
+      - Static-safe /view route handling in the fork
+      - Fork-local header/hosting configuration for permissions policy parity
+    risks:
+      - Replacement upstreams may differ from current payload quirks.
+      - Browser cache/storage handling can diverge from the current in-memory server cache semantics.
+      - Header parity can regress on hosts that ignore fork-local config.
+    rollback:
+      - Revert only the fork-local service substitutions.
+      - Temporarily restore copied baseline consumers inside SkyLensServerless while keeping root untouched.
+  - phase_id: verify-parity-and-document
+    title: Verify feature parity and document the migration
+    objective: Prove that SkyLensServerless preserves behavior and runs independently through tests, build verification, and a feature-parity document.
+    status: planned
+    in_scope:
+      - Update or add unit and e2e tests under SkyLensServerless for migrated behavior.
+      - Document the mapping from original server-side features to serverless replacements.
+      - Run fork-local build and relevant test suites.
+    out_of_scope:
+      - Expanding product scope beyond parity with the current SkyLens app.
+      - Modifying verifier-owned criteria.md.
+    dependencies:
+      - replace-server-runtime-surfaces
+    acceptance_criteria:
+      - id: AC-1
+        text: Fork-local tests cover config parity, satellite freshness behavior, local health derivation, static-safe route handling, embed/header expectations, and privacy/data-flow reassurance copy for the selected provider path.
+      - id: AC-2
+        text: SkyLensServerless builds and runs successfully as a standalone app.
+      - id: AC-3
+        text: A concise parity document exists and identifies each original server-side feature, its serverless replacement, and how it was validated.
+    deliverables:
+      - Fork-local unit and e2e parity tests
+      - Feature parity documentation
+      - Recorded build/test verification for SkyLensServerless
+    risks:
+      - Tests can miss subtle UX drift if they only assert payload shape.
+      - Build success alone may hide host-specific header deployment gaps.
+    rollback:
+      - Keep failing verification isolated to SkyLensServerless.
+      - Re-run against copied baseline fixtures to identify the first divergent phase.

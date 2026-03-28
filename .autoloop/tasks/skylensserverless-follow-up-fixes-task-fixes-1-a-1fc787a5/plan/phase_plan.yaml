@@ -1,0 +1,66 @@
+version: 1
+task_id: skylensserverless-follow-up-fixes-task-fixes-1-a-1fc787a5
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/skylensserverless-follow-up-fixes-task-fixes-1-a-1fc787a5/runs/run-20260328T161301Z-4d8a300b/request.md
+phases:
+  - phase_id: static-export-contract
+    title: "Enforce static-only deployment contract"
+    objective: "Make SkyLensServerless build and document itself as a static-export-only fork without reintroducing runtime-only Next behavior."
+    status: planned
+    in_scope:
+      - "Update `SkyLensServerless/next.config.ts` for export-safe behavior."
+      - "Add a repo-owned static-host artifact/config inside `SkyLensServerless/` that preserves the current `Permissions-Policy` contract for exported routes."
+      - "Align `SkyLensServerless/package.json` scripts and any affected bootstrap assertions with static hosting workflow."
+      - "Extend `SkyLensServerless/tests/unit/next-config.test.ts` and any focused contract coverage needed for the emitted static-host artifact."
+      - "Add a deployment-mode section to `SkyLensServerless/PARITY.md` covering the static-host contract and contributor constraints."
+    out_of_scope:
+      - "Root SkyLens app changes outside `SkyLensServerless/`."
+      - "New deployment infrastructure or host-specific config files outside the fork."
+      - "UI redesign or viewer behavior changes."
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: "`next.config.ts` explicitly enforces static export mode, and a repo-owned static-host artifact/config preserves the current `Permissions-Policy` contract for exported routes."
+      - id: AC-2
+        text: "Package scripts, focused coverage, and parity documentation consistently describe a static hosting workflow and emitted header artifact/config instead of `next start`."
+    deliverables:
+      - "Updated static-export config and package-script contract in `SkyLensServerless/`."
+      - "A checked-in repo-owned static-host artifact/config for exported permissions-policy parity."
+      - "Updated next-config and any affected fork-contract tests."
+      - "A deployment-mode section in `SkyLensServerless/PARITY.md`."
+    risks:
+      - "Export mode may invalidate current permissions-policy behavior unless the static-host artifact/config is emitted and honored."
+      - "Changing the script contract may break bootstrap expectations if tests are not updated together."
+    rollback:
+      - "Revert config, script, test, and PARITY changes together if export-mode build validation fails."
+  - phase_id: tle-relay-fallback-hardening
+    title: "Harden ordered TLE relay fallback"
+    objective: "Retry TLE relays in order per source while preserving schema validation, stale-cache behavior, and stable external failure semantics."
+    status: planned
+    in_scope:
+      - "Extend `SkyLensServerless/lib/satellites/tle.ts` to parse ordered relay templates from the existing public env var."
+      - "Retry relays in order for each TLE source and emit structured failure context with `groupId`, relay index, and relay path/template per attempt."
+      - "Preserve cache freshness, stale fallback, and catalog normalization behavior."
+      - "Add or update `SkyLensServerless/tests/unit/satellite-layer.test.ts` for the requested retry and stale-cache scenarios."
+      - "Run relevant unit tests and `npm run build` in `SkyLensServerless/`."
+    out_of_scope:
+      - "Changes to aircraft, celestial, or viewer rendering logic."
+      - "New backend relay services or external infrastructure."
+      - "Broad test-suite rewrites beyond directly affected assertions."
+    dependencies:
+      - static-export-contract
+    acceptance_criteria:
+      - id: AC-1
+        text: "The existing relay env var accepts either one template or a comma-separated ordered list, and each source exhausts relays in order before failing."
+      - id: AC-2
+        text: "Schema validation, dedupe behavior, stale-cache fallback, the external unavailable-error contract, and structured diagnostics with `groupId`, relay index, and relay path/template remain intact after the retry changes."
+      - id: AC-3
+        text: "Requested relay-failure tests plus the relevant build/unit validation pass from `SkyLensServerless/`."
+    deliverables:
+      - "Updated relay parsing and retry logic in `SkyLensServerless/lib/satellites/tle.ts`."
+      - "Extended relay-failure coverage in `SkyLensServerless/tests/unit/satellite-layer.test.ts`."
+      - "Validation results for affected unit tests and static build checks."
+    risks:
+      - "Retry aggregation could hide actionable diagnostics or change stale-cache timing."
+      - "Per-relay failures may accidentally alter deduped catalog output if success paths diverge."
+    rollback:
+      - "Revert relay parsing, retry, and satellite-test changes together if catalog fetch reliability or stale handling regresses."

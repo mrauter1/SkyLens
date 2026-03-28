@@ -1,0 +1,494 @@
+import React, { act } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const { mockRouterReplace, mockFetchHealthStatus } = vi.hoisted(() => ({
+  mockRouterReplace: vi.fn(),
+  mockFetchHealthStatus: vi.fn(),
+}))
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({
+    replace: mockRouterReplace,
+  }),
+}))
+
+vi.mock('next/link', () => ({
+  default: ({
+    children,
+    href,
+    ...props
+  }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) =>
+    React.createElement('a', { href, ...props }, children),
+}))
+
+vi.mock('../../lib/astronomy/celestial', () => ({
+  isCelestialDaylightLabelSuppressed: (object: { metadata?: Record<string, unknown> }) =>
+    object.metadata?.daylightLabelSuppressed === true,
+  normalizeCelestialObjects: () => ({
+    sunAltitudeDeg: -12,
+    objects: [],
+  }),
+}))
+
+vi.mock('../../lib/astronomy/stars', () => ({
+  loadStarCatalog: () => [],
+  normalizeVisibleStars: () => [],
+}))
+
+vi.mock('../../lib/astronomy/constellations', () => ({
+  buildVisibleConstellations: () => ({
+    objects: [],
+    lineSegments: [],
+  }),
+}))
+
+vi.mock('../../lib/aircraft/client', () => ({
+  fetchAircraftSnapshot: vi.fn(),
+  normalizeAircraftObjects: () => [],
+  getAircraftAvailabilityMessage: () => null,
+}))
+
+vi.mock('../../lib/satellites/client', () => ({
+  fetchSatelliteCatalog: vi.fn(),
+  normalizeSatelliteObjects: () => [],
+}))
+
+vi.mock('../../lib/health/client', () => ({
+  fetchHealthStatus: mockFetchHealthStatus,
+}))
+
+import { ViewerShell } from '../../components/viewer/viewer-shell'
+import {
+  VIEWER_SETTINGS_STORAGE_KEY,
+  readViewerSettings,
+} from '../../lib/viewer/settings'
+
+describe('ViewerShell settings integration', () => {
+  let container: HTMLDivElement
+  let root: Root
+
+  beforeAll(() => {
+    ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
+      .IS_REACT_ACT_ENVIRONMENT = true
+  })
+
+  beforeEach(() => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+    mockRouterReplace.mockReset()
+    mockFetchHealthStatus.mockReset()
+    mockFetchHealthStatus.mockResolvedValue(createHealthResponse('empty'))
+    window.localStorage.clear()
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabledLayers: {
+          aircraft: false,
+          satellites: true,
+          planets: true,
+          stars: true,
+          constellations: true,
+        },
+        likelyVisibleOnly: false,
+        labelDisplayMode: 'on_objects',
+        headingOffsetDeg: 7,
+        pitchOffsetDeg: -3,
+        verticalFovAdjustmentDeg: 6,
+        onboardingCompleted: false,
+      }),
+    )
+  })
+
+  afterEach(async () => {
+    await act(async () => {
+      root.unmount()
+    })
+    container.remove()
+    window.localStorage.clear()
+  })
+
+  it('defaults missing motionQuality while preserving the rest of persisted settings', () => {
+    expect(readViewerSettings()).toMatchObject({
+      enabledLayers: {
+        aircraft: false,
+        satellites: true,
+        planets: true,
+        stars: true,
+        constellations: true,
+      },
+      likelyVisibleOnly: false,
+      labelDisplayMode: 'on_objects',
+      motionQuality: 'balanced',
+      markerScale: 1,
+      alignmentTargetPreference: null,
+      verticalFovAdjustmentDeg: 6,
+      onboardingCompleted: false,
+    })
+  })
+
+  it('restores a persisted alignment target preference while keeping older payloads readable', () => {
+    expect(readViewerSettings().alignmentTargetPreference).toBeNull()
+
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabledLayers: {
+          aircraft: false,
+          satellites: true,
+          planets: true,
+          stars: true,
+          constellations: true,
+        },
+        likelyVisibleOnly: false,
+        labelDisplayMode: 'on_objects',
+        motionQuality: 'balanced',
+        alignmentTargetPreference: 'moon',
+        verticalFovAdjustmentDeg: 6,
+        onboardingCompleted: false,
+      }),
+    )
+
+    expect(readViewerSettings().alignmentTargetPreference).toBe('moon')
+  })
+
+  it('clamps persisted marker scale values into the supported 1x to 4x range', () => {
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabledLayers: {
+          aircraft: false,
+          satellites: true,
+          planets: true,
+          stars: true,
+          constellations: true,
+        },
+        likelyVisibleOnly: false,
+        labelDisplayMode: 'on_objects',
+        motionQuality: 'balanced',
+        markerScale: 9,
+        verticalFovAdjustmentDeg: 6,
+        onboardingCompleted: false,
+      }),
+    )
+
+    expect(readViewerSettings().markerScale).toBe(4)
+
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabledLayers: {
+          aircraft: false,
+          satellites: true,
+          planets: true,
+          stars: true,
+          constellations: true,
+        },
+        likelyVisibleOnly: false,
+        labelDisplayMode: 'on_objects',
+        motionQuality: 'balanced',
+        markerScale: 0.4,
+        verticalFovAdjustmentDeg: 6,
+        onboardingCompleted: false,
+      }),
+    )
+
+    expect(readViewerSettings().markerScale).toBe(1)
+  })
+
+  it('loads persisted settings, preserves offsets on recenter, and routes demo mode from the sheet', async () => {
+    await act(async () => {
+      root.render(
+        React.createElement(ViewerShell, {
+          initialState: {
+            entry: 'demo',
+            location: 'unavailable',
+            camera: 'unavailable',
+            orientation: 'unavailable',
+          },
+        }),
+      )
+    })
+
+    expect(container.textContent).toContain('FOV 56° vertical')
+
+    const settingsButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Settings'),
+    )
+
+    expect(settingsButton).toBeDefined()
+
+    await act(async () => {
+      settingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const checkboxes = Array.from(
+      container.querySelectorAll('input[type="checkbox"]'),
+    ) as HTMLInputElement[]
+    const planesToggle = checkboxes[0]
+    const likelyVisibleToggle = checkboxes[5]
+
+    expect(planesToggle.checked).toBe(false)
+    expect(likelyVisibleToggle.checked).toBe(false)
+
+    const alignmentButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Alignment'),
+    )
+    const recenterButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Recenter'),
+    )
+    const enterDemoModeButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Enter demo mode'),
+    )
+
+    expect(alignmentButton).toBeDefined()
+    expect(recenterButton).toBeDefined()
+    expect(enterDemoModeButton).toBeDefined()
+
+    const fovSlider = container.querySelector(
+      'input[aria-label="Field of view"]',
+    ) as HTMLInputElement | null
+
+    expect(fovSlider?.value).toBe('6')
+    expect(
+      (container.querySelector('input[aria-label="On objects"]') as HTMLInputElement | null)
+        ?.checked,
+    ).toBe(true)
+    expect(
+      (container.querySelector('input[aria-label="Balanced"]') as HTMLInputElement | null)
+        ?.checked,
+    ).toBe(true)
+
+    await act(async () => {
+      recenterButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(readViewerSettings()).toMatchObject({
+      labelDisplayMode: 'on_objects',
+      motionQuality: 'balanced',
+      verticalFovAdjustmentDeg: 6,
+    })
+    expect(readViewerSettings().poseCalibration.calibrated).toBe(false)
+
+    await act(async () => {
+      enterDemoModeButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(mockRouterReplace).toHaveBeenCalledWith(
+      expect.stringContaining('entry=demo'),
+    )
+    expect(readViewerSettings().onboardingCompleted).toBe(true)
+  })
+
+  it('reloads changed layer toggles and calibration values from persisted settings', async () => {
+    await act(async () => {
+      root.render(
+        React.createElement(ViewerShell, {
+          initialState: {
+            entry: 'demo',
+            location: 'unavailable',
+            camera: 'unavailable',
+            orientation: 'unavailable',
+          },
+        }),
+      )
+    })
+
+    const settingsButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Settings'),
+    )
+
+    expect(settingsButton).toBeDefined()
+
+    await act(async () => {
+      settingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const checkboxes = Array.from(
+      container.querySelectorAll('input[type="checkbox"]'),
+    ) as HTMLInputElement[]
+    const planesToggle = checkboxes[0]
+    const satellitesToggle = checkboxes[1]
+    const likelyVisibleToggle = checkboxes[5]
+
+    const alignmentButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Alignment'),
+    )
+
+    expect(alignmentButton).toBeDefined()
+
+    const fovSlider = container.querySelector(
+      'input[aria-label="Field of view"]',
+    ) as HTMLInputElement | null
+    const topListRadio = container.querySelector(
+      'input[aria-label="Top list"]',
+    ) as HTMLInputElement | null
+    const highMotionQualityRadio = container.querySelector(
+      'input[aria-label="High"]',
+    ) as HTMLInputElement | null
+
+    expect(planesToggle.checked).toBe(false)
+    expect(satellitesToggle.checked).toBe(true)
+    expect(likelyVisibleToggle.checked).toBe(false)
+    expect(fovSlider?.value).toBe('6')
+
+    await act(async () => {
+      planesToggle.click()
+      satellitesToggle.click()
+      likelyVisibleToggle.click()
+      topListRadio?.click()
+      highMotionQualityRadio?.click()
+      setInputValue(fovSlider!, '-4')
+    })
+
+    expect(readViewerSettings()).toMatchObject({
+      enabledLayers: {
+        aircraft: true,
+        satellites: false,
+        planets: true,
+        stars: true,
+        constellations: true,
+      },
+      likelyVisibleOnly: true,
+      labelDisplayMode: 'top_list',
+      motionQuality: 'high',
+      verticalFovAdjustmentDeg: -4,
+    })
+    expect(readViewerSettings().poseCalibration.calibrated).toBe(false)
+
+    await act(async () => {
+      root.unmount()
+    })
+
+    root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        React.createElement(ViewerShell, {
+          initialState: {
+            entry: 'demo',
+            location: 'unavailable',
+            camera: 'unavailable',
+            orientation: 'unavailable',
+          },
+        }),
+      )
+    })
+
+    expect(container.textContent).toContain('FOV 46° vertical')
+
+    const reloadedSettingsButton = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.includes('Settings'),
+    )
+
+    expect(reloadedSettingsButton).toBeDefined()
+
+    await act(async () => {
+      reloadedSettingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const reloadedCheckboxes = Array.from(
+      container.querySelectorAll('input[type="checkbox"]'),
+    ) as HTMLInputElement[]
+
+    expect(reloadedCheckboxes[0].checked).toBe(true)
+    expect(reloadedCheckboxes[1].checked).toBe(false)
+    expect(reloadedCheckboxes[5].checked).toBe(true)
+
+    const reloadedAlignmentButton = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.includes('Alignment'),
+    )
+
+    expect(reloadedAlignmentButton).toBeDefined()
+
+    const reloadedFovSlider = container.querySelector(
+      'input[aria-label="Field of view"]',
+    ) as HTMLInputElement | null
+
+    expect(reloadedFovSlider?.value).toBe('-4')
+    expect(
+      (container.querySelector('input[aria-label="Top list"]') as HTMLInputElement | null)
+        ?.checked,
+    ).toBe(true)
+    expect(
+      (container.querySelector('input[aria-label="High"]') as HTMLInputElement | null)?.checked,
+    ).toBe(true)
+  })
+
+  it.each([
+    ['stale', 'Using stale satellite cache'],
+    ['expired', 'Satellite cache expired'],
+  ] as const)(
+    'surfaces %s satellite cache health inside the real settings sheet',
+    async (status, expectedLabel) => {
+      mockFetchHealthStatus.mockResolvedValueOnce(createHealthResponse(status))
+
+      await act(async () => {
+        root.render(
+          React.createElement(ViewerShell, {
+            initialState: {
+              entry: 'demo',
+              location: 'unavailable',
+              camera: 'unavailable',
+              orientation: 'unavailable',
+            },
+          }),
+        )
+      })
+      await flushEffects()
+
+      const settingsButton = Array.from(container.querySelectorAll('button')).find((button) =>
+        button.textContent?.includes('Settings'),
+      )
+
+      expect(settingsButton).toBeDefined()
+
+      await act(async () => {
+        settingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      })
+
+      expect(mockFetchHealthStatus).toHaveBeenCalledTimes(1)
+      expect(container.textContent).toContain(expectedLabel)
+    },
+  )
+})
+
+async function flushEffects() {
+  await act(async () => {
+    await Promise.resolve()
+  })
+
+  await act(async () => {
+    await Promise.resolve()
+  })
+}
+
+function setInputValue(input: HTMLInputElement, value: string) {
+  const valueSetter = Object.getOwnPropertyDescriptor(
+    HTMLInputElement.prototype,
+    'value',
+  )?.set
+
+  valueSetter?.call(input, value)
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  input.dispatchEvent(new Event('change', { bubbles: true }))
+}
+
+function createHealthResponse(status: 'empty' | 'stale' | 'expired') {
+  return {
+    app: {
+      status: 'ok',
+    },
+    tleCache:
+      status === 'empty'
+        ? {
+            status: 'empty',
+          }
+        : {
+            status,
+            fetchedAt: '2026-03-26T00:00:00.000Z',
+            expiresAt: '2026-03-26T06:00:00.000Z',
+          },
+  }
+}
