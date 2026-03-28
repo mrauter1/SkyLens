@@ -11,7 +11,7 @@ test('demo mode renders deterministic labels and opens a detail card', async ({ 
   const mobileOverlay = page.getByTestId('mobile-viewer-overlay')
   const overlayCloseButton = mobileOverlay.getByRole('button', { name: 'Close' })
 
-  await expect(mobileOverlay.getByText('Demo mode is active.')).toBeVisible()
+  await expect(page.getByTestId('viewer-warning-rail-item-demo')).toBeVisible()
   await overlayCloseButton.click()
   await expect(mobileOverlay).toHaveCount(0)
 

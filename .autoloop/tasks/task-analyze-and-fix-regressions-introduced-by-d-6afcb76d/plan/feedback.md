@@ -1,0 +1,6 @@
+# Plan ↔ Plan Verifier Feedback
+
+- 2026-03-28: Replaced the empty plan with a two-phase regression recovery plan grounded in the `daacca7` diff, confirmed ViewerShell state/overlay root causes, current passing viewer-shell unit suites, and the Playwright Chromium installation blocker that currently prevents browser verification.
+- 2026-03-28: Tightened the plan around the concrete browser regression contract in `tests/e2e/demo.spec.ts`, `tests/e2e/permissions.spec.ts`, and `tests/e2e/mobile-overlay.ts` so implementation preserves mobile overlay trigger/backdrop behavior, short-viewport reachability, and permission fallback paths while keeping the desktop declutter contract intact.
+- PLAN-001 non-blocking: The validation phase correctly treats Playwright Chromium as an environment precondition, but naming the exact setup command (`npx playwright install`) in the machine-readable phase or deliverables would make the handoff slightly more operationally explicit.
+- PLAN-002 non-blocking: PLAN-001 is resolved by the explicit `npx playwright install chromium` validation step; no blocking findings remain, and the plan is implementation-ready against the current request, decision ledger, and targeted test evidence.
