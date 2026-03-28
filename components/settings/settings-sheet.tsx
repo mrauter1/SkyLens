@@ -11,6 +11,7 @@ import {
 import type { EnabledLayer } from '../../lib/config'
 import type { DemoScenarioId } from '../../lib/demo/scenarios'
 import type { LabelDisplayMode, MotionQuality } from '../../lib/viewer/settings'
+import type { AlignmentTargetPreference } from '../../lib/viewer/alignment-tutorial'
 
 type SettingsSheetProps = {
   onEnterDemoMode: () => void
