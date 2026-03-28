@@ -222,6 +222,10 @@ const MOTION_AFFORDANCE_SAMPLE_LIMITS: Record<MotionQuality, number> = {
   balanced: 8,
   high: 16,
 }
+const COMPACT_MOBILE_OVERLAY_MAX_HEIGHT =
+  'calc(100dvh - (2rem + env(safe-area-inset-top) + env(safe-area-inset-bottom)))'
+const COMPACT_ALIGNMENT_PANEL_MAX_HEIGHT =
+  'calc(100dvh - (6.5rem + env(safe-area-inset-bottom)))'
 
 export function ViewerShell({ initialState }: ViewerShellProps) {
   const router = useRouter()
@@ -2654,8 +2658,15 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                 data-testid="mobile-viewer-overlay"
                 onClick={(event) => event.stopPropagation()}
                 className={`shell-panel relative mx-auto w-full max-w-xl rounded-[1.5rem] p-4 ${
-                  shouldUseCompactNonScrollingOverlay ? '' : ''
+                  shouldUseCompactNonScrollingOverlay
+                    ? 'flex max-h-full min-h-0 flex-col overflow-hidden'
+                    : ''
                 }`}
+                style={
+                  shouldUseCompactNonScrollingOverlay
+                    ? { maxHeight: COMPACT_MOBILE_OVERLAY_MAX_HEIGHT }
+                    : undefined
+                }
               >
                 <div className="mb-3 flex items-start justify-between gap-3">
                   <div
@@ -2688,89 +2699,94 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                   </div>
                 </div>
                 {shouldUseCompactNonScrollingOverlay ? (
-                  <div className="grid gap-3" data-testid="mobile-viewer-overlay-compact-content">
-                    <div className="flex flex-wrap gap-2">
-                      <StatusBadge label="Location" value={locationStatusValue} />
-                      <StatusBadge label="Camera" value={cameraStatusValue} />
-                      <StatusBadge label="Motion" value={motionStatusValue} />
-                      <StatusBadge label="Sensor" value={sensorStatusValue} />
+                  <div
+                    className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+                    data-testid="mobile-viewer-overlay-compact-content"
+                  >
+                    <div className="grid gap-3 pb-1 pr-1">
+                      <div className="flex flex-wrap gap-2">
+                        <StatusBadge label="Location" value={locationStatusValue} />
+                        <StatusBadge label="Camera" value={cameraStatusValue} />
+                        <StatusBadge label="Motion" value={motionStatusValue} />
+                        <StatusBadge label="Sensor" value={sensorStatusValue} />
+                      </div>
+                      {astronomyFailureBanner ? (
+                        <FallbackBanner
+                          title="Astronomy fallback active."
+                          body={astronomyFailureBanner}
+                          critical
+                        />
+                      ) : null}
+                      {locationError ? (
+                        <FallbackBanner
+                          title="Live location is temporarily unavailable."
+                          body={locationError}
+                        />
+                      ) : null}
+                      {cameraError ? (
+                        <FallbackBanner
+                          title="Rear camera could not attach."
+                          body={cameraError}
+                        />
+                      ) : null}
+                      {startupState === 'sensor-relative-needs-calibration' ? (
+                        <FallbackBanner
+                          title="Relative sensor mode needs alignment."
+                          body={`Center ${calibrationTarget.label} in the crosshair, then press the middle of the screen to align before trusting label placement.`}
+                        />
+                      ) : null}
+                      {calibrationBanner ? (
+                        <FallbackBanner
+                          title="Calibration"
+                          body={calibrationBanner}
+                        />
+                      ) : null}
+                      {showAlignmentGuidance && !manualMode ? (
+                        <FallbackBanner
+                          title="Alignment looks off."
+                          body={`Move phone in a figure eight or open Alignment to use ${calibrationTarget.label}.`}
+                        />
+                      ) : null}
+                      {shouldShowAlignmentInstructions ? (
+                        <AlignmentInstructionsPanel {...mobileAlignmentPanelProps} />
+                      ) : null}
+                      <section className="rounded-[1.25rem] border border-sky-100/10 bg-white/5 p-4">
+                        <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">
+                          Viewer snapshot
+                        </p>
+                        <div className="mt-2 flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-base font-semibold text-white">
+                              {renderedActiveSummaryObject
+                                ? renderedActiveSummaryObject.label
+                                : experience.title}
+                            </p>
+                            <p className="mt-1 text-sm leading-6 text-sky-100/80">
+                              {renderedCenterLockedObject
+                                ? `${renderedCenterLockedObject.label} is nearest the center crosshair.`
+                                : visibilityDiagnosticsNote}
+                            </p>
+                          </div>
+                          <div className="rounded-full border border-sky-100/10 bg-slate-950/35 px-3 py-1 text-xs text-sky-100/75">
+                            Target {calibrationTarget.label}
+                          </div>
+                        </div>
+                        <div className="mt-3 grid grid-cols-2 gap-2 text-sm text-sky-100/75">
+                          <div className="rounded-2xl border border-sky-100/10 bg-slate-950/35 px-4 py-3">
+                            Yaw {Math.round(cameraPose.yawDeg)}°
+                          </div>
+                          <div className="rounded-2xl border border-sky-100/10 bg-slate-950/35 px-4 py-3">
+                            Pitch {Math.round(cameraPose.pitchDeg)}°
+                          </div>
+                          <div className="rounded-2xl border border-sky-100/10 bg-slate-950/35 px-4 py-3">
+                            FOV {getEffectiveVerticalFovDeg(viewerSettings.verticalFovAdjustmentDeg)}°
+                          </div>
+                          <div className="rounded-2xl border border-sky-100/10 bg-slate-950/35 px-4 py-3">
+                            Visible markers {renderedMarkerObjects.length}
+                          </div>
+                        </div>
+                      </section>
                     </div>
-                    {astronomyFailureBanner ? (
-                      <FallbackBanner
-                        title="Astronomy fallback active."
-                        body={astronomyFailureBanner}
-                        critical
-                      />
-                    ) : null}
-                    {locationError ? (
-                      <FallbackBanner
-                        title="Live location is temporarily unavailable."
-                        body={locationError}
-                      />
-                    ) : null}
-                    {cameraError ? (
-                      <FallbackBanner
-                        title="Rear camera could not attach."
-                        body={cameraError}
-                      />
-                    ) : null}
-                    {startupState === 'sensor-relative-needs-calibration' ? (
-                      <FallbackBanner
-                        title="Relative sensor mode needs alignment."
-                        body={`Center ${calibrationTarget.label} in the crosshair, then press the middle of the screen to align before trusting label placement.`}
-                      />
-                    ) : null}
-                    {calibrationBanner ? (
-                      <FallbackBanner
-                        title="Calibration"
-                        body={calibrationBanner}
-                      />
-                    ) : null}
-                    {showAlignmentGuidance && !manualMode ? (
-                      <FallbackBanner
-                        title="Alignment looks off."
-                        body={`Move phone in a figure eight or open Alignment to use ${calibrationTarget.label}.`}
-                      />
-                    ) : null}
-                    {shouldShowAlignmentInstructions ? (
-                      <AlignmentInstructionsPanel {...mobileAlignmentPanelProps} />
-                    ) : null}
-                    <section className="rounded-[1.25rem] border border-sky-100/10 bg-white/5 p-4">
-                      <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">
-                        Viewer snapshot
-                      </p>
-                      <div className="mt-2 flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="truncate text-base font-semibold text-white">
-                            {renderedActiveSummaryObject
-                              ? renderedActiveSummaryObject.label
-                              : experience.title}
-                          </p>
-                          <p className="mt-1 text-sm leading-6 text-sky-100/80">
-                            {renderedCenterLockedObject
-                              ? `${renderedCenterLockedObject.label} is nearest the center crosshair.`
-                              : visibilityDiagnosticsNote}
-                          </p>
-                        </div>
-                        <div className="rounded-full border border-sky-100/10 bg-slate-950/35 px-3 py-1 text-xs text-sky-100/75">
-                          Target {calibrationTarget.label}
-                        </div>
-                      </div>
-                      <div className="mt-3 grid grid-cols-2 gap-2 text-sm text-sky-100/75">
-                        <div className="rounded-2xl border border-sky-100/10 bg-slate-950/35 px-4 py-3">
-                          Yaw {Math.round(cameraPose.yawDeg)}°
-                        </div>
-                        <div className="rounded-2xl border border-sky-100/10 bg-slate-950/35 px-4 py-3">
-                          Pitch {Math.round(cameraPose.pitchDeg)}°
-                        </div>
-                        <div className="rounded-2xl border border-sky-100/10 bg-slate-950/35 px-4 py-3">
-                          FOV {getEffectiveVerticalFovDeg(viewerSettings.verticalFovAdjustmentDeg)}°
-                        </div>
-                        <div className="rounded-2xl border border-sky-100/10 bg-slate-950/35 px-4 py-3">
-                          Visible markers {renderedMarkerObjects.length}
-                        </div>
-                      </div>
-                    </section>
                   </div>
                 ) : (
                   <div className="grid gap-3">
@@ -3622,8 +3638,9 @@ function AlignmentInstructionsPanel({
   return (
     <section
       className={`rounded-[1.5rem] border border-sky-100/10 bg-slate-950/55 ${
-        compact ? 'p-4' : 'p-5'
+        compact ? 'max-w-full overflow-y-auto overscroll-contain p-4' : 'p-5'
       }`}
+      style={compact ? { maxHeight: COMPACT_ALIGNMENT_PANEL_MAX_HEIGHT } : undefined}
       data-testid="alignment-instructions-panel"
     >
       <div className="flex items-start justify-between gap-3">

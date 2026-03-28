@@ -1319,7 +1319,7 @@ describe('ViewerShell startup gating', () => {
     expect(container.textContent).toContain('Try demo mode')
   })
 
-  it('uses a non-scrolling mobile overlay shell and locks document scroll during live camera use', async () => {
+  it('keeps the live camera stage locked while the compact mobile overlay content scrolls', async () => {
     await renderViewer({
       entry: 'live',
       location: 'granted',
@@ -1358,11 +1358,141 @@ describe('ViewerShell startup gating', () => {
       'pb-[calc(1rem+env(safe-area-inset-bottom))]',
     )
     expect(mobileOverlayShell?.className).toContain('overflow-hidden')
+    expect(mobileOverlay?.className).toContain('flex')
+    expect(mobileOverlay?.className).toContain('max-h-full')
+    expect(mobileOverlay?.className).toContain('overflow-hidden')
+    expect(mobileOverlay?.style.maxHeight).toBe(
+      'calc(100dvh - (2rem + env(safe-area-inset-top) + env(safe-area-inset-bottom)))',
+    )
+    expect(compactOverlayContent?.className).toContain('flex-1')
+    expect(compactOverlayContent?.className).toContain('overflow-y-auto')
+    expect(compactOverlayContent?.className).toContain('overscroll-contain')
     expect(mobileOverlay?.textContent).toContain('Viewer snapshot')
     expect(mobileOverlay?.textContent).not.toContain('Privacy reassurance')
     expect(mobileOverlay?.textContent).not.toContain('Celestial layer')
     expect(document.documentElement.style.overflow).toBe('hidden')
     expect(document.body.style.overflow).toBe('hidden')
+  })
+
+  it('preserves backdrop close behavior for the compact live mobile overlay', async () => {
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'granted',
+    })
+
+    const mobileTrigger = container.querySelector(
+      '[data-testid="mobile-viewer-overlay-trigger"]',
+    ) as HTMLButtonElement | null
+
+    expect(mobileTrigger).not.toBeNull()
+
+    await act(async () => {
+      mobileTrigger!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const backdrop = container.querySelector(
+      '[data-testid="mobile-viewer-overlay-backdrop"]',
+    ) as HTMLButtonElement | null
+
+    expect(container.querySelector('[data-testid="mobile-viewer-overlay-shell"]')).not.toBeNull()
+    expect(backdrop).not.toBeNull()
+
+    await act(async () => {
+      backdrop!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(container.querySelector('[data-testid="mobile-viewer-overlay"]')).toBeNull()
+    expect(container.querySelector('[data-testid="mobile-viewer-overlay-shell"]')).toBeNull()
+    expect(container.querySelector('[data-testid="mobile-viewer-overlay-trigger"]')).not.toBeNull()
+    expect(document.documentElement.style.overflow).toBe('hidden')
+    expect(document.body.style.overflow).toBe('hidden')
+  })
+
+  it('makes the compact alignment panel internally scrollable on mobile', async () => {
+    mockSubscribeToOrientationPose.mockImplementationOnce((onPose: (state: unknown) => void) => {
+      onPose({
+        pose: {
+          yawDeg: 0,
+          pitchDeg: 0,
+          rollDeg: 0,
+          quaternion: [0, 0, 0, 1],
+          alignmentHealth: 'fair',
+          mode: 'sensor',
+        },
+        sample: {
+          source: 'absolute-sensor',
+          absolute: true,
+          needsCalibration: false,
+          timestampMs: Date.UTC(2026, 2, 26, 0, 45, 6),
+          headingDeg: 0,
+          pitchDeg: 0,
+          rollDeg: 0,
+          quaternion: [0, 0, 0, 1],
+          rawQuaternion: [0, 0, 0, 1],
+          rawSample: {
+            source: 'absolute-sensor',
+            localFrame: 'screen',
+            absolute: true,
+            timestampMs: Date.UTC(2026, 2, 26, 0, 45, 6),
+            worldFromLocal: [
+              [1, 0, 0],
+              [0, 1, 0],
+              [0, 0, 1],
+            ],
+          },
+        },
+        history: [],
+        orientationSource: 'absolute-sensor',
+        orientationAbsolute: true,
+        orientationNeedsCalibration: false,
+        poseCalibration: {
+          offsetQuaternion: [0, 0, 0, 1],
+          calibrated: false,
+          sourceAtCalibration: null,
+          lastCalibratedAtMs: null,
+        },
+      })
+
+      return SENSOR_CONTROLLER
+    })
+
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'granted',
+    })
+
+    const alignButton = container.querySelector(
+      '[data-testid="mobile-align-action"]',
+    ) as HTMLButtonElement | null
+
+    expect(alignButton).not.toBeNull()
+
+    await act(async () => {
+      alignButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    const alignmentPanels = Array.from(
+      container.querySelectorAll('[data-testid="alignment-instructions-panel"]'),
+    ) as HTMLElement[]
+    const alignmentPanel =
+      alignmentPanels.find((panel) => panel.className.includes('overflow-y-auto')) ?? null
+    const startAlignmentButton = container.querySelector(
+      '[data-testid="alignment-start-action"]',
+    ) as HTMLButtonElement | null
+
+    expect(alignmentPanel).not.toBeNull()
+    expect(alignmentPanel?.className).toContain('overflow-y-auto')
+    expect(alignmentPanel?.className).toContain('overscroll-contain')
+    expect(alignmentPanel?.style.maxHeight).toBe(
+      'calc(100dvh - (6.5rem + env(safe-area-inset-bottom)))',
+    )
+    expect(startAlignmentButton).not.toBeNull()
+    expect(startAlignmentButton?.disabled).toBe(false)
   })
 
   it('surfaces motion recovery guidance and retries orientation permission', async () => {
