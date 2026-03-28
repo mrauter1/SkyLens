@@ -24,6 +24,7 @@ export interface ViewerSettings {
   likelyVisibleOnly: boolean
   labelDisplayMode: LabelDisplayMode
   motionQuality: MotionQuality
+  markerScale: number
   poseCalibration: PoseCalibration
   alignmentTargetPreference: AlignmentTargetPreference | null
   verticalFovAdjustmentDeg: number
@@ -48,6 +49,7 @@ const SettingsSchema = z.object({
   likelyVisibleOnly: z.boolean(),
   labelDisplayMode: z.enum(['center_only', 'on_objects', 'top_list']),
   motionQuality: z.enum(['low', 'balanced', 'high']).optional(),
+  markerScale: z.number().optional(),
   headingOffsetDeg: z.number().optional(),
   pitchOffsetDeg: z.number().optional(),
   alignmentTargetPreference: z.enum(['sun', 'moon']).nullable().optional(),
@@ -92,6 +94,7 @@ export function getDefaultViewerSettings(): ViewerSettings {
     likelyVisibleOnly: config.defaults.likelyVisibleOnly,
     labelDisplayMode: 'center_only',
     motionQuality: 'balanced',
+    markerScale: 1,
     poseCalibration: createIdentityPoseCalibration(),
     alignmentTargetPreference: null,
     verticalFovAdjustmentDeg: 0,
@@ -172,6 +175,7 @@ export function normalizeViewerSettings(settings: ViewerSettings): ViewerSetting
     likelyVisibleOnly: settings.likelyVisibleOnly,
     labelDisplayMode: settings.labelDisplayMode,
     motionQuality: normalizeMotionQuality(settings.motionQuality),
+    markerScale: normalizeMarkerScale(settings.markerScale),
     poseCalibration: createPoseCalibration(settings.poseCalibration),
     alignmentTargetPreference: normalizeAlignmentTargetPreference(
       settings.alignmentTargetPreference,
@@ -211,6 +215,14 @@ function normalizeMotionQuality(
     default:
       return 'balanced'
   }
+}
+
+function normalizeMarkerScale(markerScale: number | null | undefined) {
+  if (typeof markerScale !== 'number' || !Number.isFinite(markerScale)) {
+    return 1
+  }
+
+  return clamp(markerScale, 1, 4)
 }
 
 function normalizeAlignmentTargetPreference(

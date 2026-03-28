@@ -1,0 +1,36 @@
+{
+  "task_id": "autoloop-task-star-marker-minimum-stage-scale-sl-436d95b6",
+  "created_at": "2026-03-28T05:34:10.399859+00:00",
+  "request_text": "# Autoloop Task: Star Marker Minimum + Stage Scale Slider\n\n## Mode\n- Run in `full_auto`.\n- Do **not** set `max_iterations`.\n- Use explicit plan, then implement/test in plan-implement-test pairs.\n\n## Required Changes\n1. **Star minimum marker size**\n   - Update marker sizing logic so **stars** can render down to **1 px minimum** (instead of current 6 px global floor).\n   - Preserve existing behavior for other object types unless needed for the scaling requirement below.\n\n2. **Stage view scaling slider**\n   - Add a new slider control in the stage/viewer UI **above the buttons** (the bottom action controls area in stage view).\n   - Slider range:\n     - min: `1`\n     - max: `4`\n     - step: decimal (use fine-grained decimal step such as `0.1`)\n   - The slider controls a marker/icon scaling multiplier.\n\n3. **Scaling behavior**\n   - Apply scaling multiplier to marker/icon visual size so that:\n     - at scale = `1`, current sizes are unchanged (except new star min logic)\n     - at scale = `4`, elements that would be `1px` at scale 1 become `4px`, and similarly for all other marker sizes.\n   - Ensure scaling is reflected live on stage.\n\n4. **State + persistence (if patterns already exist)**\n   - Integrate with existing viewer settings/state architecture following current project conventions.\n   - If viewer settings persistence patterns exist, persist the new scale setting consistently.\n\n5. **UX details**\n   - Label slider clearly (e.g., \u201cMarker scale\u201d).\n   - Show current numeric value (e.g., 1.0\u20134.0).\n   - Keep styling consistent with existing stage controls.\n\n## Validation / Tests\n- Add or update unit tests for marker sizing behavior and slider setting behavior.\n- Verify star minimum can be 1 px.\n- Verify scale multiplier math (including scale=4 case).\n- Run relevant tests and report results.\n\n## Deliverables\n- Code changes implementing the above.\n- Updated tests.\n- Summary of files changed and test command output.",
+  "request_updated_at": "2026-03-28T05:38:00.739134+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/autoloop-task-star-marker-minimum-stage-scale-sl-436d95b6/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260328T053800Z-2c336be1",
+    "mode": "single",
+    "phase_ids": [
+      "marker-scale-stage-controls"
+    ],
+    "explicit": true,
+    "current_phase_index": 1,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "marker-scale-stage-controls": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "marker-scale-stage-controls",
+      "run_id": "run-20260328T053410Z-e3305539",
+      "status": "in_progress",
+      "ts": "2026-03-28T05:37:02.983976+00:00"
+    },
+    {
+      "phase_id": "marker-scale-stage-controls",
+      "run_id": "run-20260328T053410Z-e3305539",
+      "status": "completed",
+      "ts": "2026-03-28T05:48:06.178829+00:00",
+      "pair": "test"
+    }
+  ]
+}

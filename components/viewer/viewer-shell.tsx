@@ -2334,41 +2334,49 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             </div>
           </div>
         ) : null}
-        {renderedMarkerObjects.map((object) => (
-          <button
-            key={object.id}
-            type="button"
-            onClick={() =>
-              setSelectedObjectId((current) => (current === object.id ? null : object.id))
-            }
-            aria-label={`${object.label} ${formatSkyObjectSublabel(object)}`}
-            aria-pressed={selectedObject?.id === object.id}
-            data-testid="sky-object-marker"
-            data-object-id={object.id}
-            className={`absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full ${
-              prefersReducedMotion ? '' : 'transition'
-            }`}
-            style={{
-              left: `${object.projection.x}px`,
-              top: `${object.projection.y}px`,
-              opacity: getObjectMotionOpacity(object),
-            }}
-          >
-            <span className="sr-only">
-              {object.label} {formatSkyObjectSublabel(object)}
-            </span>
-            <span
-              className={`block ${getMarkerVisualClassName(object, {
-                centerLockedObjectId: centerLockedObject?.id ?? null,
-                selectedObjectId,
-              })}`}
+        {renderedMarkerObjects.map((object) => {
+          const markerSizePx = getMarkerSizePx(
+            object,
+            viewerSettings.verticalFovAdjustmentDeg,
+            viewerSettings.markerScale,
+          )
+
+          return (
+            <button
+              key={object.id}
+              type="button"
+              onClick={() =>
+                setSelectedObjectId((current) => (current === object.id ? null : object.id))
+              }
+              aria-label={`${object.label} ${formatSkyObjectSublabel(object)}`}
+              aria-pressed={selectedObject?.id === object.id}
+              data-testid="sky-object-marker"
+              data-object-id={object.id}
+              className={`absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full ${
+                prefersReducedMotion ? '' : 'transition'
+              }`}
               style={{
-                width: `${getMarkerSizePx(object, viewerSettings.verticalFovAdjustmentDeg)}px`,
-                height: `${getMarkerSizePx(object, viewerSettings.verticalFovAdjustmentDeg)}px`,
+                left: `${object.projection.x}px`,
+                top: `${object.projection.y}px`,
+                opacity: getObjectMotionOpacity(object),
               }}
-            />
-          </button>
-        ))}
+            >
+              <span className="sr-only">
+                {object.label} {formatSkyObjectSublabel(object)}
+              </span>
+              <span
+                className={`block ${getMarkerVisualClassName(object, {
+                  centerLockedObjectId: centerLockedObject?.id ?? null,
+                  selectedObjectId,
+                })}`}
+                style={{
+                  width: `${markerSizePx}px`,
+                  height: `${markerSizePx}px`,
+                }}
+              />
+            </button>
+          )
+        })}
         {renderedOnObjectLabels.map((object) => (
           <div
             key={object.object.id}
@@ -3143,6 +3151,36 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                 />
               </div>
             ) : null}
+            {!isMobileAlignmentFocusActive ? (
+              <label className="pointer-events-auto grid gap-2 rounded-[1.25rem] border border-sky-100/15 bg-slate-950/70 px-4 py-3 text-sm text-sky-50 shadow-[0_12px_30px_rgba(3,7,13,0.32)]">
+                <span className="flex items-center justify-between gap-3">
+                  <span>Marker scale</span>
+                  <span
+                    className="text-xs uppercase tracking-[0.16em] text-sky-200/65"
+                    data-testid="mobile-marker-scale-value"
+                  >
+                    {formatMarkerScaleValue(viewerSettings.markerScale)}
+                  </span>
+                </span>
+                <input
+                  aria-label="Marker scale"
+                  data-testid="mobile-marker-scale-slider"
+                  type="range"
+                  min={1}
+                  max={4}
+                  step={0.1}
+                  value={viewerSettings.markerScale}
+                  onChange={(event) => {
+                    const nextMarkerScale = clampNumber(Number(event.target.value), 1, 4)
+
+                    setViewerSettings((current) => ({
+                      ...current,
+                      markerScale: nextMarkerScale,
+                    }))
+                  }}
+                />
+              </label>
+            ) : null}
             <div className="pointer-events-auto flex flex-wrap justify-center gap-2">
               {!isMobileAlignmentFocusActive ? (
                 <button
@@ -3291,9 +3329,21 @@ function getMovingObjectMarkerStateClassName(object: SkyObject) {
 function getMarkerSizePx(
   object: SkyObject,
   verticalFovAdjustmentDeg: number,
+  markerScale: number,
 ) {
   const effectiveFovDeg = getEffectiveVerticalFovDeg(verticalFovAdjustmentDeg)
   const fovScale = clampNumber(50 / effectiveFovDeg, 0.82, 1.24)
+
+  if (object.type === 'star') {
+    const magnitudeBoost = getMagnitudeBoost(object.magnitude)
+    const legacyScaleOneSizePx = Math.max(6, Math.round((6 + magnitudeBoost * 0.75) * fovScale))
+    const relaxedScaleOneSizePx = Math.max(1, Math.round((1 + magnitudeBoost * 0.75) * fovScale))
+    const scaleOneSizePx =
+      legacyScaleOneSizePx > 6 ? legacyScaleOneSizePx : relaxedScaleOneSizePx
+
+    return Math.max(1, Math.round(scaleOneSizePx * markerScale))
+  }
+
   let sizePx = 0
 
   switch (object.type) {
@@ -3305,9 +3355,6 @@ function getMarkerSizePx(
       break
     case 'planet':
       sizePx = 8 + getMagnitudeBoost(object.magnitude)
-      break
-    case 'star':
-      sizePx = 6 + getMagnitudeBoost(object.magnitude) * 0.75
       break
     case 'satellite':
       sizePx = 6 + getRangeBoost(object.rangeKm)
@@ -3326,7 +3373,9 @@ function getMarkerSizePx(
       break
   }
 
-  return Math.max(6, Math.round(sizePx * fovScale))
+  const scaleOneSizePx = Math.max(6, Math.round(sizePx * fovScale))
+
+  return Math.max(1, Math.round(scaleOneSizePx * markerScale))
 }
 
 function getMagnitudeBoost(magnitude?: number) {
@@ -3378,6 +3427,10 @@ function getServerHydrationSnapshot() {
 
 function clampNumber(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max)
+}
+
+function formatMarkerScaleValue(value: number) {
+  return `${value.toFixed(1)}x`
 }
 
 function resolveCalibrationTarget(
