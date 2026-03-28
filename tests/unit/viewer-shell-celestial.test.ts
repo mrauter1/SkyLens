@@ -10,6 +10,8 @@ const {
   mockRequestStartupObserverState,
   mockStartObserverTracking,
   mockSubscribeToOrientationPose,
+  mockRequestRearCameraStream,
+  mockStopMediaStream,
   mockFetchAircraftSnapshot,
   mockGetAircraftAvailabilityMessage,
   mockNormalizeCelestialObjects,
@@ -24,6 +26,8 @@ const {
   mockRequestStartupObserverState: vi.fn(),
   mockStartObserverTracking: vi.fn(),
   mockSubscribeToOrientationPose: vi.fn(),
+  mockRequestRearCameraStream: vi.fn(),
+  mockStopMediaStream: vi.fn(),
   mockFetchAircraftSnapshot: vi.fn(),
   mockGetAircraftAvailabilityMessage: vi.fn(),
   mockNormalizeCelestialObjects: vi.fn(),
@@ -77,6 +81,18 @@ vi.mock('../../lib/sensors/orientation', async () => {
   return {
     ...actual,
     subscribeToOrientationPose: mockSubscribeToOrientationPose,
+  }
+})
+
+vi.mock('../../lib/projection/camera', async () => {
+  const actual = await vi.importActual<typeof import('../../lib/projection/camera')>(
+    '../../lib/projection/camera',
+  )
+
+  return {
+    ...actual,
+    requestRearCameraStream: mockRequestRearCameraStream,
+    stopMediaStream: mockStopMediaStream,
   }
 })
 
@@ -140,6 +156,11 @@ const TRACKER = {
   stop: vi.fn(),
 }
 
+const CAMERA_STREAM = {
+  getTracks: vi.fn(() => []),
+  getVideoTracks: vi.fn(() => []),
+} as unknown as MediaStream
+
 const originalMatchMedia = window.matchMedia
 const originalSetTimeout = window.setTimeout
 const originalClearTimeout = window.clearTimeout
@@ -153,6 +174,28 @@ describe('ViewerShell celestial behavior', () => {
   beforeAll(() => {
     ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
       .IS_REACT_ACT_ENVIRONMENT = true
+
+    Object.defineProperty(HTMLMediaElement.prototype, 'play', {
+      configurable: true,
+      value: vi.fn(async () => undefined),
+    })
+
+    Object.defineProperty(HTMLMediaElement.prototype, 'srcObject', {
+      configurable: true,
+      writable: true,
+      value: null,
+    })
+
+    Object.defineProperty(HTMLVideoElement.prototype, 'requestVideoFrameCallback', {
+      configurable: true,
+      writable: true,
+      value: vi.fn(() => 1),
+    })
+    Object.defineProperty(HTMLVideoElement.prototype, 'cancelVideoFrameCallback', {
+      configurable: true,
+      writable: true,
+      value: vi.fn(),
+    })
   })
 
   beforeEach(() => {
@@ -165,6 +208,8 @@ describe('ViewerShell celestial behavior', () => {
     mockRequestStartupObserverState.mockReset()
     mockStartObserverTracking.mockReset()
     mockSubscribeToOrientationPose.mockReset()
+    mockRequestRearCameraStream.mockReset()
+    mockStopMediaStream.mockReset()
     mockFetchAircraftSnapshot.mockReset()
     mockGetAircraftAvailabilityMessage.mockReset()
     mockNormalizeCelestialObjects.mockReset()
@@ -177,9 +222,21 @@ describe('ViewerShell celestial behavior', () => {
     SENSOR_CONTROLLER.recenter.mockReset()
     TRACKER.stop.mockReset()
 
+    Object.defineProperty(window, 'isSecureContext', {
+      configurable: true,
+      value: true,
+    })
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: {
+        enumerateDevices: vi.fn(async () => []),
+      },
+    })
+
     mockRequestStartupObserverState.mockResolvedValue(LIVE_OBSERVER_FIXTURE)
     mockStartObserverTracking.mockReturnValue(TRACKER)
     mockSubscribeToOrientationPose.mockReturnValue(SENSOR_CONTROLLER)
+    mockRequestRearCameraStream.mockResolvedValue(CAMERA_STREAM)
     mockFetchAircraftSnapshot.mockResolvedValue({
       fetchedAt: '2026-03-26T00:00:00.000Z',
       observer: {
@@ -241,7 +298,7 @@ describe('ViewerShell celestial behavior', () => {
     window.localStorage.clear()
   })
 
-  it('shows the bottom dock from the centered celestial object metadata', async () => {
+  it('shows centered celestial metadata inside the shared desktop overlay', async () => {
     mockNormalizeCelestialObjects.mockReturnValue({
       sunAltitudeDeg: -12,
       objects: [
@@ -269,15 +326,17 @@ describe('ViewerShell celestial behavior', () => {
       camera: 'denied',
       orientation: 'denied',
     })
+    const desktopOverlay = await openDesktopViewerOverlay()
 
-    expect(container.textContent).toContain('Bottom dock')
-    expect(container.textContent).toContain('Sun')
-    expect(container.textContent).toContain('Type')
-    expect(container.textContent).toContain('Elevation')
-    expect(container.textContent).toContain('Azimuth')
+    expect(desktopOverlay).not.toBeNull()
+    expect(desktopOverlay?.textContent).toContain('Center object')
+    expect(desktopOverlay?.textContent).toContain('Sun')
+    expect(desktopOverlay?.textContent).toContain('Type')
+    expect(desktopOverlay?.textContent).toContain('Elevation')
+    expect(desktopOverlay?.textContent).toContain('Azimuth')
   })
 
-  it('shows the fallback hint when nothing qualifies for center-lock', async () => {
+  it('shows the fallback center-object hint inside the shared desktop overlay', async () => {
     mockNormalizeCelestialObjects.mockReturnValue({
       sunAltitudeDeg: -12,
       objects: [],
@@ -289,10 +348,11 @@ describe('ViewerShell celestial behavior', () => {
       camera: 'denied',
       orientation: 'denied',
     })
+    const desktopOverlay = await openDesktopViewerOverlay()
 
-    expect(container.textContent).toContain('Bottom dock')
-    expect(container.textContent).toContain('Move until an object snaps here.')
-    expect(container.textContent).toContain('Target North marker')
+    expect(desktopOverlay).not.toBeNull()
+    expect(desktopOverlay?.textContent).toContain('Move until an object snaps here.')
+    expect(desktopOverlay?.textContent).toContain('Target North marker')
   })
 
   it('defaults the selected alignment target to Sun when only Sun is visible', async () => {
@@ -331,7 +391,7 @@ describe('ViewerShell celestial behavior', () => {
           }
         | undefined
 
-    expect(container.textContent).toContain('Target Sun')
+    expect((await openDesktopViewerOverlay()).textContent).toContain('Target Sun')
     expect(latestSettingsProps()?.alignmentTargetPreference).toBe('sun')
   })
 
@@ -377,7 +437,7 @@ describe('ViewerShell celestial behavior', () => {
         | undefined
 
     expect(initialSettingsProps?.alignmentTargetPreference).toBe('moon')
-    expect(container.textContent).toContain('Target Moon')
+    expect((await openDesktopViewerOverlay()).textContent).toContain('Target Moon')
     expect(latestSettingsProps()?.alignmentTargetPreference).toBe('moon')
   })
 
@@ -472,14 +532,14 @@ describe('ViewerShell celestial behavior', () => {
         | undefined
 
     expect(initialSettingsProps?.alignmentTargetPreference).toBe('moon')
-    expect(container.textContent).toContain('Target Moon')
+    expect((await openDesktopViewerOverlay()).textContent).toContain('Target Moon')
     expect(latestSettingsProps()?.alignmentTargetPreference).toBe('moon')
 
     await act(async () => {
       latestSettingsProps()?.onAlignmentTargetPreferenceChange?.('sun')
     })
 
-    expect(container.textContent).toContain('Target Sun')
+    expect((await openDesktopViewerOverlay()).textContent).toContain('Target Sun')
   })
 
   it('falls back to day or night defaults when neither Sun nor Moon is visible', async () => {
@@ -502,7 +562,7 @@ describe('ViewerShell celestial behavior', () => {
           }
         | undefined
 
-    expect(container.textContent).toContain('Target North marker')
+    expect((await openDesktopViewerOverlay()).textContent).toContain('Target North marker')
     expect(latestSettingsProps()?.alignmentTargetPreference).toBe('sun')
 
     await act(async () => {
@@ -530,7 +590,7 @@ describe('ViewerShell celestial behavior', () => {
       | undefined
 
     expect(initialNightSettingsProps?.alignmentTargetPreference).toBe('moon')
-    expect(container.textContent).toContain('Target North marker')
+    expect((await openDesktopViewerOverlay()).textContent).toContain('Target North marker')
     expect(latestSettingsProps()?.alignmentTargetPreference).toBe('moon')
   })
 
@@ -608,7 +668,7 @@ describe('ViewerShell celestial behavior', () => {
     })
     await flushEffects()
 
-    expect(container.textContent).toContain('Target Sun')
+    expect((await openDesktopViewerOverlay()).textContent).toContain('Target Sun')
     expect(latestSettingsProps()?.alignmentTargetPreference).toBe('moon')
     expect(latestSettingsProps()?.alignmentTargetFallbackLabel).toBe('Sun')
   })
@@ -718,7 +778,7 @@ describe('ViewerShell celestial behavior', () => {
       orientation: 'denied',
     })
 
-    expect(container.textContent).toContain('Target Moon')
+    expect((await openDesktopViewerOverlay()).textContent).toContain('Target Moon')
 
     const latestSettingsProps = () =>
       mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
@@ -731,7 +791,7 @@ describe('ViewerShell celestial behavior', () => {
       latestSettingsProps()?.onAlignmentTargetPreferenceChange?.('moon')
     })
 
-    expect(container.textContent).toContain('Target Moon')
+    expect((await openDesktopViewerOverlay()).textContent).toContain('Target Moon')
 
     await act(async () => {
       root.unmount()
@@ -802,7 +862,7 @@ describe('ViewerShell celestial behavior', () => {
       orientation: 'denied',
     })
 
-    expect(container.textContent).toContain('Target Jupiter')
+    expect((await openDesktopViewerOverlay()).textContent).toContain('Target Jupiter')
 
     const latestSettingsPropsAfterPlanetFallback = () =>
       mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
@@ -815,7 +875,7 @@ describe('ViewerShell celestial behavior', () => {
       latestSettingsPropsAfterPlanetFallback()?.onAlignmentTargetPreferenceChange?.('moon')
     })
 
-    expect(container.textContent).toContain('Target Jupiter')
+    expect((await openDesktopViewerOverlay()).textContent).toContain('Target Jupiter')
 
     await act(async () => {
       root.unmount()
@@ -868,7 +928,7 @@ describe('ViewerShell celestial behavior', () => {
       orientation: 'denied',
     })
 
-    expect(container.textContent).toContain('Target Sirius')
+    expect((await openDesktopViewerOverlay()).textContent).toContain('Target Sirius')
   })
 
   it('passes fallback target metadata into settings when the preferred body is unavailable', async () => {
@@ -922,7 +982,7 @@ describe('ViewerShell celestial behavior', () => {
       latestSettingsProps()?.onAlignmentTargetPreferenceChange?.('moon')
     })
 
-    expect(container.textContent).toContain('Target Sun')
+    expect((await openDesktopViewerOverlay()).textContent).toContain('Target Sun')
     expect(latestSettingsProps()?.alignmentTargetAvailability).toEqual({
       sun: true,
       moon: false,
@@ -1575,10 +1635,12 @@ describe('ViewerShell celestial behavior', () => {
     })
     await flushEffects()
 
-    expect(container.textContent).toContain('Bottom dock')
-    expect(container.textContent).toContain('Angular distance 0.0°')
-    expect(container.textContent).toContain('Selected object')
-    expect(container.textContent).toContain('Venus')
+    const desktopOverlay = await openDesktopViewerOverlay()
+
+    expect(desktopOverlay?.textContent).toContain('Center object')
+    expect(desktopOverlay?.textContent).toContain('Angular distance 0.0°')
+    expect(desktopOverlay?.textContent).toContain('Selected object')
+    expect(desktopOverlay?.textContent).toContain('Venus')
   })
 
   it('does not turn label taps into manual-stage drags before opening the selected-object card', async () => {
@@ -1678,9 +1740,11 @@ describe('ViewerShell celestial behavior', () => {
     expect(setPointerCapture).not.toHaveBeenCalled()
     expect(releasePointerCapture).not.toHaveBeenCalled()
     expect(hasPointerCapture).not.toHaveBeenCalled()
-    expect(container.textContent).toContain('Yaw 0°')
-    expect(container.textContent).toContain('Selected object')
-    expect(container.textContent).toContain('Venus')
+    const desktopOverlay = await openDesktopViewerOverlay()
+
+    expect(desktopOverlay.textContent).toContain('Yaw 0°')
+    expect(desktopOverlay.textContent).toContain('Selected object')
+    expect(desktopOverlay.textContent).toContain('Venus')
   })
 
   it('keeps label transitions enabled when reduced motion is not preferred', async () => {
@@ -2083,9 +2147,12 @@ describe('ViewerShell celestial behavior', () => {
     )
 
     expect(marsButton).toBeDefined()
-    expect(container.textContent).toContain('Bottom dock')
-    expect(container.textContent).toContain('Mars')
-    expect(container.textContent).toContain('Angular distance 0.0°')
+
+    const desktopOverlay = await openDesktopViewerOverlay()
+
+    expect(desktopOverlay?.textContent).toContain('Center object')
+    expect(desktopOverlay?.textContent).toContain('Mars')
+    expect(desktopOverlay?.textContent).toContain('Angular distance 0.0°')
   })
 
   it('renders the satellite detail-card contract and ISS badge state', async () => {
@@ -2128,12 +2195,14 @@ describe('ViewerShell celestial behavior', () => {
       orientation: 'denied',
     })
 
-    expect(container.textContent).toContain('ISS (ZARYA)')
-    expect(container.textContent).toContain('ISS')
-    expect(container.textContent).toContain('NORAD ID')
-    expect(container.textContent).toContain('25544')
-    expect(container.textContent).toContain('Range')
-    expect(container.textContent).toContain('420.7 km')
+    const desktopOverlay = await openDesktopViewerOverlay()
+
+    expect(desktopOverlay.textContent).toContain('ISS (ZARYA)')
+    expect(desktopOverlay.textContent).toContain('ISS')
+    expect(desktopOverlay.textContent).toContain('NORAD ID')
+    expect(desktopOverlay.textContent).toContain('25544')
+    expect(desktopOverlay.textContent).toContain('Range')
+    expect(desktopOverlay.textContent).toContain('420.7 km')
   })
 
   it('keeps stale satellite treatment additive for the ISS badge state', async () => {
@@ -2178,7 +2247,7 @@ describe('ViewerShell celestial behavior', () => {
       orientation: 'denied',
     })
 
-    expect(container.textContent).toContain('Satellite Stale')
+    expect((await openDesktopViewerOverlay()).textContent).toContain('Satellite Stale')
     expect(
       container.querySelector('[data-testid="object-badge"][data-badge-id="motion-stale"]'),
     ).not.toBeNull()
@@ -2227,18 +2296,20 @@ describe('ViewerShell celestial behavior', () => {
       orientation: 'denied',
     })
 
-    expect(container.textContent).toContain('Unknown flight')
-    expect(container.textContent).toContain('Aircraft')
-    expect(container.textContent).toContain('Altitude')
-    expect(container.textContent).toContain('35,000 ft / 10,668 m')
-    expect(container.textContent).toContain('Track')
-    expect(container.textContent).toContain('SE')
-    expect(container.textContent).toContain('Speed')
-    expect(container.textContent).toContain('864 km/h')
-    expect(container.textContent).toContain('Range')
-    expect(container.textContent).toContain('31.8 km')
-    expect(container.textContent).toContain('Origin country')
-    expect(container.textContent).toContain('Canada')
+    const desktopOverlay = await openDesktopViewerOverlay()
+
+    expect(desktopOverlay.textContent).toContain('Unknown flight')
+    expect(desktopOverlay.textContent).toContain('Aircraft')
+    expect(desktopOverlay.textContent).toContain('Altitude')
+    expect(desktopOverlay.textContent).toContain('35,000 ft / 10,668 m')
+    expect(desktopOverlay.textContent).toContain('Heading')
+    expect(desktopOverlay.textContent).toContain('SE')
+    expect(desktopOverlay.textContent).toContain('Speed')
+    expect(desktopOverlay.textContent).toContain('864 km/h')
+    expect(desktopOverlay.textContent).toContain('Range')
+    expect(desktopOverlay.textContent).toContain('31.8 km')
+    expect(desktopOverlay.textContent).toContain('Origin country')
+    expect(desktopOverlay.textContent).toContain('Canada')
   })
 
   it('hard-fails into demo mode when the live astronomy pipeline throws', async () => {
@@ -2410,6 +2481,79 @@ describe('ViewerShell celestial behavior', () => {
     await act(async () => {
       await Promise.resolve()
     })
+  }
+
+  async function openDesktopViewerOverlay() {
+    await setStageViewportSize({ width: 1280, height: 720 })
+
+    const desktopTrigger = container.querySelector(
+      '[data-testid="desktop-viewer-overlay-trigger"]',
+    ) as HTMLButtonElement | null
+
+    expect(desktopTrigger).not.toBeNull()
+
+    if (getDesktopOverlayShell()?.getAttribute('aria-hidden') !== 'false') {
+      await act(async () => {
+        desktopTrigger?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      })
+      await flushEffects()
+    }
+
+    const desktopOverlay = container.querySelector(
+      '[data-testid="desktop-viewer-overlay"]',
+    ) as HTMLElement | null
+    const desktopOverlayShell = getDesktopOverlayShell()
+
+    expect(desktopOverlay).not.toBeNull()
+    expect(desktopOverlayShell).not.toBeNull()
+    expect(desktopOverlayShell?.getAttribute('aria-hidden')).toBe('false')
+    expect(desktopTrigger?.getAttribute('aria-expanded')).toBe('true')
+
+    return desktopOverlay!
+  }
+
+  function getDesktopOverlayShell() {
+    return container.querySelector('[data-testid="desktop-viewer-overlay"]')?.closest(
+      '[aria-hidden]',
+    ) as HTMLElement | null
+  }
+
+  async function setStageViewportSize({
+    width,
+    height,
+  }: {
+    width: number
+    height: number
+  }) {
+    const stage = container.querySelector('[aria-label="Sky viewer stage"]') as HTMLDivElement | null
+
+    expect(stage).not.toBeNull()
+
+    const currentViewport = stage!.getBoundingClientRect()
+
+    if (currentViewport.width === width && currentViewport.height === height) {
+      return
+    }
+
+    Object.defineProperty(stage!, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        bottom: height,
+        right: width,
+        width,
+        height,
+        toJSON: () => ({}),
+      }),
+    })
+
+    await act(async () => {
+      window.dispatchEvent(new Event('resize'))
+    })
+    await flushEffects()
   }
 })
 

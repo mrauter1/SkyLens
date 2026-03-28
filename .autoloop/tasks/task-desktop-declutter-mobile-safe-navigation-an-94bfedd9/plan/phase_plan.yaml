@@ -1,0 +1,90 @@
+version: 1
+task_id: task-desktop-declutter-mobile-safe-navigation-an-94bfedd9
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/task-desktop-declutter-mobile-safe-navigation-an-94bfedd9/runs/run-20260328T131019Z-a4d7f675/request.md
+phases:
+- phase_id: simplify-viewer-shell
+  title: Simplify shared viewer chrome
+  objective: Replace the cluttered desktop-specific shell with a streamlined action-and-overlay
+    model that matches mobile more closely, while compacting warnings into a top rail.
+  status: planned
+  in_scope:
+  - Recompose desktop viewer chrome around a minimal action row and shared overlay
+    content.
+  - Move warning presentation to a compact top-of-screen rail.
+  - Define and render the requested desktop primary action row around Open Viewer,
+    Enable Camera, Motion, and Align.
+  - Keep existing detail, recovery, and privacy content reachable in the simplified
+    desktop shell.
+  - Reuse existing viewer/settings handlers rather than creating new flows.
+  out_of_scope:
+  - Changes to route/query contracts.
+  - Changes to persisted viewer settings schema.
+  - New global layout abstractions outside the viewer shell unless required for a
+    very small shared helper.
+  dependencies: []
+  acceptance_criteria:
+  - id: AC-1
+    text: Desktop replaces the current stacked persistent summary/dock/privacy layout
+      with a simpler mobile-like action/overlay structure while keeping object detail,
+      selected-object detail, recovery content, and privacy reassurance reachable.
+  - id: AC-2
+    text: Motion and related warnings render in a compact top rail without hiding
+      critical recovery actions.
+  - id: AC-3
+    text: The desktop primary action row explicitly covers Open Viewer, Enable Camera,
+      Motion, and Align, with camera and motion actions mapped onto existing startup
+      or retry handlers without changing permission ordering.
+  deliverables:
+  - Updated desktop/mobile shell composition in components/viewer/viewer-shell.tsx
+  - Shared warning/action rendering hooks or local helpers needed to keep desktop
+    and mobile content aligned
+  - Updated tests covering compact warning placement, preserved detail access, and
+    the desktop primary action row
+  risks:
+  - Desktop action discoverability could drop if too much chrome is removed.
+  - Shared overlay extraction could accidentally regress mobile-specific spacing or
+    scrolling.
+  rollback:
+  - Restore the prior desktop shell layout while keeping any non-invasive shared helper
+    extraction.
+  - Revert the top warning rail to the current banner layout if compact rendering
+    hides critical states.
+- phase_id: desktop-reticle-and-mobile-nav-hardening
+  title: Add desktop reticle hover and lock down mobile navigation
+  objective: Make desktop mouse interaction follow the same focus semantics as the
+    mobile crosshair and verify that mobile overlay/alignment navigation remains reliable.
+  status: planned
+  in_scope:
+  - Add fine-pointer reticle or hover focus state for desktop.
+  - Show object information on desktop hover using the same focus/detail surfaces
+    as mobile center-lock.
+  - Preserve click selection and manual-pan behavior.
+  - Add or update unit/e2e coverage for hover info and mobile navigation transitions.
+  out_of_scope:
+  - Touch-device hover simulation or new touch gestures.
+  - Changes to the live startup order or sensor/camera contracts.
+  dependencies:
+  - simplify-viewer-shell
+  acceptance_criteria:
+  - id: AC-1
+    text: Hovering an on-screen object on desktop at a fine-pointer or desktop breakpoint
+      updates the active object information using pointer-reticle semantics without
+      breaking click selection.
+  - id: AC-2
+    text: Mobile overlay, backdrop close, alignment focus transitions, and short-viewport
+      reachability continue to work after the shell changes.
+  - id: AC-3
+    text: No obvious mobile layout regression is introduced by the desktop-focused
+      changes.
+  deliverables:
+  - Desktop pointer-reticle behavior in components/viewer/viewer-shell.tsx
+  - Regression tests in tests/unit/viewer-shell.test.ts, tests/unit/viewer-shell-celestial.test.ts,
+    and relevant Playwright specs with explicit desktop or fine-pointer coverage
+  risks:
+  - Hover logic may conflict with marker clicks or stale selected-object state.
+  - Mobile overlay state restoration may regress when combined with new shared shell
+    code.
+  rollback:
+  - Disable the desktop hover path and keep click selection only.
+  - Restore the previous mobile overlay transition wiring if navigation regressions
+    appear.
