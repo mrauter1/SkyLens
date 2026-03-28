@@ -10,42 +10,16 @@ import {
 
 import type { EnabledLayer } from '../../lib/config'
 import type { DemoScenarioId } from '../../lib/demo/scenarios'
-import {
-  ALIGNMENT_FINE_ADJUST_CONTROLS,
-  buildAlignmentTutorialModel,
-  type AlignmentTargetPreference,
-  type AlignmentTutorialNotice,
-} from '../../lib/viewer/alignment-tutorial'
 import type { LabelDisplayMode, MotionQuality } from '../../lib/viewer/settings'
+import type { AlignmentTargetPreference } from '../../lib/viewer/alignment-tutorial'
 
 type SettingsSheetProps = {
   onEnterDemoMode: () => void
   onDemoScenarioSelect?: (scenarioId: DemoScenarioId) => void
   onFixAlignment?: () => void
-  onAlignCalibration?: () => void
-  onAlignmentTargetPreferenceChange?: (target: AlignmentTargetPreference) => void
-  onResetCalibration?: () => void
-  onFineAdjustCalibration?: (adjustment: {
-    axis: 'yaw' | 'pitch'
-    deltaDeg: number
-  }) => void
   onRecenter?: () => void
   canFixAlignment?: boolean
-  canAlignCalibration?: boolean
-  canResetCalibration?: boolean
   canRecenter?: boolean
-  calibrationTargetLabel?: string
-  calibrationTargetDescription?: string
-  calibrationStatus?: string
-  calibrationInstructions?: string[]
-  alignmentNotices?: AlignmentTutorialNotice[]
-  alignActionLabel?: string
-  alignmentTargetPreference?: AlignmentTargetPreference
-  alignmentTargetAvailability?: {
-    sun: boolean
-    moon: boolean
-  }
-  alignmentTargetFallbackLabel?: string | null
   verticalFovAdjustmentDeg?: number
   cameraDevices?: Array<{
     deviceId: string
@@ -126,27 +100,9 @@ export function SettingsSheet({
   onEnterDemoMode,
   onDemoScenarioSelect,
   onFixAlignment,
-  onAlignCalibration,
-  onAlignmentTargetPreferenceChange,
-  onResetCalibration,
-  onFineAdjustCalibration,
   onRecenter,
   canFixAlignment = false,
-  canAlignCalibration = false,
-  canResetCalibration = false,
   canRecenter = false,
-  calibrationTargetLabel = 'North marker',
-  calibrationTargetDescription = 'Use north on the horizon when no sky body is suitable.',
-  calibrationStatus = 'Calibration is off.',
-  calibrationInstructions,
-  alignmentNotices,
-  alignActionLabel,
-  alignmentTargetPreference = 'sun',
-  alignmentTargetAvailability = {
-    sun: false,
-    moon: false,
-  },
-  alignmentTargetFallbackLabel = null,
   verticalFovAdjustmentDeg = 0,
   cameraDevices = [],
   selectedCameraDeviceId = null,
@@ -164,22 +120,7 @@ export function SettingsSheet({
   demoScenarioId,
   demoScenarioOptions = [],
 }: SettingsSheetProps) {
-  const alignmentTutorialModel = buildAlignmentTutorialModel({
-    resolvedTargetLabel: calibrationTargetLabel,
-    selectedTarget: alignmentTargetPreference,
-    calibrationStatus,
-    canFixAlignment,
-    canAlignCalibration,
-    canResetCalibration,
-    manualMode: false,
-    preferredTargetUnavailable: alignmentTargetFallbackLabel !== null,
-  })
-  const resolvedCalibrationInstructions =
-    calibrationInstructions ?? alignmentTutorialModel.instructions
-  const resolvedAlignmentNotices = alignmentNotices ?? alignmentTutorialModel.notices
-  const resolvedAlignActionLabel = alignActionLabel ?? alignmentTutorialModel.alignActionLabel
   const [isOpen, setIsOpen] = useState(false)
-  const [showCalibrationPanel, setShowCalibrationPanel] = useState(false)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const panelRef = useRef<HTMLElement | null>(null)
   const closeButtonRef = useRef<HTMLButtonElement | null>(null)
@@ -387,12 +328,13 @@ export function SettingsSheet({
               <button
                 type="button"
                 onClick={() => {
-                  setShowCalibrationPanel(true)
                   if (canFixAlignment) {
                     onFixAlignment?.()
+                    closeSheet()
                   }
                 }}
                 className="min-h-11 rounded-2xl border border-sky-100/10 bg-white/5 px-4 py-3 text-sm text-sky-200/55 disabled:cursor-not-allowed"
+                disabled={!canFixAlignment}
               >
                 Alignment
               </button>
@@ -425,116 +367,15 @@ export function SettingsSheet({
                 </select>
               </label>
             ) : null}
-            {showCalibrationPanel ? (
-              <div className="grid gap-3 rounded-[1.5rem] border border-sky-100/10 bg-white/5 p-4">
-                <div className="rounded-[1.25rem] border border-sky-100/10 bg-slate-950/30 p-4">
-                  <p className="text-xs uppercase tracking-[0.18em] text-sky-200/60">
-                    Calibration target
-                  </p>
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    <AlignmentTargetButton
-                      label="Sun"
-                      target="sun"
-                      selected={alignmentTargetPreference === 'sun'}
-                      available={alignmentTargetAvailability.sun}
-                      onSelect={onAlignmentTargetPreferenceChange}
-                    />
-                    <AlignmentTargetButton
-                      label="Moon"
-                      target="moon"
-                      selected={alignmentTargetPreference === 'moon'}
-                      available={alignmentTargetAvailability.moon}
-                      onSelect={onAlignmentTargetPreferenceChange}
-                    />
-                  </div>
-                  <p className="mt-2 text-base font-semibold text-white">
-                    {calibrationTargetLabel}
-                  </p>
-                  <p className="mt-1 text-sm leading-6 text-sky-100/75">
-                    {calibrationTargetDescription}
-                  </p>
-                  <div className="mt-3 grid gap-2">
-                    {resolvedAlignmentNotices.map((notice) => (
-                      <p
-                        key={notice.id}
-                        className={`rounded-2xl border px-4 py-3 text-sm leading-6 ${
-                          notice.tone === 'warning'
-                            ? 'border-amber-200/15 bg-amber-300/10 text-amber-50/85'
-                            : 'border-sky-100/10 bg-slate-950/35 text-sky-100/80'
-                        }`}
-                      >
-                        {notice.text}
-                      </p>
-                    ))}
-                  </div>
-                </div>
-                <div className="grid gap-2 rounded-[1.25rem] border border-sky-100/10 bg-slate-950/30 p-4">
-                  <p className="text-xs uppercase tracking-[0.18em] text-sky-200/60">
-                    Alignment steps
-                  </p>
-                  <ol className="grid gap-2 text-sm leading-6 text-sky-100/80">
-                    {resolvedCalibrationInstructions.map((instruction, index) => (
-                      <li
-                        key={`${instruction}-${index}`}
-                        className="rounded-2xl border border-sky-100/10 bg-white/5 px-4 py-3"
-                      >
-                        <span className="mr-2 text-sky-200/70">{index + 1}.</span>
-                        {instruction}
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={onAlignCalibration}
-                    disabled={!canAlignCalibration}
-                    className="min-h-11 rounded-2xl bg-amber-300 px-4 py-3 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:bg-amber-100"
-                  >
-                    {resolvedAlignActionLabel}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onResetCalibration}
-                    disabled={!canResetCalibration}
-                    className="min-h-11 rounded-2xl border border-sky-100/10 bg-slate-950/35 px-4 py-3 text-sm text-sky-50 disabled:cursor-not-allowed"
-                  >
-                    Reset calibration
-                  </button>
-                </div>
-                <div className="grid gap-2 rounded-[1.25rem] border border-sky-100/10 bg-slate-950/30 p-4">
-                  <p className="text-xs uppercase tracking-[0.18em] text-sky-200/60">
-                    Fine adjust
-                  </p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {ALIGNMENT_FINE_ADJUST_CONTROLS.map((control) => (
-                      <button
-                        key={control.label}
-                        type="button"
-                        onClick={() =>
-                          onFineAdjustCalibration?.({
-                            axis: control.axis,
-                            deltaDeg: control.deltaDeg,
-                          })
-                        }
-                        className="min-h-11 rounded-2xl border border-sky-100/10 bg-white/5 px-4 py-3 text-sm text-sky-50"
-                      >
-                        {control.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <RangeControl
-                  label="Field of view"
-                  min={-30}
-                  max={30}
-                  step={1}
-                  value={verticalFovAdjustmentDeg}
-                  suffix="°"
-                  onChange={onVerticalFovAdjustmentChange}
-                />
-              </div>
-            ) : null}
+            <RangeControl
+              label="Field of view"
+              min={-30}
+              max={30}
+              step={1}
+              value={verticalFovAdjustmentDeg}
+              suffix="°"
+              onChange={onVerticalFovAdjustmentChange}
+            />
             {demoScenarioOptions.length > 0 ? (
               <div className="grid gap-2 rounded-[1.5rem] border border-sky-100/10 bg-white/5 p-4">
                 <p className="text-xs uppercase tracking-[0.18em] text-sky-200/60">

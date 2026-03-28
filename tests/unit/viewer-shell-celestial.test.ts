@@ -949,15 +949,27 @@ describe('ViewerShell celestial behavior', () => {
       orientation: 'granted',
     })
 
+    const latestSettingsProps = () =>
+      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+        | {
+            onFixAlignment?: () => void
+          }
+        | undefined
+
+    await act(async () => {
+      latestSettingsProps()?.onFixAlignment?.()
+    })
+    await flushEffects()
+
     expect(container.textContent).toContain('Current target Venus')
     expect(container.textContent).toContain(
       'Moon is unavailable. SkyLens will use Venus if you align now.',
     )
     expect(container.textContent).toContain(
-      'Choose Sun or Moon as your preferred target. SkyLens is currently resolved to Venus.',
+      'Center Venus in the crosshair, then press the middle of the screen to align.',
     )
-    expect(container.textContent).toContain('Tap Align to lock labels to Venus.')
-    expect(container.textContent).toContain('Align to Venus')
+    expect(container.textContent).not.toContain('Choose Sun or Moon as your preferred target.')
+    expect(container.querySelector('[data-testid="alignment-instructions-panel"]')).not.toBeNull()
   })
 
   it('switches the live on-screen alignment panel target when the user taps Sun', async () => {
@@ -1074,7 +1086,9 @@ describe('ViewerShell celestial behavior', () => {
     expect(sunButton?.disabled).toBe(false)
     expect(moonButton?.disabled).toBe(false)
     expect(container.textContent).toContain('Current target Moon')
-    expect(container.textContent).toContain('Center Moon in the reticle.')
+    expect(container.textContent).toContain(
+      'Center Moon in the crosshair, then press the middle of the screen to align.',
+    )
 
     await act(async () => {
       sunButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
@@ -1082,7 +1096,9 @@ describe('ViewerShell celestial behavior', () => {
     await flushEffects()
 
     expect(container.textContent).toContain('Current target Sun')
-    expect(container.textContent).toContain('Center Sun in the reticle.')
+    expect(container.textContent).toContain(
+      'Center Sun in the crosshair, then press the middle of the screen to align.',
+    )
   })
 
   it('defaults to center-only overlay copy for the center-locked object', async () => {

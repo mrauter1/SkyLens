@@ -91,23 +91,18 @@ export function buildAlignmentTutorialModel({
     })
   }
 
+  const nextAction = canAlignCalibration
+    ? `Center ${resolvedTargetLabel} in the crosshair, then press the middle of the screen to align.`
+    : manualMode
+      ? 'Return to live sensors to align from the center crosshair.'
+      : `Wait for live motion data, then press the middle of the screen to align to ${resolvedTargetLabel}.`
+
   return {
     alignActionLabel: canAlignCalibration
       ? `Align to ${resolvedTargetLabel}`
       : 'Waiting for motion sample',
-    instructions: [
-      `Choose Sun or Moon as your preferred target. SkyLens is currently resolved to ${resolvedTargetLabel}.`,
-      `Center ${resolvedTargetLabel} in the reticle.`,
-      canAlignCalibration
-        ? `Tap Align to lock labels to ${resolvedTargetLabel}.`
-        : manualMode
-          ? 'Align is unavailable while manual panning is active. Return to live sensors before trying again.'
-          : `Wait for live motion data, then tap Align to lock labels to ${resolvedTargetLabel}.`,
-      'If labels still drift, use the manual nudges to fine-adjust alignment.',
-      canResetCalibration
-        ? 'Use Reset calibration to clear the current offset and retry.'
-        : 'Reset calibration becomes available after SkyLens stores an alignment offset.',
-    ],
+    focusPrompt: `Press the middle of the screen to align to ${resolvedTargetLabel}.`,
+    nextAction,
     notices,
   }
 }

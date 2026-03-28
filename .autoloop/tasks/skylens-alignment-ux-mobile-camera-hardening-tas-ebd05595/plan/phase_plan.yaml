@@ -1,0 +1,72 @@
+version: 1
+task_id: skylens-alignment-ux-mobile-camera-hardening-tas-ebd05595
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/skylens-alignment-ux-mobile-camera-hardening-tas-ebd05595/runs/run-20260327T231428Z-42cb4a9c/request.md
+phases:
+  - phase_id: viewer-alignment-ux-hardening
+    title: Harden live alignment flow and mobile viewer interaction
+    objective: Replace the auto-opening, scrollable fast-align flow with an explicit, non-scrolling alignment experience that applies alignment from the center crosshair and supports repeated re-entry without reset dependency.
+    status: planned
+    in_scope:
+      - Explicit alignment open/close/focus state in `components/viewer/viewer-shell.tsx`
+      - Single-Align opener contract across viewer and any related settings entrypoint
+      - Active-camera-stage scroll locking and removal of the mobile `overflow-y-auto` AR overlay path
+      - Center-crosshair apply affordance, green reticle styling, and top-of-screen focus instruction
+      - Fast alignment copy/model changes in `lib/viewer/alignment-tutorial.ts`
+      - Shared alignment UI wiring adjustments only where needed to keep tests and consumers consistent
+    out_of_scope:
+      - Sensor permission flow refactors
+      - Calibration target selection algorithm changes
+      - Unrelated viewer layout redesign
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: The live alignment panel is closed by default, opens only from a single Align action path, and exposes an explicit close action.
+      - id: AC-2
+        text: Active live AR camera-stage usage does not rely on a scrollable overlay and applies document/body scroll lock without breaking stage gestures or blocking blocked/non-camera live content.
+      - id: AC-3
+        text: Fast alignment renders only the next action plus essential notices, and alignment apply is triggered from the centered crosshair focus target.
+      - id: AC-4
+        text: Successful alignment leaves the user able to reopen Align immediately without reset-first gating or copy.
+    deliverables:
+      - Updated live viewer alignment state and overlay layout in `components/viewer/viewer-shell.tsx`
+      - Updated fast alignment tutorial contract in `lib/viewer/alignment-tutorial.ts`
+      - Any minimal shared alignment UI wiring updates required in `components/settings/settings-sheet.tsx`
+    risks:
+      - Scroll-lock cleanup could leak document styles after unmount
+      - Scroll lock could be scoped too broadly and trap blocked or recovery UI
+      - Pointer-event changes could block manual pan or marker taps
+      - Shared tutorial model changes could unintentionally narrow settings-sheet copy
+    rollback:
+      - Revert explicit-open alignment gating independently from copy changes if panel accessibility regresses
+      - Revert non-scrolling overlay replacement independently from calibration logic if mobile access regresses
+  - phase_id: regression-coverage-validation
+    title: Update regression coverage and verify the new alignment contract
+    objective: Align unit coverage with the new live alignment behavior and verify that no-scroll, explicit-open, center-tap, and repeat-align behaviors are protected.
+    status: planned
+    in_scope:
+      - Viewer shell tests for alignment visibility, close behavior, no-scroll behavior, and repeat align entry
+      - Celestial alignment tests for target-aware next-action copy and center-crosshair affordance
+      - Settings sheet tests only for shared alignment-contract fallout
+      - Targeted and full unit test execution reporting
+    out_of_scope:
+      - New end-to-end coverage unless unit tests prove insufficient
+      - Broad unrelated test refactors
+    dependencies:
+      - viewer-alignment-ux-hardening
+    acceptance_criteria:
+      - id: AC-1
+        text: Unit tests assert the live panel is explicit-open/close, is entered through a single Align action path, no longer renders the old multi-step list in fast mode, and keeps repeat align available without reset dependency.
+      - id: AC-2
+        text: Unit tests cover the non-scrolling active-AR overlay contract, preservation of blocked/non-camera live accessibility, and the center-crosshair apply affordance.
+      - id: AC-3
+        text: Relevant test commands are run and their status is captured for the task.
+    deliverables:
+      - Updated tests in `tests/unit/viewer-shell.test.ts`
+      - Updated tests in `tests/unit/viewer-shell-celestial.test.ts`
+      - Updated tests in `tests/unit/settings-sheet.test.tsx` only where shared contract changes require it
+      - Reported results for `npm test -- tests/unit/viewer-shell.test.ts tests/unit/viewer-shell-celestial.test.ts tests/unit/settings-sheet.test.tsx` and `npm test`
+    risks:
+      - Existing assertions may encode current copy too tightly and need coordinated updates
+      - Scroll-lock assertions may require DOM style inspection rather than class-name checks alone
+    rollback:
+      - Revert only failing expectation rewrites if implementation scope is narrowed before merge
