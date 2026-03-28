@@ -1,0 +1,10 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260328T044419Z-c0a887ac" ts="2026-03-28T04:44:19.493585+00:00" />
+ViewerShell should become the sole owner of document/body scroll locking; SettingsSheet should only report open/close state upward and keep its own dialog/focus behavior local.
+Do not satisfy state lifting with one shared SettingsSheet isOpen flag across both mounted sheet instances, because ViewerShell renders separate desktop and mobile SettingsSheet mounts that would otherwise open duplicate dialogs.
+Combined camera+motion recovery must preserve the existing camera retry sequence while also surfacing motionRetryError when requestOrientationPermission() returns denied or unavailable.
+<autoloop-decisions-header version="1" block_seq="2" owner="implementer" phase_id="fix-scroll-lock-and-permission-recovery" pair="implement" turn_seq="1" run_id="run-20260328T044419Z-c0a887ac" ts="2026-03-28T04:49:09.908032+00:00" />
+ViewerShell now tracks desktop and mobile SettingsSheet visibility separately and folds the aggregate into shouldLockViewerScroll so each mounted sheet can report visibility without sharing a single isOpen source.
+SettingsSheet reports open/close transitions upward and clears the parent flag again on unmount so the mobile sheet cannot leave ViewerShell stuck in a locked state if its overlay unmounts while open.
+Combined startup recovery reuses a shared orientation retry result applicator so denied or unavailable motion retries still surface motionRetryError after camera/location recovery completes, while camera-only recovery remains scoped to camera.
+<autoloop-decisions-header version="1" block_seq="3" owner="test_author" phase_id="fix-scroll-lock-and-permission-recovery" pair="test" turn_seq="1" run_id="run-20260328T044419Z-c0a887ac" ts="2026-03-28T04:56:18.316438+00:00" />
+Added a SettingsSheet unit test that unmounts the component while open and expects `onOpenChange(false)` so the mobile-overlay cleanup path cannot silently regress.

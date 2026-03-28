@@ -1,0 +1,36 @@
+{
+  "task_id": "fix-settings-scroll-lock-and-motion-retry-review",
+  "created_at": "2026-03-28T04:44:19.423476+00:00",
+  "request_text": "# Autoloop Task: Fix review issues for settings scroll lock and permission recovery\n\n## Context\nAddress the PR review feedback concerning:\n1. Potential scroll-lock conflicts between `SettingsSheet` and `ViewerShell`.\n2. Motion-permission retry messaging regression when using combined permission recovery.\n\n## Required outcomes\n\n### 1) Centralize/coordinate scroll lock behavior\n- Review `components/settings/settings-sheet.tsx` and `components/viewer/viewer-shell.tsx`.\n- Eliminate conflicting direct document/body scroll locking from `SettingsSheet` that can interfere with `ViewerShell` lock lifecycle.\n- Ensure scroll lock is managed robustly in a single coordinated place (prefer parent `ViewerShell`) so background scroll remains correctly locked while settings is open.\n- If state lifting is needed, lift settings-open state to `ViewerShell` and include it in viewer-level lock condition.\n\n### 2) Preserve motion retry denial handling in combined recovery\n- In `components/viewer/viewer-shell.tsx`, ensure the recovery CTA path for combined camera+motion missing state still sets and surfaces `motionRetryError` when `requestOrientationPermission()` is denied.\n- Do not regress camera retry behavior.\n\n### 3) Tests\n- Update/add unit tests (likely `tests/unit/viewer-shell.test.ts` and any relevant settings tests) to cover:\n  - Overlapping lock scenarios (viewer lock + settings open/close transitions).\n  - Combined recovery path preserving motion denial error messaging.\n- Run relevant test commands and fix failures.\n\n## Constraints\n- Keep behavior consistent with existing UX copy and architecture unless change is necessary to satisfy review feedback.\n- Keep changes minimal and focused to the reported issues.",
+  "request_updated_at": "2026-03-28T04:44:19.423533+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/fix-settings-scroll-lock-and-motion-retry-review/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260328T044419Z-c0a887ac",
+    "mode": "single",
+    "phase_ids": [
+      "fix-scroll-lock-and-permission-recovery"
+    ],
+    "explicit": true,
+    "current_phase_index": 1,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "fix-scroll-lock-and-permission-recovery": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "fix-scroll-lock-and-permission-recovery",
+      "run_id": "run-20260328T044419Z-c0a887ac",
+      "status": "in_progress",
+      "ts": "2026-03-28T04:49:09.866680+00:00"
+    },
+    {
+      "phase_id": "fix-scroll-lock-and-permission-recovery",
+      "run_id": "run-20260328T044419Z-c0a887ac",
+      "status": "completed",
+      "ts": "2026-03-28T04:58:25.485449+00:00",
+      "pair": "test"
+    }
+  ]
+}

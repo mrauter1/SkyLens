@@ -15,6 +15,7 @@ import type { AlignmentTargetPreference } from '../../lib/viewer/alignment-tutor
 
 type SettingsSheetProps = {
   onEnterDemoMode: () => void
+  onOpenChange?: (open: boolean) => void
   onDemoScenarioSelect?: (scenarioId: DemoScenarioId) => void
   onFixAlignment?: () => void
   onRecenter?: () => void
@@ -101,6 +102,7 @@ const SETTINGS_SHEET_MAX_HEIGHT =
 
 export function SettingsSheet({
   onEnterDemoMode,
+  onOpenChange,
   onDemoScenarioSelect,
   onFixAlignment,
   onRecenter,
@@ -128,6 +130,7 @@ export function SettingsSheet({
   const panelRef = useRef<HTMLElement | null>(null)
   const closeButtonRef = useRef<HTMLButtonElement | null>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
+  const hasReportedOpenStateRef = useRef(false)
   const titleId = useId()
   const panelId = useId()
 
@@ -147,29 +150,20 @@ export function SettingsSheet({
   }, [isOpen])
 
   useEffect(() => {
-    if (typeof document === 'undefined' || !isOpen) {
+    if (!hasReportedOpenStateRef.current) {
+      hasReportedOpenStateRef.current = true
       return
     }
 
-    const root = document.documentElement
-    const body = document.body
-    const previousRootOverflow = root.style.overflow
-    const previousRootOverscrollBehavior = root.style.overscrollBehavior
-    const previousBodyOverflow = body.style.overflow
-    const previousBodyOverscrollBehavior = body.style.overscrollBehavior
+    onOpenChange?.(isOpen)
+  }, [isOpen, onOpenChange])
 
-    root.style.overflow = 'hidden'
-    root.style.overscrollBehavior = 'none'
-    body.style.overflow = 'hidden'
-    body.style.overscrollBehavior = 'none'
-
-    return () => {
-      root.style.overflow = previousRootOverflow
-      root.style.overscrollBehavior = previousRootOverscrollBehavior
-      body.style.overflow = previousBodyOverflow
-      body.style.overscrollBehavior = previousBodyOverscrollBehavior
-    }
-  }, [isOpen])
+  useEffect(
+    () => () => {
+      onOpenChange?.(false)
+    },
+    [onOpenChange],
+  )
 
   const closeSheet = () => {
     setIsOpen(false)

@@ -1,0 +1,38 @@
+version: 1
+task_id: fix-settings-scroll-lock-and-motion-retry-review
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/fix-settings-scroll-lock-and-motion-retry-review/runs/run-20260328T044419Z-c0a887ac/request.md
+phases:
+  - phase_id: fix-scroll-lock-and-permission-recovery
+    title: Coordinate settings scroll locking and restore combined motion retry feedback
+    objective: Implement the two review fixes in the existing viewer/settings architecture and cover the regression surface with targeted unit tests.
+    status: planned
+    in_scope:
+      - Move document/body scroll lock ownership to ViewerShell and remove competing lock side effects from SettingsSheet.
+      - Coordinate settings-open state so ViewerShell can keep background scroll locked while any settings sheet is open.
+      - Restore motion denial messaging for the combined camera+motion recovery CTA without changing camera retry behavior.
+      - Update focused unit tests for scroll-lock overlap and combined recovery denial handling.
+    out_of_scope:
+      - Redesigning the settings-sheet UX or changing its copy.
+      - Changing route parameters, persisted viewer settings, or permission request ordering.
+      - General overlay refactors outside settings-open coordination needed for this fix.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: SettingsSheet no longer mutates document or body overflow styles directly, and ViewerShell is the sole owner of viewer scroll locking.
+      - id: AC-2
+        text: Background scroll stays locked while settings is open, including when a viewer lock is already active, without introducing duplicate settings dialogs from the two mounted sheet instances.
+      - id: AC-3
+        text: The combined camera+motion recovery CTA still retries camera/location work and also surfaces the existing motion denial error message when orientation permission remains denied or unavailable.
+      - id: AC-4
+        text: Targeted unit tests cover the overlap lock case and the combined recovery motion-denial case and pass.
+    deliverables:
+      - Updated settings and viewer components with coordinated scroll-lock ownership and combined recovery error handling.
+      - Updated unit tests for viewer-shell and settings-sheet behavior.
+      - Targeted test execution notes recorded by the implementation/testing phases.
+    risks:
+      - Sharing one lifted open flag across both mounted SettingsSheet instances would render duplicate dialogs.
+      - Refactoring permission recovery could accidentally suppress camera retry or route updates.
+      - Existing tests may need mock adjustments if SettingsSheet gains an open-state callback.
+    rollback:
+      - Revert the parent settings-open aggregation and helper extraction if they introduce overlay-state regressions.
+      - Keep rollback limited to this slice and avoid reintroducing multiple document/body scroll lock owners.

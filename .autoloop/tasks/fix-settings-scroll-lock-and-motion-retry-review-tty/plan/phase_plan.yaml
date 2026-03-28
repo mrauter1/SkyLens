@@ -1,0 +1,36 @@
+version: 1
+task_id: fix-settings-scroll-lock-and-motion-retry-review-tty
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/fix-settings-scroll-lock-and-motion-retry-review-tty/runs/run-20260328T044746Z-271598a8/request.md
+phases:
+  - phase_id: fix-scroll-lock-and-motion-retry
+    title: Coordinate viewer lock ownership and restore combined motion retry messaging
+    objective: Centralize background scroll locking in ViewerShell, preserve combined recovery motion denial messaging, and cover both regressions with focused unit tests.
+    status: planned
+    in_scope:
+      - Update ViewerShell scroll-lock conditions to include settings-open state and own document/body lock lifecycle.
+      - Remove conflicting SettingsSheet document/body scroll mutations while preserving sheet layout and focus behavior.
+      - Restore motionRetryError handling for the combined camera+motion permission recovery path without regressing camera retry behavior.
+      - Add or adjust targeted unit tests for overlapping lock transitions and combined recovery denial messaging.
+    out_of_scope:
+      - Broader viewer overlay UX redesigns or copy changes.
+      - New shared modal/scroll-lock infrastructure beyond the local component changes needed here.
+      - Changes to persisted viewer settings schema or route structure.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: ViewerShell is the sole owner of document/body scroll lock side effects, and background scroll remains locked while settings is open or another existing viewer lock is active.
+      - id: AC-2
+        text: Combined camera+motion recovery continues camera retry behavior and also surfaces the existing motion denial error message when orientation permission is denied.
+      - id: AC-3
+        text: Focused unit tests cover overlapping lock transitions and the combined recovery denial path, and the relevant test command passes.
+    deliverables:
+      - Updated plan-aligned implementation in ViewerShell and SettingsSheet.
+      - Focused unit test updates for viewer shell and settings sheet behavior.
+      - Verified test run for the affected viewer/settings suites.
+    risks:
+      - Lifted settings-open state could break focus restoration if the sheet trigger/dialog contract is not preserved.
+      - Consolidated retry logic could accidentally alter route updates or camera retry sequencing.
+      - Multiple rendered SettingsSheet instances may require careful ownership of open state to avoid lock drift.
+    rollback:
+      - Revert settings-open state lifting and restore the prior local sheet open contract if focus or rendering regresses.
+      - Revert the combined recovery refactor if it changes camera retry sequencing, then reapply the motion denial handling with a narrower patch.
