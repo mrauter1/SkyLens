@@ -1,0 +1,36 @@
+{
+  "task_id": "skylens-task-alignment-settings-parity-with-open-e4c7e805",
+  "created_at": "2026-03-28T10:52:31.102899+00:00",
+  "request_text": "# SkyLens task: alignment + settings parity with Open viewer overlay\n\n## Objective\nImplement the following user-facing behavior updates in mobile live viewer:\n\n1. **Alignment panel must overlay on top of stage and buttons**\n   - Show alignment UI as a top-layer overlay over the camera stage.\n   - It must appear over quick-action buttons (including Open viewer / Align / permission actions) to maximize available space on mobile.\n   - Preserve explicit open/close controls and existing alignment-focus flow.\n\n2. **Settings view parity with Open viewer sizing and scroll behavior**\n   - Settings should use the same panel size contract as Open viewer in compact mobile mode.\n   - Stage/background should stay fixed; only panel content should scroll internally.\n   - Keep safe-area behavior robust.\n\n3. **Align view parity with Open viewer sizing and scroll behavior**\n   - Align panel should match Open viewer\u2019s compact max-height and scrolling model.\n   - Use consistent container structure (non-scrolling shell + internal scroll region).\n\n4. **Shared layout primitive to prevent drift**\n   - Introduce/reuse a shared mobile panel shell primitive for Open viewer, Settings, and Align panel where applicable.\n   - Keep visual tokens (radius, spacing, shell behavior) consistent.\n\n5. **Tests and verification**\n   - Add/update unit/e2e tests to verify:\n     - alignment panel overlays above buttons,\n     - settings and align max-height parity with Open viewer compact mode,\n     - internal scroll-region behavior parity,\n     - no regressions in open/close interactions and alignment flow.\n\n## Scope guidance\n- Focus likely on:\n  - `components/viewer/viewer-shell.tsx`\n  - `components/settings/settings-sheet.tsx`\n  - shared UI container/components if introduced\n  - related tests under `tests/unit` and `tests/e2e`\n\n## Execution requirements\n- Use autoloop in full-auto mode.\n- Use pair sequence: **plan, implement, test**.\n- Do not set max_iterations.",
+  "request_updated_at": "2026-03-28T10:52:31.102980+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/skylens-task-alignment-settings-parity-with-open-e4c7e805/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260328T105231Z-dec3442b",
+    "mode": "single",
+    "phase_ids": [
+      "mobile-overlay-parity"
+    ],
+    "explicit": true,
+    "current_phase_index": 1,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "mobile-overlay-parity": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "mobile-overlay-parity",
+      "run_id": "run-20260328T105231Z-dec3442b",
+      "status": "in_progress",
+      "ts": "2026-03-28T10:55:12.555645+00:00"
+    },
+    {
+      "phase_id": "mobile-overlay-parity",
+      "run_id": "run-20260328T105231Z-dec3442b",
+      "status": "completed",
+      "ts": "2026-03-28T11:08:17.361192+00:00",
+      "pair": "test"
+    }
+  ]
+}

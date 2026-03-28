@@ -64,7 +64,7 @@ test('orientation denial enters the manual-pan fallback shell', async ({ page })
   await ensureMobileViewerOverlayOpen(page)
   const mobileOverlay = page.getByTestId('mobile-viewer-overlay')
 
-  await expect(mobileOverlay.getByText('Motion access is off.')).toBeVisible()
+  await expect(mobileOverlay.getByText('Motion is not enabled.')).toBeVisible()
   await expect(
     mobileOverlay.getByRole('heading', { name: 'Manual observer needed' }),
   ).toBeVisible()
@@ -84,17 +84,23 @@ test('compact alignment panel keeps lower controls reachable on a short viewport
   await expect(alignButton).toBeVisible()
   await alignButton.click()
 
-  const alignmentPanel = page
-    .getByTestId('mobile-viewer-quick-actions')
-    .getByTestId('alignment-instructions-panel')
+  const alignmentShell = page.getByTestId('mobile-alignment-overlay-shell')
+  const alignmentScrollRegion = page.getByTestId('mobile-alignment-overlay-scroll-region')
+  const alignmentPanel = alignmentScrollRegion.getByTestId('alignment-instructions-panel')
   const lowestNudgeControl = alignmentPanel.getByRole('button', { name: 'Nudge down' })
 
+  await expect(alignmentShell).toBeVisible()
   await expect(alignmentPanel).toBeVisible()
+  await expect(
+    page
+      .getByTestId('mobile-viewer-quick-actions')
+      .getByTestId('alignment-instructions-panel'),
+  ).toHaveCount(0)
   expect(
-    await alignmentPanel.evaluate((element) => element.scrollHeight > element.clientHeight),
+    await alignmentScrollRegion.evaluate((element) => element.scrollHeight > element.clientHeight),
   ).toBe(true)
 
-  await alignmentPanel.evaluate((element) => {
+  await alignmentScrollRegion.evaluate((element) => {
     element.scrollTop = element.scrollHeight
   })
 

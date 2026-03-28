@@ -1,0 +1,39 @@
+version: 1
+task_id: skylens-task-alignment-settings-parity-with-open-e4c7e805
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/skylens-task-alignment-settings-parity-with-open-e4c7e805/runs/run-20260328T105231Z-dec3442b/request.md
+phases:
+  - phase_id: mobile-overlay-parity
+    title: Unify compact mobile panel shell and align overlay behavior
+    objective: Implement one compact mobile panel shell contract across Open viewer, Settings, and Align while moving Align above the quick-action rail without changing the existing alignment flow.
+    status: planned
+    in_scope:
+      - Introduce a narrow shared compact mobile shell/panel/scroll-region layout primitive for viewer/settings surfaces.
+      - Update ViewerShell so compact alignment renders in a dedicated fixed overlay above stage controls and uses the shared compact max-height contract.
+      - Update SettingsSheet to consume the shared compact shell behavior without changing dialog semantics.
+      - Add or update unit and e2e coverage for overlay placement, max-height parity, internal scrolling, and alignment flow regressions.
+    out_of_scope:
+      - Desktop viewer layout refactors.
+      - Changes to persisted viewer settings or routes.
+      - Rewriting alignment tutorial content or permission logic.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: Compact alignment no longer renders inline in the mobile quick-action stack and instead appears in a higher-layer mobile overlay above the stage and quick-action buttons.
+      - id: AC-2
+        text: Compact Open viewer, Settings, and Align share the same compact mobile max-height contract and non-scrolling shell plus internal scroll-region structure.
+      - id: AC-3
+        text: Existing mobile alignment open/close behavior, Start alignment transition, and alignment-focus chrome hiding continue to work without regression.
+      - id: AC-4
+        text: Automated tests cover the overlay placement change, shared sizing/scroll behavior, and short-viewport reachability of alignment controls.
+    deliverables:
+      - Updated compact mobile layout implementation in ViewerShell and SettingsSheet.
+      - One shared compact mobile panel shell helper/component or equivalent local shared layout primitive.
+      - Updated unit and e2e tests for overlay parity and regression prevention.
+    risks:
+      - Moving alignment into a fixed overlay may break the current mount/unmount flow that existing interaction tests rely on.
+      - Shared shell extraction may accidentally change dismissal or focus behavior if it becomes too generic.
+      - Safe-area and pointer-event bugs are likely on short mobile viewports if shell layering diverges from the existing Open viewer implementation.
+    rollback:
+      - Revert the shared shell extraction if it starts owning stateful behavior instead of layout-only behavior.
+      - Restore the previous alignment render location and compact alignment sizing if overlay layering causes interaction regressions.
+      - Keep desktop and persistence untouched so rollback stays code-only.

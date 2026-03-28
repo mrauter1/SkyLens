@@ -12,6 +12,7 @@ import type { EnabledLayer } from '../../lib/config'
 import type { DemoScenarioId } from '../../lib/demo/scenarios'
 import type { LabelDisplayMode, MotionQuality } from '../../lib/viewer/settings'
 import type { AlignmentTargetPreference } from '../../lib/viewer/alignment-tutorial'
+import { CompactMobilePanelShell } from '../ui/compact-mobile-panel-shell'
 
 type SettingsSheetProps = {
   onEnterDemoMode: () => void
@@ -96,9 +97,6 @@ const MOTION_QUALITY_OPTIONS: Array<{
     description: 'Longest moving-object trails with the highest animation cadence.',
   },
 ]
-
-const SETTINGS_SHEET_MAX_HEIGHT =
-  'calc(100dvh - (2rem + env(safe-area-inset-top) + env(safe-area-inset-bottom)))'
 
 export function SettingsSheet({
   onEnterDemoMode,
@@ -215,50 +213,47 @@ export function SettingsSheet({
         Settings
       </button>
       {isOpen ? (
-        <div
-          className="fixed inset-0 z-40 px-4 pt-[calc(1rem+env(safe-area-inset-top))] pb-[calc(1rem+env(safe-area-inset-bottom))]"
-          data-testid="settings-sheet-shell"
-        >
-          <div aria-hidden="true" className="absolute inset-0 bg-slate-950/45" />
-          <div className="relative flex h-full items-end justify-center">
-            <section
-              id={panelId}
-              ref={panelRef}
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby={titleId}
-              className="shell-panel relative flex max-h-full min-h-0 w-full max-w-xl flex-col overflow-hidden rounded-[1.75rem] p-5"
-              style={{ maxHeight: SETTINGS_SHEET_MAX_HEIGHT }}
-              data-testid="settings-sheet-panel"
-              onKeyDown={handlePanelKeyDown}
-            >
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">
-                    Viewer controls
-                  </p>
-                  <h2
-                    id={titleId}
-                    className="text-lg font-semibold text-white"
-                    style={{ fontFamily: 'var(--font-display)' }}
-                  >
-                    Settings
-                  </h2>
-                </div>
-                <button
-                  ref={closeButtonRef}
-                  type="button"
-                  onClick={closeSheet}
-                  className="min-h-11 rounded-full border border-sky-100/15 px-3 py-1 text-sm text-sky-50"
+        <CompactMobilePanelShell
+          ref={panelRef}
+          shellTestId="settings-sheet-shell"
+          shellClassName="z-40"
+          shellChildren={<div aria-hidden="true" className="absolute inset-0 bg-slate-950/45" />}
+          panelTestId="settings-sheet-panel"
+          panelProps={{
+            id: panelId,
+            role: 'dialog',
+            'aria-modal': 'true',
+            'aria-labelledby': titleId,
+            onKeyDown: handlePanelKeyDown,
+          }}
+          header={
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">
+                  Viewer controls
+                </p>
+                <h2
+                  id={titleId}
+                  className="text-lg font-semibold text-white"
+                  style={{ fontFamily: 'var(--font-display)' }}
                 >
-                  Close
-                </button>
+                  Settings
+                </h2>
               </div>
-              <div
-                className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1"
-                data-testid="settings-sheet-scroll-region"
+              <button
+                ref={closeButtonRef}
+                type="button"
+                onClick={closeSheet}
+                className="min-h-11 rounded-full border border-sky-100/15 px-3 py-1 text-sm text-sky-50"
               >
-                <div className="grid gap-3 pb-1">
+                Close
+              </button>
+            </div>
+          }
+          scrollRegionTestId="settings-sheet-scroll-region"
+          scrollRegionClassName="pr-1"
+        >
+          <div className="grid gap-3 pb-1">
                   {LAYER_LABELS.map(([layerId, label]) => (
                     <label
                       key={layerId}
@@ -440,11 +435,8 @@ export function SettingsSheet({
                   >
                     Enter demo mode
                   </button>
-                </div>
-              </div>
-            </section>
           </div>
-        </div>
+        </CompactMobilePanelShell>
       ) : null}
     </>
   )

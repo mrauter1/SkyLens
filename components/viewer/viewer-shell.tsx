@@ -116,6 +116,7 @@ import {
   type MotionQuality,
 } from '../../lib/viewer/settings'
 import { SettingsSheet } from '../settings/settings-sheet'
+import { CompactMobilePanelShell } from '../ui/compact-mobile-panel-shell'
 
 type ViewerShellProps = {
   initialState: ViewerRouteState
@@ -222,11 +223,6 @@ const MOTION_AFFORDANCE_SAMPLE_LIMITS: Record<MotionQuality, number> = {
   balanced: 8,
   high: 16,
 }
-const COMPACT_MOBILE_OVERLAY_MAX_HEIGHT =
-  'calc(100dvh - (2rem + env(safe-area-inset-top) + env(safe-area-inset-bottom)))'
-const COMPACT_ALIGNMENT_PANEL_MAX_HEIGHT =
-  'calc(100dvh - (6.5rem + env(safe-area-inset-bottom)))'
-
 export function ViewerShell({ initialState }: ViewerShellProps) {
   const router = useRouter()
   const initialDemoScenario = getDemoScenario(initialState.demoScenarioId)
@@ -2741,44 +2737,42 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         </section>
       </div>
       <div className="pointer-events-none fixed inset-x-0 bottom-0 z-20 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:hidden">
-        {isMobileOverlayOpen && !isMobileAlignmentFocusActive ? (
-          <div
-            className={`pointer-events-auto fixed inset-0 z-30 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-[calc(1rem+env(safe-area-inset-top))] ${
-              shouldUseCompactNonScrollingOverlay ? 'overflow-hidden' : 'overflow-y-auto'
-            }`}
-            data-testid={
-              shouldUseCompactNonScrollingOverlay
-                ? 'mobile-viewer-overlay-shell'
-                : 'mobile-viewer-overlay-scroll-region'
-            }
+        {shouldShowAlignmentInstructions ? (
+          <CompactMobilePanelShell
+            shellTestId="mobile-alignment-overlay-shell"
+            shellClassName="pointer-events-none z-40"
+            panelTestId="mobile-alignment-overlay-panel"
+            panelClassName="pointer-events-auto"
+            scrollRegionTestId="mobile-alignment-overlay-scroll-region"
           >
-            <button
-              type="button"
-              aria-label="Close viewer overlay"
-              data-testid="mobile-viewer-overlay-backdrop"
-              onClick={() => setIsMobileOverlayOpen(false)}
-              className="absolute inset-0 bg-slate-950/45"
-            />
-            <div
-              className={`relative ${
-                shouldUseCompactNonScrollingOverlay ? 'flex h-full items-end' : 'flex min-h-full items-end'
-              }`}
-            >
-              <section
-                id="mobile-viewer-overlay"
-                data-testid="mobile-viewer-overlay"
-                onClick={(event) => event.stopPropagation()}
-                className={`shell-panel relative mx-auto w-full max-w-xl rounded-[1.5rem] p-4 ${
-                  shouldUseCompactNonScrollingOverlay
-                    ? 'flex max-h-full min-h-0 flex-col overflow-hidden'
-                    : ''
-                }`}
-                style={
-                  shouldUseCompactNonScrollingOverlay
-                    ? { maxHeight: COMPACT_MOBILE_OVERLAY_MAX_HEIGHT }
-                    : undefined
-                }
-              >
+            <div className="grid gap-3 pb-1 pr-1" data-testid="alignment-instructions-panel">
+              <AlignmentInstructionsContent
+                {...mobileAlignmentPanelProps}
+                compact
+              />
+            </div>
+          </CompactMobilePanelShell>
+        ) : null}
+        {isMobileOverlayOpen && !isMobileAlignmentFocusActive ? (
+          shouldUseCompactNonScrollingOverlay ? (
+            <CompactMobilePanelShell
+              shellTestId="mobile-viewer-overlay-shell"
+              shellClassName="pointer-events-auto z-30"
+              shellChildren={
+                <button
+                  type="button"
+                  aria-label="Close viewer overlay"
+                  data-testid="mobile-viewer-overlay-backdrop"
+                  onClick={() => setIsMobileOverlayOpen(false)}
+                  className="absolute inset-0 bg-slate-950/45"
+                />
+              }
+              panelTestId="mobile-viewer-overlay"
+              panelProps={{
+                id: 'mobile-viewer-overlay',
+                onClick: (event) => event.stopPropagation(),
+              }}
+              header={
                 <div className="mb-3 flex items-start justify-between gap-3">
                   <div
                     className="min-w-0 rounded-[1.25rem] border border-sky-100/10 bg-white/5 px-4 py-3"
@@ -2809,12 +2803,10 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                     </button>
                   </div>
                 </div>
-                {shouldUseCompactNonScrollingOverlay ? (
-                  <div
-                    className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
-                    data-testid="mobile-viewer-overlay-compact-content"
-                  >
-                    <div className="grid gap-3 pb-1 pr-1">
+              }
+              scrollRegionTestId="mobile-viewer-overlay-compact-content"
+            >
+              <div className="grid gap-3 pb-1 pr-1">
                       <div className="flex flex-wrap gap-2">
                         <StatusBadge label="Location" value={locationStatusValue} />
                         <StatusBadge label="Camera" value={cameraStatusValue} />
@@ -2864,9 +2856,6 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                           body={`Move phone in a figure eight or open Alignment to use ${calibrationTarget.label}.`}
                         />
                       ) : null}
-                      {shouldShowAlignmentInstructions ? (
-                        <AlignmentInstructionsPanel {...mobileAlignmentPanelProps} />
-                      ) : null}
                       <section className="rounded-[1.25rem] border border-sky-100/10 bg-white/5 p-4">
                         <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">
                           Viewer snapshot
@@ -2903,9 +2892,57 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                           </div>
                         </div>
                       </section>
+              </div>
+            </CompactMobilePanelShell>
+          ) : (
+            <div
+              className="pointer-events-auto fixed inset-0 z-30 overflow-y-auto px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-[calc(1rem+env(safe-area-inset-top))]"
+              data-testid="mobile-viewer-overlay-scroll-region"
+            >
+              <button
+                type="button"
+                aria-label="Close viewer overlay"
+                data-testid="mobile-viewer-overlay-backdrop"
+                onClick={() => setIsMobileOverlayOpen(false)}
+                className="absolute inset-0 bg-slate-950/45"
+              />
+              <div className="relative flex min-h-full items-end">
+                <section
+                  id="mobile-viewer-overlay"
+                  data-testid="mobile-viewer-overlay"
+                  onClick={(event) => event.stopPropagation()}
+                  className="shell-panel relative mx-auto w-full max-w-xl rounded-[1.5rem] p-4"
+                >
+                  <div className="mb-3 flex items-start justify-between gap-3">
+                    <div
+                      className="min-w-0 rounded-[1.25rem] border border-sky-100/10 bg-white/5 px-4 py-3"
+                      data-testid="mobile-viewer-header"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="min-w-0">
+                          <p className="text-xs uppercase tracking-[0.2em] text-sky-200/65">
+                            SkyLens
+                          </p>
+                          <p className="truncate text-sm text-sky-50/90">{experience.title}</p>
+                        </div>
+                        <div className="rounded-full bg-emerald-400/10 px-3 py-1 text-xs text-emerald-100/85">
+                          {alignmentBadgeValue(state, cameraPose, startupState)}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-start gap-2">
+                      <div>
+                        <SettingsSheet {...mobileSettingsSheetProps} />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsMobileOverlayOpen(false)}
+                        className="min-h-11 rounded-full border border-sky-100/15 px-3 py-1 text-xs text-sky-50"
+                      >
+                        Close
+                      </button>
                     </div>
                   </div>
-                ) : (
                   <div className="grid gap-3">
                     <div className="flex flex-wrap gap-2">
                       <StatusBadge label="Location" value={locationStatusValue} />
@@ -3014,9 +3051,6 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                             title="Alignment looks off."
                             body={`Move phone in a figure eight or open Alignment to use ${calibrationTarget.label}.`}
                           />
-                        ) : null}
-                        {shouldShowAlignmentInstructions ? (
-                          <AlignmentInstructionsPanel {...mobileAlignmentPanelProps} />
                         ) : null}
                         <section className="rounded-[1.25rem] border border-sky-100/10 bg-white/5 p-4">
                           <div className="flex flex-col gap-4">
@@ -3137,88 +3171,82 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                       </div>
                     </section>
                   </div>
-                )}
               </section>
             </div>
           </div>
+          )
         ) : (
-          <div className="grid justify-center gap-3" data-testid="mobile-viewer-quick-actions">
-            {shouldShowAlignmentInstructions ? (
-              <div className="pointer-events-auto">
-                <AlignmentInstructionsPanel
-                  {...mobileAlignmentPanelProps}
-                  compact
-                />
-              </div>
-            ) : null}
-            {!isMobileAlignmentFocusActive ? (
-              <label className="pointer-events-auto grid gap-2 rounded-[1.25rem] border border-sky-100/15 bg-slate-950/70 px-4 py-3 text-sm text-sky-50 shadow-[0_12px_30px_rgba(3,7,13,0.32)]">
-                <span className="flex items-center justify-between gap-3">
-                  <span>Marker scale</span>
-                  <span
-                    className="text-xs uppercase tracking-[0.16em] text-sky-200/65"
-                    data-testid="mobile-marker-scale-value"
-                  >
-                    {formatMarkerScaleValue(viewerSettings.markerScale)}
-                  </span>
-                </span>
-                <input
-                  aria-label="Marker scale"
-                  data-testid="mobile-marker-scale-slider"
-                  type="range"
-                  min={1}
-                  max={4}
-                  step={0.1}
-                  value={viewerSettings.markerScale}
-                  onChange={(event) => {
-                    const nextMarkerScale = clampNumber(Number(event.target.value), 1, 4)
-
-                    setViewerSettings((current) => ({
-                      ...current,
-                      markerScale: nextMarkerScale,
-                    }))
-                  }}
-                />
-              </label>
-            ) : null}
-            <div className="pointer-events-auto flex flex-wrap justify-center gap-2">
+          <>
+            <div className="grid justify-center gap-3" data-testid="mobile-viewer-quick-actions">
               {!isMobileAlignmentFocusActive ? (
-                <button
-                  type="button"
-                  onClick={() => setIsMobileOverlayOpen(true)}
-                  aria-controls="mobile-viewer-overlay"
-                  aria-expanded={isMobileOverlayOpen}
-                  data-testid="mobile-viewer-overlay-trigger"
-                  className="min-h-11 rounded-full border border-sky-100/15 bg-slate-950/70 px-5 py-3 text-sm font-semibold text-sky-50 shadow-[0_12px_30px_rgba(3,7,13,0.32)]"
-                >
-                  Open viewer
-                </button>
+                <label className="pointer-events-auto grid gap-2 rounded-[1.25rem] border border-sky-100/15 bg-slate-950/70 px-4 py-3 text-sm text-sky-50 shadow-[0_12px_30px_rgba(3,7,13,0.32)]">
+                  <span className="flex items-center justify-between gap-3">
+                    <span>Marker scale</span>
+                    <span
+                      className="text-xs uppercase tracking-[0.16em] text-sky-200/65"
+                      data-testid="mobile-marker-scale-value"
+                    >
+                      {formatMarkerScaleValue(viewerSettings.markerScale)}
+                    </span>
+                  </span>
+                  <input
+                    aria-label="Marker scale"
+                    data-testid="mobile-marker-scale-slider"
+                    type="range"
+                    min={1}
+                    max={4}
+                    step={0.1}
+                    value={viewerSettings.markerScale}
+                    onChange={(event) => {
+                      const nextMarkerScale = clampNumber(Number(event.target.value), 1, 4)
+
+                      setViewerSettings((current) => ({
+                        ...current,
+                        markerScale: nextMarkerScale,
+                      }))
+                    }}
+                  />
+                </label>
               ) : null}
-              {showMobilePermissionAction && !isMobileAlignmentFocusActive ? (
-                <button
-                  type="button"
-                  onClick={handlePermissionRecoveryAction}
-                  disabled={isPending}
-                  data-testid="mobile-permission-action"
-                  className="min-h-11 rounded-full bg-amber-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-[0_12px_30px_rgba(251,191,36,0.22)] disabled:cursor-wait disabled:bg-amber-100"
-                >
-                  {isPending
-                    ? permissionRecoveryAction.pendingLabel
-                    : permissionRecoveryAction.label}
-                </button>
-              ) : null}
-              {showMobileAlignAction ? (
-                <button
-                  type="button"
-                  onClick={openAlignmentExperience}
-                  data-testid="mobile-align-action"
-                  className="min-h-11 rounded-full border border-sky-100/15 bg-slate-950/80 px-5 py-3 text-sm font-semibold text-sky-50 shadow-[0_12px_30px_rgba(3,7,13,0.32)]"
-                >
-                  Align
-                </button>
-              ) : null}
+              <div className="pointer-events-auto flex flex-wrap justify-center gap-2">
+                {!isMobileAlignmentFocusActive ? (
+                  <button
+                    type="button"
+                    onClick={() => setIsMobileOverlayOpen(true)}
+                    aria-controls="mobile-viewer-overlay"
+                    aria-expanded={isMobileOverlayOpen}
+                    data-testid="mobile-viewer-overlay-trigger"
+                    className="min-h-11 rounded-full border border-sky-100/15 bg-slate-950/70 px-5 py-3 text-sm font-semibold text-sky-50 shadow-[0_12px_30px_rgba(3,7,13,0.32)]"
+                  >
+                    Open viewer
+                  </button>
+                ) : null}
+                {showMobilePermissionAction && !isMobileAlignmentFocusActive ? (
+                  <button
+                    type="button"
+                    onClick={handlePermissionRecoveryAction}
+                    disabled={isPending}
+                    data-testid="mobile-permission-action"
+                    className="min-h-11 rounded-full bg-amber-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-[0_12px_30px_rgba(251,191,36,0.22)] disabled:cursor-wait disabled:bg-amber-100"
+                  >
+                    {isPending
+                      ? permissionRecoveryAction.pendingLabel
+                      : permissionRecoveryAction.label}
+                  </button>
+                ) : null}
+                {showMobileAlignAction ? (
+                  <button
+                    type="button"
+                    onClick={openAlignmentExperience}
+                    data-testid="mobile-align-action"
+                    className="min-h-11 rounded-full border border-sky-100/15 bg-slate-950/80 px-5 py-3 text-sm font-semibold text-sky-50 shadow-[0_12px_30px_rgba(3,7,13,0.32)]"
+                  >
+                    Align
+                  </button>
+                ) : null}
+              </div>
             </div>
-          </div>
+          </>
         )}
       </div>
     </main>
@@ -3758,22 +3786,7 @@ function resolveSceneClock({
   }
 }
 
-function AlignmentInstructionsPanel({
-  targetLabel,
-  nextAction,
-  notices,
-  selectedTarget,
-  availability,
-  onSelectTarget,
-  onResetCalibration,
-  onFineAdjustCalibration,
-  canResetCalibration,
-  onClose,
-  onStartAlignment,
-  canStartAlignment = false,
-  showStartAlignmentAction = false,
-  compact = false,
-}: {
+type AlignmentInstructionsProps = {
   targetLabel: string
   nextAction: string
   notices: AlignmentTutorialNotice[]
@@ -3794,15 +3807,45 @@ function AlignmentInstructionsPanel({
   canStartAlignment?: boolean
   showStartAlignmentAction?: boolean
   compact?: boolean
-}) {
+}
+
+function AlignmentInstructionsPanel({
+  compact = false,
+  ...props
+}: AlignmentInstructionsProps) {
   return (
     <section
       className={`rounded-[1.5rem] border border-sky-100/10 bg-slate-950/55 ${
-        compact ? 'max-w-full overflow-y-auto overscroll-contain p-4' : 'p-5'
+        compact ? 'p-4' : 'p-5'
       }`}
-      style={compact ? { maxHeight: COMPACT_ALIGNMENT_PANEL_MAX_HEIGHT } : undefined}
       data-testid="alignment-instructions-panel"
     >
+      <AlignmentInstructionsContent
+        {...props}
+        compact={compact}
+      />
+    </section>
+  )
+}
+
+function AlignmentInstructionsContent({
+  targetLabel,
+  nextAction,
+  notices,
+  selectedTarget,
+  availability,
+  onSelectTarget,
+  onResetCalibration,
+  onFineAdjustCalibration,
+  canResetCalibration,
+  onClose,
+  onStartAlignment,
+  canStartAlignment = false,
+  showStartAlignmentAction = false,
+  compact = false,
+}: AlignmentInstructionsProps) {
+  return (
+    <>
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-[0.18em] text-sky-200/60">Alignment</p>
@@ -3875,7 +3918,7 @@ function AlignmentInstructionsPanel({
           Reset calibration
         </button>
       </div>
-      <div className={`mt-2 grid grid-cols-2 gap-2 ${compact ? '' : ''}`}>
+      <div className="mt-2 grid grid-cols-2 gap-2">
         {ALIGNMENT_FINE_ADJUST_CONTROLS.map((control) => (
           <button
             key={control.label}
@@ -3892,7 +3935,7 @@ function AlignmentInstructionsPanel({
           </button>
         ))}
       </div>
-    </section>
+    </>
   )
 }
 

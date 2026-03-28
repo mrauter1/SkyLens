@@ -1,0 +1,3 @@
+# Plan ↔ Plan Verifier Feedback
+- Added an implementation-ready single-phase plan after inspecting the current viewer/settings/test structure; it narrows the shared abstraction to a compact mobile shell, moves Align into a dedicated top-layer mobile overlay, and calls out the required regression coverage for sizing, scroll behavior, and alignment flow.
+- PLAN-001 | non-blocking | Verified complete. The plan covers overlay precedence above quick actions, shared compact max-height and internal scroll behavior for Settings and Align, a narrow shared layout primitive to prevent drift, regression-focused validation, and explicit rollback/compatibility notes without expanding scope beyond the mobile viewer surfaces requested.

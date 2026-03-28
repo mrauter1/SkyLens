@@ -896,6 +896,7 @@ describe('ViewerShell startup gating', () => {
     ) as HTMLButtonElement | null
 
     expect(container.querySelector('[data-testid="mobile-viewer-overlay"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="mobile-alignment-overlay-shell"]')).not.toBeNull()
     expect(container.querySelector('[data-testid="alignment-instructions-panel"]')).not.toBeNull()
     expect(startAlignmentButton).not.toBeNull()
     expect(startAlignmentButton?.disabled).toBe(true)
@@ -979,6 +980,18 @@ describe('ViewerShell startup gating', () => {
     const startAlignmentButton = container.querySelector(
       '[data-testid="alignment-start-action"]',
     ) as HTMLButtonElement | null
+    const quickActions = container.querySelector(
+      '[data-testid="mobile-viewer-quick-actions"]',
+    ) as HTMLElement | null
+    const alignmentOverlayShell = container.querySelector(
+      '[data-testid="mobile-alignment-overlay-shell"]',
+    ) as HTMLElement | null
+    const alignmentOverlayPanel = container.querySelector(
+      '[data-testid="mobile-alignment-overlay-panel"]',
+    ) as HTMLElement | null
+    const alignmentOverlayScrollRegion = container.querySelector(
+      '[data-testid="mobile-alignment-overlay-scroll-region"]',
+    ) as HTMLElement | null
 
     expect(container.querySelector('[data-testid="mobile-viewer-overlay"]')).toBeNull()
     expect(container.querySelector('[data-testid="mobile-viewer-overlay-trigger"]')).not.toBeNull()
@@ -986,7 +999,22 @@ describe('ViewerShell startup gating', () => {
     expect(readViewerSettings().poseCalibration.calibrated).toBe(false)
     expect(SENSOR_CONTROLLER.setCalibration.mock.calls.length).toBe(calibrationCallsBefore)
     expect(container.querySelector('[data-testid="mobile-align-action"]')).not.toBeNull()
+    expect(alignmentOverlayShell).not.toBeNull()
+    expect(alignmentOverlayShell?.className).toContain('fixed')
+    expect(alignmentOverlayShell?.className).toContain('z-40')
+    expect(alignmentOverlayPanel).not.toBeNull()
+    expect(alignmentOverlayPanel?.className).toContain('max-h-full')
+    expect(alignmentOverlayPanel?.className).toContain('overflow-hidden')
+    expect(alignmentOverlayPanel?.style.maxHeight).toBe(
+      'calc(100dvh - (2rem + env(safe-area-inset-top) + env(safe-area-inset-bottom)))',
+    )
+    expect(alignmentOverlayScrollRegion).not.toBeNull()
+    expect(alignmentOverlayScrollRegion?.className).toContain('overflow-y-auto')
+    expect(alignmentOverlayScrollRegion?.className).toContain('overscroll-contain')
     expect(container.querySelector('[data-testid="alignment-instructions-panel"]')).not.toBeNull()
+    expect(
+      quickActions?.querySelector('[data-testid="alignment-instructions-panel"]'),
+    ).toBeNull()
     expect(startAlignmentButton).not.toBeNull()
     expect(startAlignmentButton?.disabled).toBe(false)
     expect(container.querySelector('[data-testid="alignment-crosshair-button"]')).toBeNull()
@@ -1006,6 +1034,90 @@ describe('ViewerShell startup gating', () => {
     expect(container.querySelector('[data-testid="alignment-instructions-panel"]')).toBeNull()
     expect(container.querySelector('[data-testid="alignment-crosshair-button"]')).not.toBeNull()
     expect(container.querySelector('[data-testid="alignment-focus-instruction"]')).not.toBeNull()
+  })
+
+  it('matches compact alignment max height to the compact mobile viewer overlay contract', async () => {
+    mockSubscribeToOrientationPose.mockImplementationOnce((onPose: (state: unknown) => void) => {
+      onPose({
+        pose: {
+          yawDeg: 0,
+          pitchDeg: 0,
+          rollDeg: 0,
+          quaternion: [0, 0, 0, 1],
+          alignmentHealth: 'fair',
+          mode: 'sensor',
+        },
+        sample: {
+          source: 'absolute-sensor',
+          absolute: true,
+          needsCalibration: false,
+          timestampMs: Date.UTC(2026, 2, 26, 0, 45, 6),
+          headingDeg: 0,
+          pitchDeg: 0,
+          rollDeg: 0,
+          quaternion: [0, 0, 0, 1],
+          rawQuaternion: [0, 0, 0, 1],
+          rawSample: {
+            source: 'absolute-sensor',
+            localFrame: 'screen',
+            absolute: true,
+            timestampMs: Date.UTC(2026, 2, 26, 0, 45, 6),
+            worldFromLocal: [
+              [1, 0, 0],
+              [0, 1, 0],
+              [0, 0, 1],
+            ],
+          },
+        },
+        history: [],
+        orientationSource: 'absolute-sensor',
+        orientationAbsolute: true,
+        orientationNeedsCalibration: false,
+        poseCalibration: {
+          offsetQuaternion: [0, 0, 0, 1],
+          calibrated: false,
+          sourceAtCalibration: null,
+          lastCalibratedAtMs: null,
+        },
+      })
+
+      return SENSOR_CONTROLLER
+    })
+
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'granted',
+    })
+
+    const alignButton = container.querySelector(
+      '[data-testid="mobile-align-action"]',
+    ) as HTMLButtonElement | null
+    const openViewerButton = container.querySelector(
+      '[data-testid="mobile-viewer-overlay-trigger"]',
+    ) as HTMLButtonElement | null
+
+    await act(async () => {
+      alignButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    await act(async () => {
+      openViewerButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    const compactViewerOverlay = container.querySelector(
+      '[data-testid="mobile-viewer-overlay"]',
+    ) as HTMLElement | null
+    const compactAlignmentPanel = container.querySelector(
+      '[data-testid="mobile-alignment-overlay-panel"]',
+    ) as HTMLElement | null
+
+    expect(compactViewerOverlay).not.toBeNull()
+    expect(compactAlignmentPanel).not.toBeNull()
+    expect(compactAlignmentPanel?.style.maxHeight).toBe(compactViewerOverlay?.style.maxHeight)
   })
 
   it('closes the alignment view explicitly and restores the mobile Align action', async () => {
@@ -1041,6 +1153,7 @@ describe('ViewerShell startup gating', () => {
 
     expect(container.querySelector('[data-testid="alignment-instructions-panel"]')).toBeNull()
     expect(container.querySelector('[data-testid="alignment-crosshair-button"]')).toBeNull()
+    expect(container.querySelector('[data-testid="mobile-alignment-overlay-shell"]')).toBeNull()
     expect(container.querySelector('[data-testid="mobile-align-action"]')).not.toBeNull()
   })
 
@@ -1624,21 +1737,26 @@ describe('ViewerShell startup gating', () => {
     })
     await flushEffects()
 
-    const alignmentPanels = Array.from(
-      container.querySelectorAll('[data-testid="alignment-instructions-panel"]'),
-    ) as HTMLElement[]
-    const alignmentPanel =
-      alignmentPanels.find((panel) => panel.className.includes('overflow-y-auto')) ?? null
+    const alignmentPanel = container.querySelector(
+      '[data-testid="alignment-instructions-panel"]',
+    ) as HTMLElement | null
+    const alignmentOverlayPanel = container.querySelector(
+      '[data-testid="mobile-alignment-overlay-panel"]',
+    ) as HTMLElement | null
+    const alignmentScrollRegion = container.querySelector(
+      '[data-testid="mobile-alignment-overlay-scroll-region"]',
+    ) as HTMLElement | null
     const startAlignmentButton = container.querySelector(
       '[data-testid="alignment-start-action"]',
     ) as HTMLButtonElement | null
 
     expect(alignmentPanel).not.toBeNull()
-    expect(alignmentPanel?.className).toContain('overflow-y-auto')
-    expect(alignmentPanel?.className).toContain('overscroll-contain')
-    expect(alignmentPanel?.style.maxHeight).toBe(
-      'calc(100dvh - (6.5rem + env(safe-area-inset-bottom)))',
+    expect(alignmentOverlayPanel).not.toBeNull()
+    expect(alignmentOverlayPanel?.style.maxHeight).toBe(
+      'calc(100dvh - (2rem + env(safe-area-inset-top) + env(safe-area-inset-bottom)))',
     )
+    expect(alignmentScrollRegion?.className).toContain('overflow-y-auto')
+    expect(alignmentScrollRegion?.className).toContain('overscroll-contain')
     expect(startAlignmentButton).not.toBeNull()
     expect(startAlignmentButton?.disabled).toBe(false)
   })
