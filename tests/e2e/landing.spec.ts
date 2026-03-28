@@ -26,5 +26,5 @@ test('landing page shows shell copy and demo entry', async ({ page }) => {
   const mobileOverlay = page.getByTestId('mobile-viewer-overlay')
 
   await expect(page).toHaveURL(/\/view\?entry=demo/)
-  await expect(mobileOverlay.getByText('Demo mode is active.')).toBeVisible()
+  await expect(page.getByTestId('viewer-warning-rail-item-demo')).toBeVisible()
 })

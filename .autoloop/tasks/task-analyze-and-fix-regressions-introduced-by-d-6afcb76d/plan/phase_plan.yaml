@@ -1,0 +1,94 @@
+version: 1
+task_id: task-analyze-and-fix-regressions-introduced-by-d-6afcb76d
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/task-analyze-and-fix-regressions-introduced-by-d-6afcb76d/runs/run-20260328T133813Z-34a12ffb/request.md
+phases:
+- phase_id: recover-viewer-shell-behavior
+  title: Recover Viewer Shell Behavior
+  objective: Confirm and repair the mobile and desktop regressions introduced by the
+    desktop declutter changes without undoing the declutter UX goals.
+  status: planned
+  in_scope:
+  - Confirm root causes from daacca7 against ViewerShell state transitions and targeted
+    tests
+  - Fix mobile navigation, overlay, alignment, and scroll-lock regressions in ViewerShell
+  - Preserve mobile overlay trigger, backdrop-close, and short-viewport reachability
+    behavior covered by the current e2e slice
+  - Preserve the compact top warning rail and the desktop action row contract
+  - Keep desktop detailed content in the shared overlay instead of restoring the old
+    cluttered shell
+  out_of_scope:
+  - Unrelated viewer projection or astronomy logic changes
+  - Broad settings UX redesign
+  - Autoloop artifact files in the final code commit
+  dependencies: []
+  acceptance_criteria:
+  - id: AC-1
+    text: Root causes are explicitly documented and tied to the changed ViewerShell
+      code paths before behavior fixes are finalized.
+  - id: AC-2
+    text: Mobile flows no longer inherit desktop overlay state or desktop-only scroll
+      locking.
+  - id: AC-3
+    text: Desktop remains decluttered with the requested primary actions and compact
+      warning rail intact.
+  - id: AC-4
+    text: Mobile overlay and alignment panels keep their trigger, close, and short-viewport
+      reachability contracts.
+  deliverables:
+  - Targeted behavior fixes in components/viewer/viewer-shell.tsx
+  - Targeted unit test adjustments or additions in tests/unit/viewer-shell.test.ts
+    and tests/unit/viewer-shell-celestial.test.ts
+  risks:
+  - Breakpoint-gated state changes can regress if desktop and mobile overlay ownership
+    is not audited end to end.
+  - Hidden mounted desktop overlay markup can confuse assertions that rely on DOM
+    presence instead of visibility/open state.
+  rollback:
+  - Revert only the targeted ViewerShell behavior changes if they reintroduce mobile
+    leakage or desktop clutter.
+  - Keep desktop declutter structure unless preserving it proves impossible without
+    breaking the mobile contract.
+- phase_id: validate-regression-recovery
+  title: Validate Regression Recovery
+  objective: Run the impacted validation slice, harmonize tests only for intentional
+    contract shifts, and account clearly for any remaining blockers.
+  status: planned
+  in_scope:
+  - Run the impacted Vitest viewer shell suites
+  - Run the impacted Playwright mobile overlay and permissions specs once Chromium
+    is available
+  - Update tests only where the desktop overlay contract intentionally changed
+  - Keep the e2e helper-driven mobile overlay flow as a behavior contract rather
+    than rewriting around regressions
+  - Produce explicit accounting for any remaining validation blockers
+  out_of_scope:
+  - Full-repository test expansion beyond the affected suites
+  - Test rewrites that compensate for unfixed behavior
+  dependencies:
+  - recover-viewer-shell-behavior
+  acceptance_criteria:
+  - id: AC-1
+    text: Impacted viewer shell Vitest suites pass after the behavior fixes land.
+  - id: AC-2
+    text: Playwright mobile overlay and permissions specs pass, or an environment-only
+      blocker is reported separately from product regressions.
+  - id: AC-3
+    text: Test changes are limited to intentional overlay-contract shifts and do not
+      weaken regression coverage.
+  - id: AC-4
+    text: The mobile browser regression slice still verifies overlay reachability,
+      permission fallback, and alignment panel access on short viewports.
+  deliverables:
+  - Passing targeted validation commands or an explicit blocker report
+  - Explicit Playwright browser setup step (`npx playwright install chromium`) when
+    Chromium is missing from the environment
+  - Minimal test harmonization aligned with the recovered UX contract
+  risks:
+  - Playwright validation can remain blocked by missing browser binaries in the execution
+    environment.
+  - JSDOM passing results can hide viewport-specific regressions if browser validation
+    is skipped.
+  rollback:
+  - Revert any test-only adjustments that mask broken runtime behavior.
+  - Leave validation blocker reporting in place if environment setup cannot be completed
+    in-turn.

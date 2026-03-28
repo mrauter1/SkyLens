@@ -1,0 +1,13 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260328T131019Z-a4d7f675" ts="2026-03-28T13:10:19.900309+00:00" />
+Desktop hover should be implemented as a movable pointer reticle that reuses mobile crosshair focus semantics, not as a separate desktop-only selection model.
+Desktop decluttering should reuse the existing mobile-style overlay/action pattern inside viewer-shell rather than introducing new route state, storage, or a broad shared UI framework.
+<autoloop-decisions-header version="1" block_seq="2" owner="planner" phase_id="task-global" pair="plan" turn_seq="2" run_id="run-20260328T131019Z-a4d7f675" ts="2026-03-28T13:14:03.845534+00:00" />
+<autoloop-decisions-header version="1" block_seq="3" owner="planner" phase_id="task-global" pair="plan" turn_seq="3" run_id="run-20260328T131019Z-a4d7f675" ts="2026-03-28T13:14:25.089094+00:00" />
+Desktop decluttering must preserve access to current object detail, recovery, manual observer, and privacy surfaces by relocating them into the simplified overlay/top-rail model rather than deleting them.
+The desktop primary action row must explicitly cover Open Viewer, Enable Camera, Motion, and Align; camera and motion buttons may reuse existing startup or retry handlers, but they must not change permission ordering or introduce a new permission flow.
+<autoloop-decisions-header version="1" block_seq="4" owner="implementer" phase_id="simplify-viewer-shell" pair="implement" turn_seq="1" run_id="run-20260328T131019Z-a4d7f675" ts="2026-03-28T13:16:00.216560+00:00" />
+Desktop now uses a fixed four-action row plus a shared viewer overlay; the old persistent desktop summary, bottom-dock, and privacy stack were removed instead of being restyled in place.
+Compact warning messaging moved to a shared top rail, while full recovery/manual observer/privacy content stays reachable inside the shared overlay so the stage remains uncluttered.
+Desktop camera and motion buttons fall back to the existing combined permission recovery handler when both capabilities are missing so the original motion -> camera -> location ordering is preserved.
+<autoloop-decisions-header version="1" block_seq="5" owner="implementer" phase_id="simplify-viewer-shell" pair="implement" turn_seq="2" run_id="run-20260328T131019Z-a4d7f675" ts="2026-03-28T13:16:15.655540+00:00" />
+<autoloop-decisions-header version="1" block_seq="6" owner="implementer" phase_id="simplify-viewer-shell" pair="implement" turn_seq="3" run_id="run-20260328T131019Z-a4d7f675" ts="2026-03-28T13:21:06.461564+00:00" />
