@@ -1,38 +1,39 @@
-import { z } from 'zod'
+import { z } from "zod";
 
-import { getPublicConfig, type EnabledLayer } from '../config'
+import { getPublicConfig, type EnabledLayer } from "../config";
 import {
   createIdentityPoseCalibration,
   createPoseCalibration,
   type PoseCalibration,
-} from '../sensors/orientation'
+} from "../sensors/orientation";
 
-export const VIEWER_SETTINGS_STORAGE_KEY = 'skylens.viewer-settings.v1'
+export const VIEWER_SETTINGS_STORAGE_KEY = "skylens.viewer-settings.v1";
 
-export type LabelDisplayMode = 'center_only' | 'on_objects' | 'top_list'
-export type MotionQuality = 'low' | 'balanced' | 'high'
+export type LabelDisplayMode = "center_only" | "on_objects" | "top_list";
+export type MotionQuality = "low" | "balanced" | "high";
 
 export interface ManualObserverSettings {
-  lat: number
-  lon: number
-  altMeters: number
+  lat: number;
+  lon: number;
+  altMeters: number;
 }
 
 export interface ViewerSettings {
-  enabledLayers: Record<EnabledLayer, boolean>
-  likelyVisibleOnly: boolean
-  labelDisplayMode: LabelDisplayMode
-  motionQuality: MotionQuality
-  poseCalibration: PoseCalibration
-  verticalFovAdjustmentDeg: number
-  selectedCameraDeviceId: string | null
-  manualObserver: ManualObserverSettings | null
-  onboardingCompleted: boolean
+  enabledLayers: Record<EnabledLayer, boolean>;
+  likelyVisibleOnly: boolean;
+  labelDisplayMode: LabelDisplayMode;
+  motionQuality: MotionQuality;
+  poseCalibration: PoseCalibration;
+  verticalFovAdjustmentDeg: number;
+  markerScale: number;
+  selectedCameraDeviceId: string | null;
+  manualObserver: ManualObserverSettings | null;
+  onboardingCompleted: boolean;
 }
 
 interface StorageLike {
-  getItem(key: string): string | null
-  setItem(key: string, value: string): void
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
 }
 
 const SettingsSchema = z.object({
@@ -44,26 +45,32 @@ const SettingsSchema = z.object({
     constellations: z.boolean(),
   }),
   likelyVisibleOnly: z.boolean(),
-  labelDisplayMode: z.enum(['center_only', 'on_objects', 'top_list']),
-  motionQuality: z.enum(['low', 'balanced', 'high']).optional(),
+  labelDisplayMode: z.enum(["center_only", "on_objects", "top_list"]),
+  motionQuality: z.enum(["low", "balanced", "high"]).optional(),
   headingOffsetDeg: z.number().optional(),
   pitchOffsetDeg: z.number().optional(),
   poseCalibration: z
     .object({
-      offsetQuaternion: z.tuple([z.number(), z.number(), z.number(), z.number()]),
+      offsetQuaternion: z.tuple([
+        z.number(),
+        z.number(),
+        z.number(),
+        z.number(),
+      ]),
       calibrated: z.boolean(),
       sourceAtCalibration: z
         .enum([
-          'absolute-sensor',
-          'deviceorientation-absolute',
-          'deviceorientation-relative',
-          'manual',
+          "absolute-sensor",
+          "deviceorientation-absolute",
+          "deviceorientation-relative",
+          "manual",
         ])
         .nullable(),
       lastCalibratedAtMs: z.number().nullable(),
     })
     .optional(),
   verticalFovAdjustmentDeg: z.number(),
+  markerScale: z.number().optional(),
   selectedCameraDeviceId: z.string().nullable(),
   manualObserver: z
     .object({
@@ -73,45 +80,48 @@ const SettingsSchema = z.object({
     })
     .nullable(),
   onboardingCompleted: z.boolean(),
-})
+});
 
 export function getDefaultViewerSettings(): ViewerSettings {
-  const config = getPublicConfig()
+  const config = getPublicConfig();
 
   return {
     enabledLayers: {
-      aircraft: config.defaults.enabledLayers.includes('aircraft'),
-      satellites: config.defaults.enabledLayers.includes('satellites'),
-      planets: config.defaults.enabledLayers.includes('planets'),
-      stars: config.defaults.enabledLayers.includes('stars'),
-      constellations: config.defaults.enabledLayers.includes('constellations'),
+      aircraft: config.defaults.enabledLayers.includes("aircraft"),
+      satellites: config.defaults.enabledLayers.includes("satellites"),
+      planets: config.defaults.enabledLayers.includes("planets"),
+      stars: config.defaults.enabledLayers.includes("stars"),
+      constellations: config.defaults.enabledLayers.includes("constellations"),
     },
     likelyVisibleOnly: config.defaults.likelyVisibleOnly,
-    labelDisplayMode: 'center_only',
-    motionQuality: 'balanced',
+    labelDisplayMode: "center_only",
+    motionQuality: "balanced",
     poseCalibration: createIdentityPoseCalibration(),
     verticalFovAdjustmentDeg: 0,
+    markerScale: 1,
     selectedCameraDeviceId: null,
     manualObserver: null,
     onboardingCompleted: false,
-  }
+  };
 }
 
-export function readViewerSettings(storage = getBrowserStorage()): ViewerSettings {
-  const defaults = getDefaultViewerSettings()
+export function readViewerSettings(
+  storage = getBrowserStorage(),
+): ViewerSettings {
+  const defaults = getDefaultViewerSettings();
 
   if (!storage) {
-    return defaults
+    return defaults;
   }
 
   try {
-    const rawValue = storage.getItem(VIEWER_SETTINGS_STORAGE_KEY)
+    const rawValue = storage.getItem(VIEWER_SETTINGS_STORAGE_KEY);
 
     if (!rawValue) {
-      return defaults
+      return defaults;
     }
 
-    const parsed = SettingsSchema.partial().parse(JSON.parse(rawValue))
+    const parsed = SettingsSchema.partial().parse(JSON.parse(rawValue));
 
     return normalizeViewerSettings({
       ...defaults,
@@ -120,9 +130,9 @@ export function readViewerSettings(storage = getBrowserStorage()): ViewerSetting
         ...defaults.enabledLayers,
         ...parsed.enabledLayers,
       },
-    })
+    });
   } catch {
-    return defaults
+    return defaults;
   }
 }
 
@@ -131,20 +141,20 @@ export function writeViewerSettings(
   storage = getBrowserStorage(),
 ) {
   if (!storage) {
-    return
+    return;
   }
 
   storage.setItem(
     VIEWER_SETTINGS_STORAGE_KEY,
     JSON.stringify(normalizeViewerSettings(settings)),
-  )
+  );
 }
 
 export function markViewerOnboardingCompleted(storage = getBrowserStorage()) {
-  const settings = readViewerSettings(storage)
+  const settings = readViewerSettings(storage);
 
   if (settings.onboardingCompleted) {
-    return
+    return;
   }
 
   writeViewerSettings(
@@ -153,10 +163,12 @@ export function markViewerOnboardingCompleted(storage = getBrowserStorage()) {
       onboardingCompleted: true,
     },
     storage,
-  )
+  );
 }
 
-export function normalizeViewerSettings(settings: ViewerSettings): ViewerSettings {
+export function normalizeViewerSettings(
+  settings: ViewerSettings,
+): ViewerSettings {
   return {
     enabledLayers: {
       aircraft: settings.enabledLayers.aircraft,
@@ -170,50 +182,51 @@ export function normalizeViewerSettings(settings: ViewerSettings): ViewerSetting
     motionQuality: normalizeMotionQuality(settings.motionQuality),
     poseCalibration: createPoseCalibration(settings.poseCalibration),
     verticalFovAdjustmentDeg: clamp(settings.verticalFovAdjustmentDeg, -30, 30),
+    markerScale: clamp(settings.markerScale, 1, 4),
     selectedCameraDeviceId:
-      typeof settings.selectedCameraDeviceId === 'string' &&
+      typeof settings.selectedCameraDeviceId === "string" &&
       settings.selectedCameraDeviceId.length > 0
         ? settings.selectedCameraDeviceId
         : null,
     manualObserver: normalizeManualObserver(settings.manualObserver),
     onboardingCompleted: settings.onboardingCompleted,
-  }
+  };
 }
 
 function normalizeManualObserver(
   manualObserver: ManualObserverSettings | null | undefined,
 ) {
   if (!manualObserver) {
-    return null
+    return null;
   }
 
   return {
     lat: clamp(manualObserver.lat, -90, 90),
     lon: clamp(manualObserver.lon, -180, 180),
     altMeters: clamp(manualObserver.altMeters, -500, 10_000),
-  }
+  };
 }
 
 function normalizeMotionQuality(
   motionQuality: MotionQuality | null | undefined,
 ): MotionQuality {
   switch (motionQuality) {
-    case 'low':
-    case 'high':
-      return motionQuality
+    case "low":
+    case "high":
+      return motionQuality;
     default:
-      return 'balanced'
+      return "balanced";
   }
 }
 
 function getBrowserStorage(): StorageLike | null {
-  if (typeof window === 'undefined') {
-    return null
+  if (typeof window === "undefined") {
+    return null;
   }
 
-  return window.localStorage
+  return window.localStorage;
 }
 
 function clamp(value: number, min: number, max: number) {
-  return Math.min(Math.max(value, min), max)
+  return Math.min(Math.max(value, min), max);
 }

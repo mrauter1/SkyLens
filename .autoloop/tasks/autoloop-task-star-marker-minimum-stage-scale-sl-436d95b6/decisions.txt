@@ -1,0 +1,16 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260328T041558Z-e1511e0a" ts="2026-03-28T04:15:59.044403+00:00" />
+Persist the new marker scale in the existing viewer settings/local-storage path with default 1 and normalized range 1 through 4 so legacy saved settings remain compatible.
+Apply the new scale multiplier after the per-type minimum floor so stars use a 1px minimum at scale 1 and become 4px at scale 4 without changing non-star floors at scale 1.
+Treat the fixed mobile quick-action dock as the requested bottom stage controls area for the new slider; desktop and settings-sheet surfaces are compatibility checks, not new primary UI scope.
+<autoloop-decisions-header version="1" block_seq="2" owner="implementer" phase_id="marker-scale-stage-slider" pair="implement" turn_seq="1" run_id="run-20260328T041558Z-e1511e0a" ts="2026-03-28T04:18:41.470416+00:00" />
+Use a star base-size curve of 1 + magnitudeBoost * 2 so dim stars can reach the requested 1px minimum while bright stars still top out at the previous 9px ceiling before scale multiplication.
+Keep the new Marker scale control in the mobile quick-action dock only; live updates and persistence both flow through the existing shared viewerSettings state and storage effect.
+<autoloop-decisions-header version="1" block_seq="3" owner="implementer" phase_id="marker-scale-stage-slider" pair="implement" turn_seq="1" run_id="run-20260328T042344Z-f92e342e" ts="2026-03-28T04:26:11.178145+00:00" />
+Preserve the previous scale-1 rendered size for stars that were already above the former 6px floor, and only remap stars that previously floor-clamped so dim stars can reach 1px without shrinking normal stars.
+Verified the workspace already contained the requested marker-scale persistence, star-size math, and mobile quick-action slider; this turn added no further source edits beyond artifact updates after focused test validation.
+<autoloop-decisions-header version="1" block_seq="4" owner="implementer" phase_id="marker-scale-stage-slider" pair="implement" turn_seq="2" run_id="run-20260328T041558Z-e1511e0a" ts="2026-03-28T04:27:02.515801+00:00" />
+<autoloop-decisions-header version="1" block_seq="5" owner="implementer" phase_id="marker-scale-stage-slider" pair="implement" turn_seq="2" run_id="run-20260328T042344Z-f92e342e" ts="2026-03-28T04:28:25.998450+00:00" />
+Restore the legacy star scale-1 sizing curve for stars that previously rendered above the old floor, and only remap the formerly floor-clamped tail into the new 1px-to-6px range before applying markerScale.
+Cover the reviewer regression case with a representative non-dim star assertion at scale 1 so ordinary star sizes do not silently shrink again.
+<autoloop-decisions-header version="1" block_seq="6" owner="test_author" phase_id="marker-scale-stage-slider" pair="test" turn_seq="1" run_id="run-20260328T041558Z-e1511e0a" ts="2026-03-28T04:29:56.149366+00:00" />
+<autoloop-decisions-header version="1" block_seq="7" owner="test_author" phase_id="marker-scale-stage-slider" pair="test" turn_seq="1" run_id="run-20260328T042344Z-f92e342e" ts="2026-03-28T04:30:33.894322+00:00" />

@@ -1,82 +1,93 @@
-import React, { act } from 'react'
-import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import React, { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 const { mockRouterReplace } = vi.hoisted(() => ({
   mockRouterReplace: vi.fn(),
-}))
+}));
 
-vi.mock('next/navigation', () => ({
+vi.mock("next/navigation", () => ({
   useRouter: () => ({
     replace: mockRouterReplace,
   }),
-}))
+}));
 
-vi.mock('next/link', () => ({
+vi.mock("next/link", () => ({
   default: ({
     children,
     href,
     ...props
   }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) =>
-    React.createElement('a', { href, ...props }, children),
-}))
+    React.createElement("a", { href, ...props }, children),
+}));
 
-vi.mock('../../lib/astronomy/celestial', () => ({
-  isCelestialDaylightLabelSuppressed: (object: { metadata?: Record<string, unknown> }) =>
-    object.metadata?.daylightLabelSuppressed === true,
+vi.mock("../../lib/astronomy/celestial", () => ({
+  isCelestialDaylightLabelSuppressed: (object: {
+    metadata?: Record<string, unknown>;
+  }) => object.metadata?.daylightLabelSuppressed === true,
   normalizeCelestialObjects: () => ({
     sunAltitudeDeg: -12,
     objects: [],
   }),
-}))
+}));
 
-vi.mock('../../lib/astronomy/stars', () => ({
+vi.mock("../../lib/astronomy/stars", () => ({
   loadStarCatalog: () => [],
   normalizeVisibleStars: () => [],
-}))
+}));
 
-vi.mock('../../lib/astronomy/constellations', () => ({
+vi.mock("../../lib/astronomy/constellations", () => ({
   buildVisibleConstellations: () => ({
     objects: [],
     lineSegments: [],
   }),
-}))
+}));
 
-vi.mock('../../lib/aircraft/client', () => ({
+vi.mock("../../lib/aircraft/client", () => ({
   fetchAircraftSnapshot: vi.fn(),
   normalizeAircraftObjects: () => [],
   getAircraftAvailabilityMessage: () => null,
-}))
+}));
 
-vi.mock('../../lib/satellites/client', () => ({
+vi.mock("../../lib/satellites/client", () => ({
   fetchSatelliteCatalog: vi.fn(),
   normalizeSatelliteObjects: () => [],
-}))
+}));
 
-import { ViewerShell } from '../../components/viewer/viewer-shell'
+import { ViewerShell } from "../../components/viewer/viewer-shell";
 import {
   VIEWER_SETTINGS_STORAGE_KEY,
   readViewerSettings,
-} from '../../lib/viewer/settings'
+  writeViewerSettings,
+} from "../../lib/viewer/settings";
 
-describe('ViewerShell settings integration', () => {
-  let container: HTMLDivElement
-  let root: Root
-  let fetchMock: ReturnType<typeof vi.fn>
+describe("ViewerShell settings integration", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeAll(() => {
-    ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
-      .IS_REACT_ACT_ENVIRONMENT = true
-  })
+    (
+      globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT = true;
+  });
 
   beforeEach(() => {
-    container = document.createElement('div')
-    document.body.appendChild(container)
-    root = createRoot(container)
-    mockRouterReplace.mockReset()
-    fetchMock = vi.fn().mockResolvedValue(createHealthResponse('empty'))
-    vi.stubGlobal('fetch', fetchMock)
-    window.localStorage.clear()
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    mockRouterReplace.mockReset();
+    fetchMock = vi.fn().mockResolvedValue(createHealthResponse("empty"));
+    vi.stubGlobal("fetch", fetchMock);
+    window.localStorage.clear();
     window.localStorage.setItem(
       VIEWER_SETTINGS_STORAGE_KEY,
       JSON.stringify({
@@ -88,25 +99,25 @@ describe('ViewerShell settings integration', () => {
           constellations: true,
         },
         likelyVisibleOnly: false,
-        labelDisplayMode: 'on_objects',
+        labelDisplayMode: "on_objects",
         headingOffsetDeg: 7,
         pitchOffsetDeg: -3,
         verticalFovAdjustmentDeg: 6,
         onboardingCompleted: false,
       }),
-    )
-  })
+    );
+  });
 
   afterEach(async () => {
     await act(async () => {
-      root.unmount()
-    })
-    container.remove()
-    window.localStorage.clear()
-    vi.unstubAllGlobals()
-  })
+      root.unmount();
+    });
+    container.remove();
+    window.localStorage.clear();
+    vi.unstubAllGlobals();
+  });
 
-  it('defaults missing motionQuality while preserving the rest of persisted settings', () => {
+  it("defaults missing motionQuality while preserving the rest of persisted settings", () => {
     expect(readViewerSettings()).toMatchObject({
       enabledLayers: {
         aircraft: false,
@@ -116,157 +127,199 @@ describe('ViewerShell settings integration', () => {
         constellations: true,
       },
       likelyVisibleOnly: false,
-      labelDisplayMode: 'on_objects',
-      motionQuality: 'balanced',
+      labelDisplayMode: "on_objects",
+      motionQuality: "balanced",
       verticalFovAdjustmentDeg: 6,
+      markerScale: 1,
       onboardingCompleted: false,
-    })
-  })
+    });
+  });
 
-  it('loads persisted settings, preserves offsets on recenter, and routes demo mode from the sheet', async () => {
+  it("persists decimal markerScale values and clamps out-of-range saved values on reload", () => {
+    writeViewerSettings({
+      ...readViewerSettings(),
+      markerScale: 2.4,
+    });
+
+    expect(readViewerSettings().markerScale).toBe(2.4);
+
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        ...JSON.parse(
+          window.localStorage.getItem(VIEWER_SETTINGS_STORAGE_KEY) ?? "{}",
+        ),
+        markerScale: 9,
+      }),
+    );
+
+    expect(readViewerSettings().markerScale).toBe(4);
+
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        ...JSON.parse(
+          window.localStorage.getItem(VIEWER_SETTINGS_STORAGE_KEY) ?? "{}",
+        ),
+        markerScale: 0,
+      }),
+    );
+
+    expect(readViewerSettings().markerScale).toBe(1);
+  });
+
+  it("loads persisted settings, preserves offsets on recenter, and routes demo mode from the sheet", async () => {
     await act(async () => {
       root.render(
         React.createElement(ViewerShell, {
           initialState: {
-            entry: 'demo',
-            location: 'unavailable',
-            camera: 'unavailable',
-            orientation: 'unavailable',
+            entry: "demo",
+            location: "unavailable",
+            camera: "unavailable",
+            orientation: "unavailable",
           },
         }),
-      )
-    })
+      );
+    });
 
-    expect(container.textContent).toContain('FOV 56° vertical')
+    expect(container.textContent).toContain("FOV 56° vertical");
 
-    const settingsButton = Array.from(container.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('Settings'),
-    )
+    const settingsButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("Settings"));
 
-    expect(settingsButton).toBeDefined()
+    expect(settingsButton).toBeDefined();
 
     await act(async () => {
-      settingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
+      settingsButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
 
     const checkboxes = Array.from(
       container.querySelectorAll('input[type="checkbox"]'),
-    ) as HTMLInputElement[]
-    const planesToggle = checkboxes[0]
-    const likelyVisibleToggle = checkboxes[5]
+    ) as HTMLInputElement[];
+    const planesToggle = checkboxes[0];
+    const likelyVisibleToggle = checkboxes[5];
 
-    expect(planesToggle.checked).toBe(false)
-    expect(likelyVisibleToggle.checked).toBe(false)
+    expect(planesToggle.checked).toBe(false);
+    expect(likelyVisibleToggle.checked).toBe(false);
 
-    const alignmentButton = Array.from(container.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('Alignment'),
-    )
-    const recenterButton = Array.from(container.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('Recenter'),
-    )
-    const enterDemoModeButton = Array.from(container.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('Enter demo mode'),
-    )
+    const alignmentButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("Alignment"));
+    const recenterButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("Recenter"));
+    const enterDemoModeButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("Enter demo mode"));
 
-    expect(alignmentButton).toBeDefined()
-    expect(recenterButton).toBeDefined()
-    expect(enterDemoModeButton).toBeDefined()
+    expect(alignmentButton).toBeDefined();
+    expect(recenterButton).toBeDefined();
+    expect(enterDemoModeButton).toBeDefined();
 
     const fovSlider = container.querySelector(
       'input[aria-label="Field of view"]',
-    ) as HTMLInputElement | null
+    ) as HTMLInputElement | null;
 
-    expect(fovSlider?.value).toBe('6')
+    expect(fovSlider?.value).toBe("6");
     expect(
-      (container.querySelector('input[aria-label="On objects"]') as HTMLInputElement | null)
-        ?.checked,
-    ).toBe(true)
+      (
+        container.querySelector(
+          'input[aria-label="On objects"]',
+        ) as HTMLInputElement | null
+      )?.checked,
+    ).toBe(true);
     expect(
-      (container.querySelector('input[aria-label="Balanced"]') as HTMLInputElement | null)
-        ?.checked,
-    ).toBe(true)
+      (
+        container.querySelector(
+          'input[aria-label="Balanced"]',
+        ) as HTMLInputElement | null
+      )?.checked,
+    ).toBe(true);
 
     await act(async () => {
-      recenterButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
+      recenterButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
 
     expect(readViewerSettings()).toMatchObject({
-      labelDisplayMode: 'on_objects',
-      motionQuality: 'balanced',
+      labelDisplayMode: "on_objects",
+      motionQuality: "balanced",
       verticalFovAdjustmentDeg: 6,
-    })
-    expect(readViewerSettings().poseCalibration.calibrated).toBe(false)
+    });
+    expect(readViewerSettings().poseCalibration.calibrated).toBe(false);
 
     await act(async () => {
-      enterDemoModeButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
+      enterDemoModeButton!.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
 
     expect(mockRouterReplace).toHaveBeenCalledWith(
-      expect.stringContaining('entry=demo'),
-    )
-    expect(readViewerSettings().onboardingCompleted).toBe(true)
-  })
+      expect.stringContaining("entry=demo"),
+    );
+    expect(readViewerSettings().onboardingCompleted).toBe(true);
+  });
 
-  it('reloads changed layer toggles and calibration values from persisted settings', async () => {
+  it("reloads changed layer toggles and calibration values from persisted settings", async () => {
     await act(async () => {
       root.render(
         React.createElement(ViewerShell, {
           initialState: {
-            entry: 'demo',
-            location: 'unavailable',
-            camera: 'unavailable',
-            orientation: 'unavailable',
+            entry: "demo",
+            location: "unavailable",
+            camera: "unavailable",
+            orientation: "unavailable",
           },
         }),
-      )
-    })
+      );
+    });
 
-    const settingsButton = Array.from(container.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('Settings'),
-    )
+    const settingsButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("Settings"));
 
-    expect(settingsButton).toBeDefined()
+    expect(settingsButton).toBeDefined();
 
     await act(async () => {
-      settingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
+      settingsButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
 
     const checkboxes = Array.from(
       container.querySelectorAll('input[type="checkbox"]'),
-    ) as HTMLInputElement[]
-    const planesToggle = checkboxes[0]
-    const satellitesToggle = checkboxes[1]
-    const likelyVisibleToggle = checkboxes[5]
+    ) as HTMLInputElement[];
+    const planesToggle = checkboxes[0];
+    const satellitesToggle = checkboxes[1];
+    const likelyVisibleToggle = checkboxes[5];
 
-    const alignmentButton = Array.from(container.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('Alignment'),
-    )
+    const alignmentButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("Alignment"));
 
-    expect(alignmentButton).toBeDefined()
+    expect(alignmentButton).toBeDefined();
 
     const fovSlider = container.querySelector(
       'input[aria-label="Field of view"]',
-    ) as HTMLInputElement | null
+    ) as HTMLInputElement | null;
     const topListRadio = container.querySelector(
       'input[aria-label="Top list"]',
-    ) as HTMLInputElement | null
+    ) as HTMLInputElement | null;
     const highMotionQualityRadio = container.querySelector(
       'input[aria-label="High"]',
-    ) as HTMLInputElement | null
+    ) as HTMLInputElement | null;
 
-    expect(planesToggle.checked).toBe(false)
-    expect(satellitesToggle.checked).toBe(true)
-    expect(likelyVisibleToggle.checked).toBe(false)
-    expect(fovSlider?.value).toBe('6')
+    expect(planesToggle.checked).toBe(false);
+    expect(satellitesToggle.checked).toBe(true);
+    expect(likelyVisibleToggle.checked).toBe(false);
+    expect(fovSlider?.value).toBe("6");
 
     await act(async () => {
-      planesToggle.click()
-      satellitesToggle.click()
-      likelyVisibleToggle.click()
-      topListRadio?.click()
-      highMotionQualityRadio?.click()
-      setInputValue(fovSlider!, '-4')
-    })
+      planesToggle.click();
+      satellitesToggle.click();
+      likelyVisibleToggle.click();
+      topListRadio?.click();
+      highMotionQualityRadio?.click();
+      setInputValue(fovSlider!, "-4");
+    });
 
     expect(readViewerSettings()).toMatchObject({
       enabledLayers: {
@@ -277,156 +330,167 @@ describe('ViewerShell settings integration', () => {
         constellations: true,
       },
       likelyVisibleOnly: true,
-      labelDisplayMode: 'top_list',
-      motionQuality: 'high',
+      labelDisplayMode: "top_list",
+      motionQuality: "high",
       verticalFovAdjustmentDeg: -4,
-    })
-    expect(readViewerSettings().poseCalibration.calibrated).toBe(false)
+    });
+    expect(readViewerSettings().poseCalibration.calibrated).toBe(false);
 
     await act(async () => {
-      root.unmount()
-    })
+      root.unmount();
+    });
 
-    root = createRoot(container)
+    root = createRoot(container);
 
     await act(async () => {
       root.render(
         React.createElement(ViewerShell, {
           initialState: {
-            entry: 'demo',
-            location: 'unavailable',
-            camera: 'unavailable',
-            orientation: 'unavailable',
+            entry: "demo",
+            location: "unavailable",
+            camera: "unavailable",
+            orientation: "unavailable",
           },
         }),
-      )
-    })
+      );
+    });
 
-    expect(container.textContent).toContain('FOV 46° vertical')
+    expect(container.textContent).toContain("FOV 46° vertical");
 
-    const reloadedSettingsButton = Array.from(container.querySelectorAll('button')).find(
-      (button) => button.textContent?.includes('Settings'),
-    )
+    const reloadedSettingsButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("Settings"));
 
-    expect(reloadedSettingsButton).toBeDefined()
+    expect(reloadedSettingsButton).toBeDefined();
 
     await act(async () => {
-      reloadedSettingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
+      reloadedSettingsButton!.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
 
     const reloadedCheckboxes = Array.from(
       container.querySelectorAll('input[type="checkbox"]'),
-    ) as HTMLInputElement[]
+    ) as HTMLInputElement[];
 
-    expect(reloadedCheckboxes[0].checked).toBe(true)
-    expect(reloadedCheckboxes[1].checked).toBe(false)
-    expect(reloadedCheckboxes[5].checked).toBe(true)
+    expect(reloadedCheckboxes[0].checked).toBe(true);
+    expect(reloadedCheckboxes[1].checked).toBe(false);
+    expect(reloadedCheckboxes[5].checked).toBe(true);
 
-    const reloadedAlignmentButton = Array.from(container.querySelectorAll('button')).find(
-      (button) => button.textContent?.includes('Alignment'),
-    )
+    const reloadedAlignmentButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("Alignment"));
 
-    expect(reloadedAlignmentButton).toBeDefined()
+    expect(reloadedAlignmentButton).toBeDefined();
 
     const reloadedFovSlider = container.querySelector(
       'input[aria-label="Field of view"]',
-    ) as HTMLInputElement | null
+    ) as HTMLInputElement | null;
 
-    expect(reloadedFovSlider?.value).toBe('-4')
+    expect(reloadedFovSlider?.value).toBe("-4");
     expect(
-      (container.querySelector('input[aria-label="Top list"]') as HTMLInputElement | null)
-        ?.checked,
-    ).toBe(true)
+      (
+        container.querySelector(
+          'input[aria-label="Top list"]',
+        ) as HTMLInputElement | null
+      )?.checked,
+    ).toBe(true);
     expect(
-      (container.querySelector('input[aria-label="High"]') as HTMLInputElement | null)?.checked,
-    ).toBe(true)
-  })
+      (
+        container.querySelector(
+          'input[aria-label="High"]',
+        ) as HTMLInputElement | null
+      )?.checked,
+    ).toBe(true);
+  });
 
   it.each([
-    ['stale', 'Using stale satellite cache'],
-    ['expired', 'Satellite cache expired'],
+    ["stale", "Using stale satellite cache"],
+    ["expired", "Satellite cache expired"],
   ] as const)(
-    'surfaces %s satellite cache health inside the real settings sheet',
+    "surfaces %s satellite cache health inside the real settings sheet",
     async (status, expectedLabel) => {
-      fetchMock.mockResolvedValueOnce(createHealthResponse(status))
+      fetchMock.mockResolvedValueOnce(createHealthResponse(status));
 
       await act(async () => {
         root.render(
           React.createElement(ViewerShell, {
             initialState: {
-              entry: 'demo',
-              location: 'unavailable',
-              camera: 'unavailable',
-              orientation: 'unavailable',
+              entry: "demo",
+              location: "unavailable",
+              camera: "unavailable",
+              orientation: "unavailable",
             },
           }),
-        )
-      })
-      await flushEffects()
+        );
+      });
+      await flushEffects();
 
-      const settingsButton = Array.from(container.querySelectorAll('button')).find((button) =>
-        button.textContent?.includes('Settings'),
-      )
+      const settingsButton = Array.from(
+        container.querySelectorAll("button"),
+      ).find((button) => button.textContent?.includes("Settings"));
 
-      expect(settingsButton).toBeDefined()
+      expect(settingsButton).toBeDefined();
 
       await act(async () => {
-        settingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-      })
+        settingsButton!.dispatchEvent(
+          new MouseEvent("click", { bubbles: true }),
+        );
+      });
 
-      expect(fetchMock).toHaveBeenCalledWith('/api/health', {
-        cache: 'no-store',
-      })
-      expect(container.textContent).toContain(expectedLabel)
+      expect(fetchMock).toHaveBeenCalledWith("/api/health", {
+        cache: "no-store",
+      });
+      expect(container.textContent).toContain(expectedLabel);
     },
-  )
-})
+  );
+});
 
 async function flushEffects() {
   await act(async () => {
-    await Promise.resolve()
-  })
+    await Promise.resolve();
+  });
 
   await act(async () => {
-    await Promise.resolve()
-  })
+    await Promise.resolve();
+  });
 }
 
 function setInputValue(input: HTMLInputElement, value: string) {
   const valueSetter = Object.getOwnPropertyDescriptor(
     HTMLInputElement.prototype,
-    'value',
-  )?.set
+    "value",
+  )?.set;
 
-  valueSetter?.call(input, value)
-  input.dispatchEvent(new Event('input', { bubbles: true }))
-  input.dispatchEvent(new Event('change', { bubbles: true }))
+  valueSetter?.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  input.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
-function createHealthResponse(status: 'empty' | 'stale' | 'expired') {
+function createHealthResponse(status: "empty" | "stale" | "expired") {
   const base = {
     app: {
-      status: 'ok',
+      status: "ok",
     },
     aircraftCache: {
-      status: 'empty',
+      status: "empty",
     },
     tleCache:
-      status === 'empty'
+      status === "empty"
         ? {
-            status: 'empty',
+            status: "empty",
           }
         : {
             status,
-            fetchedAt: '2026-03-26T00:00:00.000Z',
-            expiresAt: '2026-03-26T06:00:00.000Z',
+            fetchedAt: "2026-03-26T00:00:00.000Z",
+            expiresAt: "2026-03-26T06:00:00.000Z",
           },
-  }
+  };
 
   return new Response(JSON.stringify(base), {
     status: 200,
     headers: {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
     },
-  })
+  });
 }

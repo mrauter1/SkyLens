@@ -1,0 +1,57 @@
+version: 1
+task_id: autoloop-task-star-marker-minimum-stage-scale-sl-436d95b6
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/autoloop-task-star-marker-minimum-stage-scale-sl-436d95b6/runs/run-20260328T042344Z-f92e342e/request.md
+phases:
+  - phase_id: marker-scale-stage-slider
+    title: Add persisted marker scale and star minimum sizing
+    objective: Implement the star-specific 1px minimum marker size, a live bottom-stage
+      marker scale slider, and regression coverage in one shippable slice.
+    status: planned
+    in_scope:
+      - Extend the existing viewer-settings persistence path with normalized markerScale
+        state using default 1 and clamp range 1 to 4.
+      - Update shared marker-size math so stars can resolve to 1px minimum at scale
+        1 while non-star marker floors stay unchanged at scale 1.
+      - Apply markerScale to rendered marker/icon size after the scale-1 floor is
+        resolved so live stage markers resize immediately.
+      - Add a labeled Marker scale slider with decimal value display above the existing
+        bottom mobile quick-action buttons.
+      - Add or update unit tests for settings persistence, slider wiring, and marker-size
+        math.
+    out_of_scope:
+      - Reworking label-placement behavior, center-lock logic, or object-selection
+        behavior.
+      - Broad redesign of desktop viewer panels or the settings sheet.
+      - Changing non-star base-size formulas beyond the requested scale multiplier.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: Persisted viewer settings load markerScale with default 1 for legacy
+          payloads and clamp saved values into the supported 1 to 4 range.
+      - id: AC-2
+        text: At scale 1, dim star markers can render at 1px minimum while non-star
+          marker floors remain unchanged from current behavior.
+      - id: AC-3
+        text: At scale 4, rendered marker sizes scale from their scale-1 result, including
+          1px stars becoming 4px.
+      - id: AC-4
+        text: The bottom stage quick-action area shows a labeled Marker scale slider
+          above the buttons, with live numeric feedback and immediate on-stage updates.
+      - id: AC-5
+        text: Relevant unit tests cover settings normalization, slider persistence,
+          and rendered marker-size behavior.
+    deliverables:
+      - Updated viewer settings schema, defaults, and normalization for markerScale.
+      - Updated viewer shell marker-size logic and mobile quick-action slider UI.
+      - Updated unit tests for persistence, slider placement, and scaling math.
+    risks:
+      - Shared marker-size logic could unintentionally alter non-star sizes at scale
+        1.
+      - The inserted slider could disrupt mobile quick-action layout or overlay interaction.
+      - Legacy persisted settings payloads could regress if schema merging stops tolerating
+        missing fields.
+    rollback:
+      - Remove markerScale persistence and the quick-action slider together if the stage
+        controls or settings hydration regress.
+      - Restore the previous shared minimum-floor behavior only if the star-specific
+        1px minimum causes confirmed rendering failures.
