@@ -83,6 +83,7 @@ function createAircraftSnapshot(
 ): AircraftApiResponse {
   return {
     fetchedAt: new Date(observer.timestampMs).toISOString(),
+    snapshotTimeS: Math.floor(observer.timestampMs / 1000),
     observer: {
       lat: observer.lat,
       lon: observer.lon,
@@ -110,7 +111,7 @@ export const DEMO_SCENARIOS: Record<DemoScenarioId, DemoScenario> = {
         geoAltitudeM: 10668,
         baroAltitudeM: 10620,
         velocityMps: 240,
-        headingDeg: 132,
+        trackDeg: 132,
         verticalRateMps: 0,
         azimuthDeg: 0,
         elevationDeg: 32,
@@ -125,7 +126,7 @@ export const DEMO_SCENARIOS: Record<DemoScenarioId, DemoScenario> = {
         geoAltitudeM: 5100,
         baroAltitudeM: 5000,
         velocityMps: 200,
-        headingDeg: 210,
+        trackDeg: 210,
         verticalRateMps: -3,
         azimuthDeg: 18,
         elevationDeg: 28,
@@ -150,7 +151,7 @@ export const DEMO_SCENARIOS: Record<DemoScenarioId, DemoScenario> = {
         geoAltitudeM: 9144,
         baroAltitudeM: 9000,
         velocityMps: 225,
-        headingDeg: 205,
+        trackDeg: 205,
         verticalRateMps: 0,
         azimuthDeg: 47.8,
         elevationDeg: 12.6,
@@ -165,7 +166,7 @@ export const DEMO_SCENARIOS: Record<DemoScenarioId, DemoScenario> = {
         geoAltitudeM: 3658,
         baroAltitudeM: 3500,
         velocityMps: 165,
-        headingDeg: 58,
+        trackDeg: 58,
         verticalRateMps: 5,
         azimuthDeg: 118.3,
         elevationDeg: 6.9,
@@ -180,7 +181,7 @@ export const DEMO_SCENARIOS: Record<DemoScenarioId, DemoScenario> = {
         geoAltitudeM: 7925,
         baroAltitudeM: 7800,
         velocityMps: 210,
-        headingDeg: 12,
+        trackDeg: 12,
         verticalRateMps: -1,
         azimuthDeg: 311.5,
         elevationDeg: 14.2,
@@ -212,6 +213,196 @@ export function listDemoScenarios(): DemoScenario[] {
   ]
 }
 
+export function getDemoAircraftSnapshotAtTime(
+  scenario: DemoScenario,
+  timeMs: number,
+): AircraftApiResponse {
+  const baseSnapshot = scenario.aircraftSnapshot
+  const effectiveTimeMs = Math.max(timeMs, baseSnapshot.snapshotTimeS * 1_000)
+
+  return {
+    fetchedAt: new Date(effectiveTimeMs).toISOString(),
+    snapshotTimeS: Math.floor(effectiveTimeMs / 1_000),
+    observer: baseSnapshot.observer,
+    availability: baseSnapshot.availability,
+    aircraft: baseSnapshot.aircraft.map((aircraft) =>
+      projectDemoAircraft({
+        aircraft,
+        observer: baseSnapshot.observer,
+        elapsedMs: effectiveTimeMs - baseSnapshot.snapshotTimeS * 1_000,
+      }),
+    ),
+  }
+}
+
 export function isDemoScenarioId(value: string | null | undefined): value is DemoScenarioId {
   return value === 'sf-evening' || value === 'ny-day' || value === 'tokyo-iss'
+}
+
+function projectDemoAircraft({
+  aircraft,
+  observer,
+  elapsedMs,
+}: {
+  aircraft: AircraftApiResponse['aircraft'][number]
+  observer: AircraftApiResponse['observer']
+  elapsedMs: number
+}) {
+  const elapsedSeconds = Math.max(0, elapsedMs) / 1_000
+  const altitudeMeters = Math.max(
+    0,
+    (aircraft.geoAltitudeM ?? aircraft.baroAltitudeM ?? 0) +
+      (aircraft.verticalRateMps ?? 0) * elapsedSeconds,
+  )
+  const projectedPosition =
+    typeof aircraft.velocityMps === 'number' &&
+    typeof aircraft.trackDeg === 'number' &&
+    aircraft.velocityMps > 0
+      ? projectPosition({
+          lat: aircraft.lat,
+          lon: aircraft.lon,
+          trackDeg: aircraft.trackDeg,
+          distanceMeters: aircraft.velocityMps * elapsedSeconds,
+        })
+      : { lat: aircraft.lat, lon: aircraft.lon }
+  const relativePose = getRelativePose({
+    observer,
+    aircraftLat: projectedPosition.lat,
+    aircraftLon: projectedPosition.lon,
+    altitudeMeters,
+  })
+
+  return {
+    ...aircraft,
+    lat: roundCoordinate(projectedPosition.lat),
+    lon: roundCoordinate(projectedPosition.lon),
+    ...(typeof aircraft.geoAltitudeM === 'number' ? { geoAltitudeM: Math.round(altitudeMeters) } : {}),
+    ...(typeof aircraft.baroAltitudeM === 'number' ? { baroAltitudeM: Math.round(altitudeMeters) } : {}),
+    azimuthDeg: roundAngle(relativePose.azimuthDeg),
+    elevationDeg: roundAngle(relativePose.elevationDeg),
+    rangeKm: roundRange(relativePose.rangeKm),
+  }
+}
+
+function getRelativePose({
+  observer,
+  aircraftLat,
+  aircraftLon,
+  altitudeMeters,
+}: {
+  observer: AircraftApiResponse['observer']
+  aircraftLat: number
+  aircraftLon: number
+  altitudeMeters: number
+}) {
+  const surfaceDistanceMeters = getSurfaceDistanceMeters(
+    { lat: observer.lat, lon: observer.lon },
+    { lat: aircraftLat, lon: aircraftLon },
+  )
+  const altitudeDeltaMeters = altitudeMeters - observer.altMeters
+
+  return {
+    azimuthDeg: getBearingDeg(observer, { lat: aircraftLat, lon: aircraftLon }),
+    elevationDeg: radiansToDegrees(Math.atan2(altitudeDeltaMeters, surfaceDistanceMeters)),
+    rangeKm: Math.sqrt(surfaceDistanceMeters ** 2 + altitudeDeltaMeters ** 2) / 1_000,
+  }
+}
+
+function projectPosition({
+  lat,
+  lon,
+  trackDeg,
+  distanceMeters,
+}: {
+  lat: number
+  lon: number
+  trackDeg: number
+  distanceMeters: number
+}) {
+  const angularDistance = distanceMeters / 6_371_000
+  const headingRad = degreesToRadians(trackDeg)
+  const latRad = degreesToRadians(lat)
+  const lonRad = degreesToRadians(lon)
+  const nextLatRad = Math.asin(
+    Math.sin(latRad) * Math.cos(angularDistance) +
+      Math.cos(latRad) * Math.sin(angularDistance) * Math.cos(headingRad),
+  )
+  const nextLonRad =
+    lonRad +
+    Math.atan2(
+      Math.sin(headingRad) * Math.sin(angularDistance) * Math.cos(latRad),
+      Math.cos(angularDistance) - Math.sin(latRad) * Math.sin(nextLatRad),
+    )
+
+  return {
+    lat: radiansToDegrees(nextLatRad),
+    lon: normalizeLongitude(radiansToDegrees(nextLonRad)),
+  }
+}
+
+function getSurfaceDistanceMeters(
+  left: { lat: number; lon: number },
+  right: { lat: number; lon: number },
+) {
+  const lat1 = degreesToRadians(left.lat)
+  const lat2 = degreesToRadians(right.lat)
+  const deltaLat = degreesToRadians(right.lat - left.lat)
+  const deltaLon = degreesToRadians(right.lon - left.lon)
+  const a =
+    Math.sin(deltaLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLon / 2) ** 2
+
+  return 2 * 6_371_000 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+function getBearingDeg(
+  left: { lat: number; lon: number },
+  right: { lat: number; lon: number },
+) {
+  const lat1 = degreesToRadians(left.lat)
+  const lat2 = degreesToRadians(right.lat)
+  const deltaLon = degreesToRadians(right.lon - left.lon)
+  const y = Math.sin(deltaLon) * Math.cos(lat2)
+  const x =
+    Math.cos(lat1) * Math.sin(lat2) -
+    Math.sin(lat1) * Math.cos(lat2) * Math.cos(deltaLon)
+
+  return normalizeDegrees(radiansToDegrees(Math.atan2(y, x)))
+}
+
+function roundCoordinate(value: number) {
+  return Number(value.toFixed(4))
+}
+
+function roundAngle(value: number) {
+  return Number(value.toFixed(2))
+}
+
+function roundRange(value: number) {
+  return Number(value.toFixed(1))
+}
+
+function degreesToRadians(value: number) {
+  return (value * Math.PI) / 180
+}
+
+function radiansToDegrees(value: number) {
+  return (value * 180) / Math.PI
+}
+
+function normalizeDegrees(value: number) {
+  const normalized = value % 360
+  return normalized < 0 ? normalized + 360 : normalized
+}
+
+function normalizeLongitude(value: number) {
+  if (value < -180) {
+    return value + 360
+  }
+
+  if (value > 180) {
+    return value - 360
+  }
+
+  return value
 }

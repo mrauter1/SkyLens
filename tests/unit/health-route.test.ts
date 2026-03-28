@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { GET } from '../../app/api/health/route'
-import { getAircraftApiResponse, resetAircraftCacheForTests } from '../../lib/aircraft/opensky'
 import { getTleApiResponse, resetTleCacheForTests } from '../../lib/satellites/tle'
 
 describe('/api/health', () => {
@@ -10,7 +9,6 @@ describe('/api/health', () => {
   })
 
   it('reports empty caches before any live fetches occur', async () => {
-    resetAircraftCacheForTests()
     resetTleCacheForTests()
 
     const response = await GET()
@@ -21,44 +19,26 @@ describe('/api/health', () => {
       app: {
         status: 'ok',
       },
-      aircraftCache: {
-        status: 'empty',
-      },
       tleCache: {
         status: 'empty',
       },
     })
   })
 
-  it('surfaces fresh aircraft and TLE cache metadata after successful fetches', async () => {
-    resetAircraftCacheForTests()
+  it('surfaces fresh TLE cache metadata after successful fetches', async () => {
     resetTleCacheForTests()
 
     const now = new Date('2026-03-26T00:00:00.000Z')
     vi.useFakeTimers()
     vi.setSystemTime(now)
 
-    await getAircraftApiResponse(
-      {
-        lat: 37.7749,
-        lon: -122.4194,
-        altMeters: 0,
-        radiusKm: 250,
-        limit: 50,
-      },
-      createAircraftFetch(),
-      now,
-    )
     await getTleApiResponse(createTleFetch(), now)
 
     const response = await GET()
     const payload = await response.json()
 
     expect(payload.app.status).toBe('ok')
-    expect(payload.aircraftCache).toMatchObject({
-      status: 'fresh',
-      fetchedAt: now.toISOString(),
-    })
+    expect(payload).not.toHaveProperty('aircraftCache')
     expect(payload.tleCache).toMatchObject({
       status: 'fresh',
       fetchedAt: now.toISOString(),
@@ -78,42 +58,11 @@ describe('/api/health', () => {
     const response = await GET()
     const payload = await response.json()
 
+    expect(payload).not.toHaveProperty('aircraftCache')
     expect(payload.tleCache.status).toBe('stale')
     expect(payload.tleCache.expiresAt).toBe('2026-03-26T06:00:00.000Z')
   })
 })
-
-function createAircraftFetch() {
-  return (async () =>
-    new Response(
-      JSON.stringify({
-        time: 1774634400,
-        states: [
-          [
-            'a1b2c3',
-            'UAL123  ',
-            'United States',
-            1774634398,
-            1774634399,
-            -122.1,
-            37.98,
-            10620,
-            false,
-            240,
-            132,
-            0,
-            null,
-            10668,
-            null,
-            false,
-            0,
-            4,
-          ],
-        ],
-      }),
-      { status: 200 },
-    )) as typeof fetch
-}
 
 function createTleFetch() {
   return (async (input: RequestInfo | URL) => {

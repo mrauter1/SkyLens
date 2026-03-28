@@ -1,21 +1,22 @@
 import type { EnabledLayer } from '../config'
+import { DEFAULT_AIRCRAFT_RADIUS_KM } from '../config'
 import type { ObserverState, SkyObject } from '../viewer/contracts'
 import {
   resolveAircraftMotionObjects,
   type AircraftDetailMetadata,
   type AircraftMotionMetadata,
-  type AircraftMotionState,
 } from '../viewer/motion'
 import {
   AIRCRAFT_DEGRADED_MESSAGE,
+  DEFAULT_AIRCRAFT_LIMIT,
   type AircraftApiResponse,
-  AircraftApiResponseSchema,
   type AircraftAvailability,
 } from './contracts'
+import type { AircraftMotionState, AircraftTracker } from './tracker'
+import { fetchOpenSkyAircraft } from './opensky-browser'
 
 export type { AircraftDetailMetadata, AircraftMotionMetadata, AircraftMotionState }
-
-const DEFAULT_AIRCRAFT_LIMIT = 50
+export { AircraftFetchError, type AircraftFetchErrorCode } from './opensky-browser'
 
 export async function fetchAircraftSnapshot(
   observer: {
@@ -25,43 +26,31 @@ export async function fetchAircraftSnapshot(
   },
   fetchImpl: typeof fetch = fetch,
 ): Promise<AircraftApiResponse> {
-  const params = new URLSearchParams({
-    lat: observer.lat.toString(),
-    lon: observer.lon.toString(),
-    altMeters: observer.altMeters.toString(),
-    radiusKm: '250',
-    limit: String(DEFAULT_AIRCRAFT_LIMIT),
-  })
-  const response = await fetchImpl(`/api/aircraft?${params.toString()}`, {
-    cache: 'no-store',
-  })
-
-  if (!response.ok) {
-    throw new Error('Aircraft snapshot unavailable.')
-  }
-
-  return AircraftApiResponseSchema.parse(await response.json())
+  return fetchOpenSkyAircraft(
+    {
+      lat: observer.lat,
+      lon: observer.lon,
+      altMeters: observer.altMeters,
+      radiusKm: DEFAULT_AIRCRAFT_RADIUS_KM,
+      limit: DEFAULT_AIRCRAFT_LIMIT,
+    },
+    fetchImpl,
+  )
 }
 
 export function normalizeAircraftObjects({
-  snapshot,
-  previousSnapshot,
-  transitionStartedAtMs,
+  tracker,
   timeMs,
   observer,
   enabledLayers,
 }: {
-  snapshot: AircraftApiResponse | null
-  previousSnapshot?: AircraftApiResponse | null
-  transitionStartedAtMs?: number | null
+  tracker: AircraftTracker | null
   timeMs?: number
   observer?: Pick<ObserverState, 'lat' | 'lon' | 'altMeters'>
   enabledLayers: Readonly<Record<EnabledLayer, boolean>>
 }): SkyObject[] {
   return resolveAircraftMotionObjects({
-    snapshot,
-    previousSnapshot,
-    transitionStartedAtMs,
+    tracker,
     timeMs,
     observer,
     enabledLayers,

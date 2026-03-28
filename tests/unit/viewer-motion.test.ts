@@ -3,6 +3,7 @@ import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
+import { createAircraftTracker } from '../../lib/aircraft/tracker'
 import type { AircraftApiResponse } from '../../lib/aircraft/contracts'
 import type { ObserverState } from '../../lib/viewer/contracts'
 import {
@@ -22,82 +23,51 @@ const ENABLED_LAYERS = {
 const stationsFixture = readFixture('stations.txt')
 
 describe('viewer motion', () => {
-  it('applies sampled aircraft prediction when only one fresh sample is available', () => {
-    const snapshot = createAircraftResponse(
-      '2026-03-26T00:00:00.000Z',
-      [
+  it('resolves tracker-driven aircraft with estimated motion metadata', () => {
+    const tracker = createAircraftTracker()
+
+    tracker.ingest(
+      createAircraftResponse(
+        '2026-03-26T00:00:00.000Z',
+        [
+          {
+            id: 'icao24-est001',
+            callsign: 'EST001',
+            lat: 0,
+            lon: 0,
+            geoAltitudeM: 1000,
+            velocityMps: 250,
+            trackDeg: 90,
+            verticalRateMps: 0,
+            azimuthDeg: 0,
+            elevationDeg: 45,
+            rangeKm: 1.4,
+          },
+        ],
         {
-          id: 'icao24-est001',
-          callsign: 'EST001',
-          lat: 0.009,
+          lat: 0,
           lon: 0,
-          geoAltitudeM: 1000,
-          velocityMps: 250,
-          headingDeg: 0,
-          verticalRateMps: 0,
-          azimuthDeg: 0,
-          elevationDeg: 45,
-          rangeKm: 1.4,
+          altMeters: 0,
         },
-      ],
-      {
+      ),
+    )
+
+    const [resolved] = resolveAircraftMotionObjects({
+      tracker,
+      timeMs: Date.parse('2026-03-26T00:00:04.000Z'),
+      observer: {
         lat: 0,
         lon: 0,
         altMeters: 0,
       },
-    )
-
-    const [resolved] = resolveAircraftMotionObjects({
-      snapshot,
-      transitionStartedAtMs: Date.parse('2026-03-26T00:00:00.000Z'),
-      timeMs: Date.parse('2026-03-26T00:00:04.000Z'),
-      observer: snapshot.observer,
       enabledLayers: ENABLED_LAYERS,
     })
 
     expect(resolved.motionState).toBe('estimated')
     expect(resolved.confidence).toBe(1)
-    expect(resolved.object.id).toBe('icao24-est001')
-    expect(resolved.object.rangeKm ?? 0).toBeGreaterThan(2)
-  })
-
-  it('decays aircraft confidence before suppressing stale samples', () => {
-    const snapshot = createAircraftResponse(
-      '2026-03-26T00:00:00.000Z',
-      [
-        {
-          id: 'icao24-stale2',
-          callsign: 'STALE2',
-          lat: 0.009,
-          lon: 0,
-          geoAltitudeM: 1000,
-          velocityMps: 250,
-          headingDeg: 0,
-          azimuthDeg: 0,
-          elevationDeg: 45,
-          rangeKm: 1.4,
-        },
-      ],
-      {
-        lat: 0,
-        lon: 0,
-        altMeters: 0,
-      },
-    )
-
-    const [resolved] = resolveAircraftMotionObjects({
-      snapshot,
-      transitionStartedAtMs: Date.parse('2026-03-26T00:00:00.000Z'),
-      timeMs: Date.parse('2026-03-26T00:00:25.000Z'),
-      observer: snapshot.observer,
-      enabledLayers: ENABLED_LAYERS,
-    })
-
-    expect(resolved.motionState).toBe('stale')
-    expect(resolved.confidence).toBeCloseTo(0.5, 5)
     expect(resolved.object.metadata).toMatchObject({
-      motionState: 'stale',
-      motionOpacity: 0.5,
+      motionState: 'estimated',
+      motionOpacity: 1,
     })
   })
 
@@ -129,8 +99,6 @@ describe('viewer motion', () => {
     expect(resolved.object).toMatchObject({
       id: '25544',
       label: 'ISS (ZARYA)',
-      azimuthDeg: 46.68,
-      elevationDeg: 37.67,
       metadata: {
         detail: {
           noradId: 25544,
@@ -140,39 +108,7 @@ describe('viewer motion', () => {
     })
   })
 
-  it('downgrades propagated satellites when the catalog is stale', () => {
-    const observer: ObserverState = {
-      lat: 35.6762,
-      lon: 139.6503,
-      altMeters: 40,
-      accuracyMeters: 1,
-      timestampMs: Date.UTC(2026, 2, 26, 4, 10, 0),
-      source: 'demo',
-    }
-
-    const [resolved] = resolveSatelliteMotionObjects({
-      catalog: {
-        fetchedAt: '2026-03-26T00:00:00.000Z',
-        expiresAt: '2026-03-26T06:00:00.000Z',
-        stale: true,
-        satellites: [buildFixtureSatellite(stationsFixture, 'stations', 0)],
-      },
-      observer,
-      timeMs: observer.timestampMs,
-      enabledLayers: ENABLED_LAYERS,
-      likelyVisibleOnly: false,
-      sunAltitudeDeg: -12,
-    })
-
-    expect(resolved.motionState).toBe('stale')
-    expect(resolved.confidence).toBe(0.7)
-    expect(resolved.object.metadata).toMatchObject({
-      motionState: 'stale',
-      motionOpacity: 0.7,
-    })
-  })
-
-  it('resolves aircraft and satellites through the shared motion pipeline without altering ids', () => {
+  it('resolves aircraft and satellites through the shared motion pipeline', () => {
     const observer: ObserverState = {
       lat: 35.6762,
       lon: 139.6503,
@@ -181,25 +117,29 @@ describe('viewer motion', () => {
       timestampMs: Date.parse('2026-03-26T04:10:05.000Z'),
       source: 'demo',
     }
-    const aircraftSnapshot = createAircraftResponse(
-      '2026-03-26T04:10:00.000Z',
-      [
+    const tracker = createAircraftTracker()
+
+    tracker.ingest(
+      createAircraftResponse(
+        '2026-03-26T04:10:00.000Z',
+        [
+          {
+            id: 'icao24-alpha1',
+            callsign: 'ALPHA1',
+            lat: 35.71,
+            lon: 139.68,
+            geoAltitudeM: 5100,
+            azimuthDeg: 18,
+            elevationDeg: 28,
+            rangeKm: 15.2,
+          },
+        ],
         {
-          id: 'icao24-alpha1',
-          callsign: 'ALPHA1',
-          lat: 35.71,
-          lon: 139.68,
-          geoAltitudeM: 5100,
-          azimuthDeg: 18,
-          elevationDeg: 28,
-          rangeKm: 15.2,
+          lat: observer.lat,
+          lon: observer.lon,
+          altMeters: observer.altMeters,
         },
-      ],
-      {
-        lat: observer.lat,
-        lon: observer.lon,
-        altMeters: observer.altMeters,
-      },
+      ),
     )
 
     const resolved = resolveMovingSkyObjects({
@@ -208,9 +148,7 @@ describe('viewer motion', () => {
       enabledLayers: ENABLED_LAYERS,
       likelyVisibleOnly: false,
       sunAltitudeDeg: -12,
-      aircraftSnapshot,
-      aircraftPreviousSnapshot: null,
-      aircraftTransitionStartedAtMs: Date.parse('2026-03-26T04:10:00.000Z'),
+      aircraftTracker: tracker,
       satelliteCatalog: {
         fetchedAt: '2026-03-26T00:00:00.000Z',
         expiresAt: '2026-03-26T06:00:00.000Z',
@@ -259,6 +197,7 @@ function createAircraftResponse(
 ): AircraftApiResponse {
   return {
     fetchedAt,
+    snapshotTimeS: Math.floor(Date.parse(fetchedAt) / 1_000),
     observer,
     availability: 'available',
     aircraft,

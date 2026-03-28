@@ -479,9 +479,6 @@ function createHealthResponse(status: 'empty' | 'stale' | 'expired') {
     app: {
       status: 'ok',
     },
-    aircraftCache: {
-      status: 'empty',
-    },
     tleCache:
       status === 'empty'
         ? {

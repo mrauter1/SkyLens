@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
 
-import { getAircraftCacheHealth } from '../../../lib/aircraft/opensky'
 import { HealthApiResponseSchema } from '../../../lib/health/contracts'
 import { getTleCacheHealth } from '../../../lib/satellites/tle'
 
@@ -13,7 +12,6 @@ export async function GET() {
       app: {
         status: 'ok',
       },
-      aircraftCache: getAircraftCacheHealth(),
       tleCache: getTleCacheHealth(),
     }),
   )
