@@ -1,0 +1,9 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260328T105231Z-dec3442b" ts="2026-03-28T10:52:31.209030+00:00" />
+Compact mobile Align should move to its own fixed overlay above `mobile-viewer-quick-actions`, not remain an inline child of the quick-action stack.
+The shared abstraction for this task should stay limited to the compact mobile shell/panel/scroll-region contract used by Open viewer, Settings, and compact Align; desktop surfaces stay unchanged.
+Preserve existing dismissal semantics: Open viewer and Settings keep their current backdrop behavior, while compact Align remains explicitly opened and closed rather than gaining implicit backdrop dismissal.
+<autoloop-decisions-header version="1" block_seq="2" owner="implementer" phase_id="mobile-overlay-parity" pair="implement" turn_seq="1" run_id="run-20260328T105231Z-dec3442b" ts="2026-03-28T10:55:12.606286+00:00" />
+Compact mobile shell behavior is centralized in `components/ui/compact-mobile-panel-shell.tsx`; Settings and compact Open viewer consume the component directly, while compact Align uses the same max-height/panel/scroll-region contract through its own fixed overlay wrapper.
+Compact Align remains mounted when the compact Open viewer sheet is reopened so the existing Start alignment path and explicit close flow continue to work while the alignment overlay stays above the viewer sheet and quick-action rail.
+<autoloop-decisions-header version="1" block_seq="3" owner="test_author" phase_id="mobile-overlay-parity" pair="test" turn_seq="1" run_id="run-20260328T105231Z-dec3442b" ts="2026-03-28T11:06:38.483002+00:00" />
+Test coverage for this phase anchors compact Align to the new `mobile-alignment-overlay-*` hooks, verifies the shared compact max-height/scroll contract in unit tests, and keeps short-viewport reachability asserted through the dedicated Playwright mobile viewport check.
