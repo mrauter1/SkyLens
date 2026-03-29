@@ -1,0 +1,40 @@
+version: 1
+task_id: skylensserverless-follow-up-fix-task-address-inl-ebd819bb
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/skylensserverless-follow-up-fix-task-address-inl-ebd819bb/runs/run-20260329T222355Z-59dec5a0/request.md
+phases:
+  - phase_id: restore-permissions-and-embed-contract
+    title: Restore permissions and embedded delegation parity
+    objective: Re-establish the required camera/geolocation permissions contract across live headers, exported artifacts, embed delegation, tests, and parity docs without regressing viewer behavior.
+    status: planned
+    in_scope:
+      - Update the authoritative permissions-policy contract in `SkyLensServerless/next.config.ts`.
+      - Keep `SkyLensServerless/public/_headers` and committed `SkyLensServerless/out/_headers` aligned with the source-of-truth policy.
+      - Update `SkyLensServerless/app/embed-validation/page.tsx` and regenerated export output so iframe delegation and validation copy include required AR capabilities.
+      - Update unit/e2e tests that assert permissions-policy headers, export preview behavior, and embed iframe delegation.
+      - Update PARITY/docs text that still describes the reduced permissions or delegation contract.
+      - Validate that prior direct CelesTrak and mobile/desktop viewer behavior remains intact via targeted regression coverage.
+    out_of_scope:
+      - Reworking viewer permission-order logic or fallback behavior beyond minimal fixes required by the restored contract.
+      - Changing the direct CelesTrak data flow or unrelated viewer UX.
+      - Introducing new deployment infrastructure beyond the existing `next.config.ts` plus exported `_headers` model.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: `SKYLENS_PERMISSIONS_POLICY`, `public/_headers`, and committed `out/_headers` all expose camera, geolocation, accelerometer, gyroscope, and magnetometer for all routes.
+      - id: AC-2
+        text: The embed-validation page and exported embed-validation artifacts describe and delegate the required AR capabilities through the iframe `allow` contract.
+      - id: AC-3
+        text: Unit/e2e coverage fails if the permissions-policy or embedded delegation regresses, and targeted regression coverage confirms prior viewer/mobile behavior still works.
+      - id: AC-4
+        text: PARITY/docs accurately describe the restored header/delegation contract and the need to keep generated export artifacts synchronized.
+    deliverables:
+      - Updated plan-aligned source files for permissions-policy, embed validation copy/delegation, and parity documentation.
+      - Updated automated tests covering header parity, export preview behavior, and embedded delegation.
+      - Refreshed committed export artifacts generated from the corrected contract.
+    risks:
+      - Header contract drift between source config, public artifacts, and committed build output can reappear if regeneration is skipped.
+      - Embedded flows can still fail product requirements if camera/geolocation are restored in headers but omitted from iframe delegation.
+      - Touching permissions surfaces can mask viewer/mobile regressions if only string-based tests are rerun.
+    rollback:
+      - Revert the permissions-policy contract, embed delegation/copy, updated tests, docs, and regenerated export artifacts together as one change set.
+      - If build regeneration introduces unrelated export churn, isolate the contract changes first, then rerun build in a clean follow-up step before merging.

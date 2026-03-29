@@ -1,0 +1,39 @@
+version: 1
+task_id: skylensserverless-follow-up-fixes-for-review-com-b8a11a92
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/skylensserverless-follow-up-fixes-for-review-com-b8a11a92/runs/run-20260329T222630Z-8af61951/request.md
+phases:
+  - phase_id: restore-serverless-permissions-parity
+    title: Restore serverless permissions and embed parity
+    objective: Correct the SkyLensServerless permissions-policy and iframe delegation contract, keep runtime/export artifacts consistent, and lock the fix with tests and parity documentation.
+    status: planned
+    in_scope:
+      - Update the fork-local permissions policy to include camera, geolocation, accelerometer, gyroscope, and magnetometer.
+      - Keep next runtime headers, checked-in static host headers, and generated export headers aligned from the same contract source.
+      - Restore iframe allow delegation for the embedded live viewer and preserve current mobile embed UX.
+      - Refresh tracked exported embed artifacts via build output regeneration.
+      - Update fork-local unit/e2e tests and parity documentation for the corrected contract.
+    out_of_scope:
+      - Changing repo-root app behavior unless fresh drift is discovered during implementation.
+      - Altering aircraft or satellite data-provider behavior, including the current direct CelesTrak path.
+      - Reworking viewer startup flows or mobile overlay UX beyond regression fixes required to keep existing behavior.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: SkyLensServerless emits the exact Permissions-Policy contract with camera, geolocation, accelerometer, gyroscope, and magnetometer for runtime and static-host surfaces.
+      - id: AC-2
+        text: The embed validation route delegates the same capability set through the iframe allow attribute without breaking the existing mobile overlay/viewer checks.
+      - id: AC-3
+        text: Checked-in generated export artifacts and parity/docs text reflect the corrected contract and no longer describe a motion-only policy.
+      - id: AC-4
+        text: Fork-local unit, build, and embed-focused browser validation cover the corrected contract and pass.
+    deliverables:
+      - Updated fork-local permissions/header source and static header artifact.
+      - Updated embed validation page plus regenerated exported embed artifacts.
+      - Updated unit/e2e assertions and parity documentation describing the corrected contract.
+    risks:
+      - Exported `out/` artifacts may remain stale if the build step is skipped after source edits.
+      - Embed/mobile tests can regress if iframe sizing or viewer route wiring changes while updating delegation text.
+      - Multiple literal permission lists can drift again if implementation does not keep one canonical source.
+    rollback:
+      - Revert the fork-local permissions/delegation/doc/test changes together and rebuild the export output from the reverted source.
+      - If the embed validation path becomes unstable, restore the previous fork state before reattempting with a smaller change set.

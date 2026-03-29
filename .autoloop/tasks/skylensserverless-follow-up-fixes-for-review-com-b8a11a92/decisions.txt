@@ -1,0 +1,5 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260329T222630Z-8af61951" ts="2026-03-29T22:26:30.792083+00:00" />
+For this follow-up, treat the regression as fork-local to `SkyLensServerless/`; the repo-root app already carries the corrected camera and geolocation permissions contract and should not be widened into scope unless new drift is discovered.
+The permissions contract must stay canonical in `SkyLensServerless/next.config.ts`, with `public/_headers` and tracked `out/` header/embed artifacts refreshed from source/build output rather than maintained as separate ad hoc literals.
+<autoloop-decisions-header version="1" block_seq="2" owner="implementer" phase_id="restore-serverless-permissions-parity" pair="implement" turn_seq="1" run_id="run-20260329T222630Z-8af61951" ts="2026-03-29T22:28:46.691838+00:00" />
+Match the fork-local permissions-policy and embed iframe delegation strings to the repo-root app's existing five-capability contract (`camera`, `geolocation`, `accelerometer`, `gyroscope`, `magnetometer`) to remove drift instead of inventing a fork-only variant.
