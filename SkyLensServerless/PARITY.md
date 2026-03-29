@@ -5,7 +5,7 @@ This fork preserves the root SkyLens app's user-visible behavior while replacing
 | Original SkyLens server-side feature | Root app surface | SkyLensServerless replacement | Parity / validation |
 | --- | --- | --- | --- |
 | Public config bootstrap | `app/api/config/route.ts` returns `getPublicConfig()` | `lib/config.ts` exports `getPublicConfig()` directly and the landing/viewer read it in-process | `tests/unit/config-contract.test.ts`, `tests/unit/bootstrap-standalone-fork.test.ts` |
-| TLE aggregation, validation, dedupe, freshness metadata | `app/api/tle/route.ts` + `lib/satellites/tle.ts` | `lib/satellites/tle.ts` runs in-browser, fetches CelesTrak through `NEXT_PUBLIC_SKYLENS_TLE_PROXY_URL_TEMPLATE`, validates with the existing schemas, dedupes by NORAD ID, and stores a fork-local stale fallback cache in `localStorage` | `tests/unit/satellite-layer.test.ts`, `tests/unit/health-route.test.ts` |
+| TLE aggregation, validation, dedupe, freshness metadata | `app/api/tle/route.ts` + `lib/satellites/tle.ts` | `lib/satellites/tle.ts` runs in-browser, fetches CelesTrak directly by default, optionally honors `NEXT_PUBLIC_SKYLENS_TLE_PROXY_URL_TEMPLATE` when explicitly configured, validates with the existing schemas, dedupes by NORAD ID, and stores a fork-local stale fallback cache in `localStorage` | `tests/unit/satellite-layer.test.ts`, `tests/unit/health-route.test.ts` |
 | Health route for viewer cache status | `app/api/health/route.ts` | `lib/health/client.ts` derives `HealthApiResponse` locally from the same TLE cache metadata | `tests/unit/health-route.test.ts`, `tests/unit/viewer-settings.test.tsx` |
 | `/view` server-page search param parsing | `app/view/page.tsx` awaited async `searchParams` on the server | `app/view/page.tsx` is static-safe and delegates query parsing to `app/view/view-page-client.tsx` via `useSearchParams()` and `parseViewerRouteState()` | `tests/unit/view-page.test.tsx`, `tests/e2e/permissions.spec.ts`, `npm run build` |
 | Live AR permissions-policy header | host/runtime config | `next.config.ts` keeps the same `Permissions-Policy` header during local Next runtime use, and `public/_headers` preserves that header in exported deployments | `tests/unit/next-config.test.ts`, `tests/e2e/embed.spec.ts`, `npm run build` |
@@ -22,7 +22,7 @@ This fork preserves the root SkyLens app's user-visible behavior while replacing
 ## Data-flow notes
 
 - Aircraft requests still go browser-direct to OpenSky. The existing OpenSky reassurance copy remains accurate and is covered by `tests/unit/aircraft-client.test.ts`, `tests/unit/viewer-shell.test.ts`, and `tests/e2e/landing.spec.ts`.
-- Satellite requests are no longer routed through a fork-owned Next handler. They now use a browser-safe relay in front of CelesTrak, so the reassurance copy was updated to say that explicitly. Coverage lives in `tests/unit/config-contract.test.ts`, `tests/unit/viewer-shell.test.ts`, and `tests/e2e/landing.spec.ts`.
+- Satellite requests are no longer routed through a fork-owned Next handler. They now go directly from the browser to CelesTrak by default, with an optional explicit relay-template override if a deployment needs it. Coverage lives in `tests/unit/config-contract.test.ts`, `tests/unit/viewer-shell.test.ts`, and `tests/e2e/landing.spec.ts`.
 
 ## Standalone verification
 

@@ -49,7 +49,7 @@ export const LANDING_DESCRIPTION = "Point your phone at the sky and see what's a
 export const PRIVACY_REASSURANCE_COPY = [
   'Camera stays on your device.',
   'Approximate location-based aircraft queries go directly from your browser to OpenSky.',
-  'Live satellite catalogs are fetched from CelesTrak through the configured browser-safe relay.',
+  'Live satellite catalogs are fetched directly from CelesTrak.',
   'No camera frames are uploaded.',
 ] as const
 

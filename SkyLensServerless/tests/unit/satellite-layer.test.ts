@@ -76,7 +76,7 @@ describe('satellite layer', () => {
     })
   })
 
-  it('requests each TLE group through the browser-safe proxy template', async () => {
+  it('requests each TLE group directly from CelesTrak by default', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
       new Response(getFixtureBody(resolveUpstreamUrl(String(input))), { status: 200 }),
     )
@@ -87,15 +87,27 @@ describe('satellite layer', () => {
     )
 
     expect(fetchMock).toHaveBeenCalledTimes(3)
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
-      'https://corsproxy.io/?https%3A%2F%2Fcelestrak.org%2FNORAD%2Felements%2Fgp.php%3FCATNR%3D25544%26FORMAT%3Dtle',
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
+      'https://celestrak.org/NORAD/elements/gp.php?CATNR=25544&FORMAT=tle',
+      'https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=tle',
+      'https://celestrak.org/NORAD/elements/gp.php?GROUP=visual&FORMAT=tle',
+    ])
+  })
+
+  it('treats a blank relay-template env value as direct upstream mode', async () => {
+    process.env.NEXT_PUBLIC_SKYLENS_TLE_PROXY_URL_TEMPLATE = ' , '
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+      new Response(getFixtureBody(resolveUpstreamUrl(String(input))), { status: 200 }),
     )
-    expect(String(fetchMock.mock.calls[1]?.[0])).toContain(
-      'GROUP%3Dstations%26FORMAT%3Dtle',
-    )
-    expect(String(fetchMock.mock.calls[2]?.[0])).toContain(
-      'GROUP%3Dvisual%26FORMAT%3Dtle',
-    )
+
+    await getTleApiResponse(fetchMock as unknown as typeof fetch)
+
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
+      'https://celestrak.org/NORAD/elements/gp.php?CATNR=25544&FORMAT=tle',
+      'https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=tle',
+      'https://celestrak.org/NORAD/elements/gp.php?GROUP=visual&FORMAT=tle',
+    ])
   })
 
   it('uses an explicitly configured single relay template for every TLE group', async () => {
@@ -164,10 +176,7 @@ describe('satellite layer', () => {
     expect(stale.satellites).toEqual(fresh.satellites)
   })
 
-  it('serves stale cache data when all configured relays fail and emits structured diagnostics', async () => {
-    process.env.NEXT_PUBLIC_SKYLENS_TLE_PROXY_URL_TEMPLATE =
-      'https://primary-relay.example/proxy?target={url}, https://secondary-relay.example/proxy?target={url}'
-
+  it('serves stale cache data when direct upstream refreshes fail and emits structured diagnostics', async () => {
     const initialNow = new Date('2026-03-26T00:00:00.000Z')
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
@@ -186,14 +195,7 @@ describe('satellite layer', () => {
         attempts: expect.arrayContaining([
           expect.objectContaining({
             groupId: expect.any(String),
-            relayIndex: 0,
-            relayPath: expect.stringContaining('/proxy?target='),
-            status: 503,
-          }),
-          expect.objectContaining({
-            groupId: expect.any(String),
-            relayIndex: 1,
-            relayPath: expect.stringContaining('/proxy?target='),
+            requestPath: expect.stringContaining('/NORAD/elements/gp.php?'),
             status: 503,
           }),
         ]),
@@ -216,15 +218,12 @@ describe('satellite layer', () => {
     ).rejects.toThrow('TLE data unavailable.')
   })
 
-  it('throws the public TLE error with structured relay context when no cache is available', async () => {
-    process.env.NEXT_PUBLIC_SKYLENS_TLE_PROXY_URL_TEMPLATE =
-      'https://primary-relay.example/proxy?target={url}, https://secondary-relay.example/proxy?target={url}'
+  it('throws the public TLE error with structured direct-request context when no cache is available', async () => {
+    const error = await getTleApiResponse(
+      vi.fn(async () => new Response('relay down', { status: 503 })) as unknown as typeof fetch,
+    ).catch((cause: unknown) => cause)
 
-    await expect(
-      getTleApiResponse(
-        vi.fn(async () => new Response('relay down', { status: 503 })) as unknown as typeof fetch,
-      ),
-    ).rejects.toMatchObject({
+    expect(error).toMatchObject({
       message: 'TLE data unavailable.',
       cause: expect.objectContaining({
         name: 'TleGroupFetchError',
@@ -232,19 +231,24 @@ describe('satellite layer', () => {
         attempts: expect.arrayContaining([
           expect.objectContaining({
             groupId: expect.any(String),
-            relayIndex: 0,
-            relayPath: expect.stringContaining('/proxy?target='),
-            status: 503,
-          }),
-          expect.objectContaining({
-            groupId: expect.any(String),
-            relayIndex: 1,
-            relayPath: expect.stringContaining('/proxy?target='),
+            requestUrl: expect.stringContaining('https://celestrak.org/NORAD/elements/gp.php?'),
+            requestPath: expect.stringContaining('/NORAD/elements/gp.php?'),
             status: 503,
           }),
         ]),
       }),
     })
+    expect(
+      ((error as Error & { cause?: { attempts?: Array<Record<string, unknown>> } }).cause?.attempts ??
+        []
+      ).every(
+        (attempt) =>
+          attempt.relayIndex === undefined &&
+          attempt.relayTemplate === undefined &&
+          attempt.relayUrl === undefined &&
+          attempt.relayPath === undefined,
+      ),
+    ).toBe(true)
   })
 
   it('fails fast when a configured relay template omits the upstream placeholder', async () => {

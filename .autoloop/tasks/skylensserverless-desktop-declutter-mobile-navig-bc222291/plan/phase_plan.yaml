@@ -1,0 +1,65 @@
+version: 1
+task_id: skylensserverless-desktop-declutter-mobile-navig-bc222291
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/skylensserverless-desktop-declutter-mobile-navig-bc222291/runs/run-20260329T004955Z-52e78c54/request.md
+phases:
+  - phase_id: direct-tle-api
+    title: Direct satellite API path
+    objective: Remove relay/proxy usage from the satellite catalog flow and preserve the existing cache and normalized data contract.
+    status: planned
+    in_scope:
+      - Replace the default `corsproxy.io`-backed TLE fetch path in `SkyLensServerless/lib/satellites/tle.ts` with direct CelesTrak requests.
+      - Remove `corsproxy.io` assumptions from copy and tests while keeping any retained non-`corsproxy.io` relay-template behavior explicitly optional.
+      - Keep stale-cache, dedupe, and public error behavior stable.
+    out_of_scope:
+      - Aircraft/OpenSky request behavior beyond copy consistency checks.
+      - Any server-side proxy addition outside `SkyLensServerless/`.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: No `corsproxy.io` usage remains in `SkyLensServerless`, and direct CelesTrak requests are the default satellite fetch path.
+      - id: AC-2
+        text: Satellite fetch tests cover the direct upstream default path and preserve cache freshness and stale fallback behavior.
+      - id: AC-3
+        text: User-facing privacy/config copy describes direct upstream satellite fetching rather than a relay-backed default.
+    deliverables:
+      - Direct TLE browser fetch implementation
+      - Updated copy and unit tests for the direct satellite path
+    risks:
+      - Direct upstream fetches could behave differently under browser CORS or upstream errors.
+      - Compatibility handling must not silently break existing non-`corsproxy.io` relay-template overrides.
+    rollback:
+      - Revert the `tle.ts` default transport rewrite independently from viewer-shell changes if direct fetches prove unsafe.
+  - phase_id: viewer-shell-declutter-and-mobile-nav
+    title: Desktop declutter, hover parity, and mobile navigation hardening
+    objective: Simplify the desktop viewer around the compact mobile action model, add hover-driven object info, and stabilize mobile overlay/alignment navigation without regressing mobile behavior.
+    status: planned
+    in_scope:
+      - Refactor desktop viewer chrome in `SkyLensServerless/components/viewer/viewer-shell.tsx` to use compact top warnings and simplified always-visible actions.
+      - Surface desktop `Open viewer`, permission, motion, and align actions from the same state helpers used by mobile.
+      - Add desktop hover-driven object detail surfacing.
+      - Normalize mobile overlay, alignment, and settings navigation state transitions and protect them with tests.
+    out_of_scope:
+      - Rewriting the permission route contract or adding new URL parameters unless a concrete bug requires it.
+      - Broad landing-page redesign outside copy updates already required by the task.
+    dependencies:
+      - direct-tle-api
+    acceptance_criteria:
+      - id: AC-1
+        text: Desktop default chrome is materially less cluttered and no longer renders the current large content stack by default.
+      - id: AC-2
+        text: Desktop exposes explicit `Open viewer`, `Enable camera`, `Motion`, and `Align` control slots in the simplified action area, with camera/motion actions reusing the existing permission-recovery logic.
+      - id: AC-3
+        text: Hovering a visible desktop object surfaces clear object information through the existing viewer detail pipeline.
+      - id: AC-4
+        text: Warning UI is compact and top-positioned.
+      - id: AC-5
+        text: Mobile overlay/alignment/settings flows remain reachable and stable in unit and e2e coverage.
+    deliverables:
+      - Simplified desktop viewer-shell composition
+      - Desktop hover interaction support
+      - Updated unit and e2e regression coverage for desktop and mobile viewer flows
+    risks:
+      - Viewer-shell state refactors can regress mobile overlay or alignment behavior.
+      - Hover handling can conflict with click selection if precedence is not defined.
+    rollback:
+      - Revert the shared viewer-shell layout/state refactor while retaining isolated safe fixes such as direct API changes.

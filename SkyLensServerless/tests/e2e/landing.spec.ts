@@ -17,7 +17,7 @@ test('landing page shows shell copy and demo entry', async ({ page }) => {
   ).toBeVisible()
   await expect(
     page.getByText(
-      'Live satellite catalogs are fetched from CelesTrak through the configured browser-safe relay.',
+      'Live satellite catalogs are fetched directly from CelesTrak.',
     ),
   ).toBeVisible()
   await expect(page.getByRole('link', { name: 'Open live viewer' })).toBeVisible()

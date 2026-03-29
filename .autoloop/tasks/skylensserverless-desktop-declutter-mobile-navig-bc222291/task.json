@@ -1,0 +1,51 @@
+{
+  "task_id": "skylensserverless-desktop-declutter-mobile-navig-bc222291",
+  "created_at": "2026-03-29T00:49:55.391916+00:00",
+  "request_text": "# SkyLensServerless Desktop Declutter + Mobile Navigation + Direct API Task\n\n## Scope\nApply all changes **only** inside `SkyLensServerless/` unless a shared test harness absolutely requires otherwise.\n\n## Mandatory requirements\n1. **Remove corsproxy usage**\n   - Do not use `corsproxy.io` anywhere in SkyLensServerless.\n   - Use direct API calls instead (target API supports CORS).\n   - Update all affected code paths and tests.\n\n2. **Desktop clutter reduction**\n   - Current PC screen is extremely cluttered; simplify it.\n   - Desktop should mimic the cleaner mobile-style control density and information hierarchy.\n\n3. **Desktop mouse behavior parity with mobile crosshair**\n   - On desktop, mouse/reticle interaction should behave like mobile cross semantics.\n   - Hovering over an object should surface its information clearly.\n\n4. **Compact warning banner at top**\n   - Motion and related warning banners must be significantly more compact.\n   - Place warning UI at the top of the screen.\n\n5. **Desktop controls should mirror simplified mobile actions**\n   - Ensure desktop prominently exposes streamlined controls:\n     - Open Viewer\n     - Enable Camera\n     - Motion\n     - Align\n\n6. **Fix mobile navigation**\n   - Resolve current mobile navigation issues.\n   - Keep mobile UX stable and usable.\n\n7. **Do not break mobile view**\n   - Desktop improvements must not regress mobile layout or behavior.\n   - Add or update tests to cover desktop changes and mobile regression protection.\n\n## Execution requirements\n- Use autoloop with **plan, implement, test** pairs.\n- Iterate until complete.\n- Prefer focused, minimal-risk edits and preserve existing behavior where not explicitly changed.\n\n## Acceptance checklist\n- [ ] No `corsproxy.io` usage remains in SkyLensServerless.\n- [ ] Desktop UI is visibly less cluttered and aligned to mobile simplicity.\n- [ ] Desktop hover over objects shows information.\n- [ ] Warning banner is compact and top-positioned.\n- [ ] Desktop has Open Viewer / Enable Camera / Motion / Align actions.\n- [ ] Mobile navigation is fixed.\n- [ ] Mobile view remains intact (no regressions).\n- [ ] Relevant tests updated/added and passing.",
+  "request_updated_at": "2026-03-29T00:49:55.391997+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/skylensserverless-desktop-declutter-mobile-navig-bc222291/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260329T004955Z-52e78c54",
+    "mode": "single",
+    "phase_ids": [
+      "direct-tle-api",
+      "viewer-shell-declutter-and-mobile-nav"
+    ],
+    "explicit": true,
+    "current_phase_index": 2,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "direct-tle-api": "completed",
+    "viewer-shell-declutter-and-mobile-nav": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "direct-tle-api",
+      "run_id": "run-20260329T004955Z-52e78c54",
+      "status": "in_progress",
+      "ts": "2026-03-29T00:56:06.333910+00:00"
+    },
+    {
+      "phase_id": "direct-tle-api",
+      "run_id": "run-20260329T004955Z-52e78c54",
+      "status": "completed",
+      "ts": "2026-03-29T01:05:56.849234+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "viewer-shell-declutter-and-mobile-nav",
+      "run_id": "run-20260329T004955Z-52e78c54",
+      "status": "in_progress",
+      "ts": "2026-03-29T01:05:56.850416+00:00"
+    },
+    {
+      "phase_id": "viewer-shell-declutter-and-mobile-nav",
+      "run_id": "run-20260329T004955Z-52e78c54",
+      "status": "completed",
+      "ts": "2026-03-29T01:49:18.455597+00:00",
+      "pair": "test"
+    }
+  ]
+}
