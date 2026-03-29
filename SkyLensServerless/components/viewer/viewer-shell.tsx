@@ -901,6 +901,20 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       : orientation
   )
 
+  const resetOrientationSessionState = (baselineAbsolute: boolean) => {
+    previousOrientationSampleTimestampRef.current = null
+    previousOrientationSelectionRef.current = {
+      source: null,
+      absolute: false,
+    }
+    setOrientationSampleRateHz(null)
+    setOrientationUpgradedFromRelative(false)
+    setOrientationNeedsCalibration(false)
+    setLatestOrientationSample(null)
+    setOrientationSource(null)
+    setOrientationAbsolute(baselineAbsolute)
+  }
+
   const handleRetryPermissions = () => {
     setRetryError(null)
     setAstronomyFailureBanner(null)
@@ -920,16 +934,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
 
       setStartupState('requesting')
       clearOrientationStartupTimeout()
-      previousOrientationSampleTimestampRef.current = null
-      previousOrientationSelectionRef.current = {
-        source: null,
-        absolute: false,
-      }
-      setOrientationSampleRateHz(null)
-      setOrientationUpgradedFromRelative(false)
-      setLatestOrientationSample(null)
-      setOrientationSource(null)
-      setOrientationAbsolute(false)
+      resetOrientationSessionState(false)
       markViewerOnboardingCompleted()
       setViewerSettings((current) => ({
         ...current,
@@ -1921,17 +1926,9 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     if (!hasLiveSessionStarted || manualMode) {
       clearOrientationStartupTimeout()
       setCalibrationBanner(null)
-      setOrientationSource(null)
-      setOrientationAbsolute(viewerRouteStateRef.current.orientation === 'granted')
-      setOrientationNeedsCalibration(false)
-      setLatestOrientationSample(null)
-      setOrientationSampleRateHz(null)
-      setOrientationUpgradedFromRelative(false)
-      previousOrientationSampleTimestampRef.current = null
-      previousOrientationSelectionRef.current = {
-        source: null,
-        absolute: false,
-      }
+      resetOrientationSessionState(
+        viewerRouteStateRef.current.orientation === 'granted',
+      )
       return
     }
 

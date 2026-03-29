@@ -2007,6 +2007,7 @@ describe('ViewerShell startup gating', () => {
     )
     expect(container.textContent).toContain('Waiting for motion data.')
     expect(container.textContent).toContain('Motion: Pending')
+    expect(container.textContent).toContain('Sensor: Waiting')
     expect(emitPose).not.toBeNull()
 
     await act(async () => {
@@ -2039,6 +2040,53 @@ describe('ViewerShell startup gating', () => {
       }),
     )
     expect(container.textContent).not.toContain('Motion recovery')
+  })
+
+  it('clears stale live sensor state when switching into demo mode', async () => {
+    let emitPose:
+      | ((state: ReturnType<typeof createMockOrientationPoseUpdate>) => void)
+      | null = null
+
+    mockSubscribeToOrientationPose.mockImplementation((onPose: (state: unknown) => void) => {
+      emitPose = onPose as (state: ReturnType<typeof createMockOrientationPoseUpdate>) => void
+      return SENSOR_CONTROLLER
+    })
+
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'granted',
+    })
+
+    await act(async () => {
+      emitPose?.(
+        createMockOrientationPoseUpdate({
+          source: 'deviceorientation-absolute',
+          providerKind: 'event',
+          absolute: true,
+        }),
+      )
+    })
+    await flushEffects()
+
+    expect(container.textContent).toContain('Sensor: Absolute')
+
+    const latestSettingsProps = () =>
+      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+        | {
+            onEnterDemoMode?: () => void
+          }
+        | undefined
+
+    await act(async () => {
+      latestSettingsProps()?.onEnterDemoMode?.()
+    })
+    await flushEffects()
+
+    expect(SENSOR_CONTROLLER.stop).toHaveBeenCalled()
+    expect(container.textContent).toContain('Sensor: Manual')
+    expect(container.textContent).not.toContain('Sensor: Absolute')
   })
 
   it('times out a motion-only retry back to denied when no provider emits after the prompt succeeds', async () => {

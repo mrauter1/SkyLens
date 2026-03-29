@@ -1,0 +1,40 @@
+version: 1
+task_id: improve-orientation-motion-review-fixes
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/improve-orientation-motion-review-fixes/runs/run-20260328T232355Z-19bf0b0e/request.md
+phases:
+  - phase_id: orientation-motion-review-fixes
+    title: Fix orientation safety and reset duplication
+    objective: Stop unsafe Safari compass promotion immediately on failed validation samples, consolidate duplicated viewer orientation reset logic, and prove both changes with focused regression coverage.
+    status: planned
+    in_scope:
+      - Update the Safari compass validation reconciliation in `SkyLensServerless/lib/sensors/orientation.ts` so failed validation samples are emitted as relative immediately.
+      - Preserve the current Safari upgrade and downgrade thresholds, upgrade window, and provider priority behavior while applying the safety fix.
+      - Extract the duplicated orientation session reset logic in `SkyLensServerless/components/viewer/viewer-shell.tsx` into one shared local helper used by retry and startup/reset flows.
+      - Extend focused unit coverage in `SkyLensServerless/tests/unit/orientation.test.ts` and `SkyLensServerless/tests/unit/viewer-shell.test.ts`.
+      - Run targeted tests for the touched orientation and viewer flows.
+    out_of_scope:
+      - Broader refactors of the orientation provider architecture.
+      - Changes outside `SkyLensServerless/` except directly required task artifacts and any directly affected repo docs.
+      - Public API, route, or storage contract changes.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: Safari compass-backed samples that fail validation are never emitted as promoted absolute samples on that failing tick.
+      - id: AC-2
+        text: Existing Safari upgrade and sustained-failure downgrade semantics remain intact, including re-upgrade only after fresh valid samples.
+      - id: AC-3
+        text: ViewerShell uses one shared helper for the duplicated orientation reset path without changing retry/startup behavior.
+      - id: AC-4
+        text: Focused unit tests cover the immediate safety fix and the shared reset behavior, and the targeted test run passes.
+    deliverables:
+      - Scoped orientation safety fix in `SkyLensServerless/lib/sensors/orientation.ts`.
+      - Local reset-helper consolidation in `SkyLensServerless/components/viewer/viewer-shell.tsx`.
+      - Updated focused unit tests for Safari validation and viewer retry/startup reset behavior.
+      - Passing targeted `vitest` validation for the touched suites.
+    risks:
+      - The safety fix could accidentally clear Safari validated state too early instead of only stopping per-sample promotion.
+      - The reset helper could erase the intentional absolute-baseline difference between retry and startup/manual reset paths.
+      - Focused tests could miss a stale-state regression if they only assert route updates and not pending/reset state.
+    rollback:
+      - Revert the Safari reconciliation change while preserving the viewer reset helper if provider arbitration regresses.
+      - Revert the viewer reset-helper extraction while preserving the Safari safety fix if retry/startup state regresses.

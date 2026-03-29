@@ -477,22 +477,16 @@ describe('orientation runtime coordinator', () => {
     const states: Array<{
       source: string
       absolute: boolean
-      needsCalibration: boolean
-      compassBacked?: boolean
     }> = []
 
     const controller = subscribeToOrientationPose(
       ({
-        sample,
         orientationSource,
         orientationAbsolute,
-        orientationNeedsCalibration,
       }) => {
         states.push({
           source: orientationSource,
           absolute: orientationAbsolute,
-          needsCalibration: orientationNeedsCalibration,
-          compassBacked: sample.compassBacked,
         })
       },
       { runtime },
@@ -505,23 +499,29 @@ describe('orientation runtime coordinator', () => {
     emitCompassAlignedSample(emit)
 
     emitCompassMisalignedSample(emit)
+    emitCompassAlignedSample(emit)
     emitCompassMisalignedSample(emit)
     emitCompassMisalignedSample(emit)
+    emitCompassMisalignedSample(emit)
+    emitCompassAlignedSample(emit)
+    emitCompassAlignedSample(emit)
+    emitCompassAlignedSample(emit)
     controller.stop()
 
-    expect(states[0]).toEqual({
-      source: 'deviceorientation-relative',
-      absolute: false,
-      needsCalibration: true,
-      compassBacked: true,
-    })
-    expect(states.some((state) => state.source === 'deviceorientation-absolute')).toBe(true)
-    expect(states.at(-1)).toEqual({
-      source: 'deviceorientation-relative',
-      absolute: false,
-      needsCalibration: true,
-      compassBacked: true,
-    })
+    expect(states).toEqual([
+      { source: 'deviceorientation-relative', absolute: false },
+      { source: 'deviceorientation-relative', absolute: false },
+      { source: 'deviceorientation-relative', absolute: false },
+      { source: 'deviceorientation-absolute', absolute: true },
+      { source: 'deviceorientation-relative', absolute: false },
+      { source: 'deviceorientation-absolute', absolute: true },
+      { source: 'deviceorientation-relative', absolute: false },
+      { source: 'deviceorientation-relative', absolute: false },
+      { source: 'deviceorientation-relative', absolute: false },
+      { source: 'deviceorientation-relative', absolute: false },
+      { source: 'deviceorientation-relative', absolute: false },
+      { source: 'deviceorientation-absolute', absolute: true },
+    ])
   })
 
   it('restarts arbitration after lifecycle suspend and provider stall', async () => {

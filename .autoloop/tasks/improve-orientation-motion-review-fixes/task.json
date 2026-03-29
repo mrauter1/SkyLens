@@ -1,0 +1,36 @@
+{
+  "task_id": "improve-orientation-motion-review-fixes",
+  "created_at": "2026-03-28T23:23:55.371951+00:00",
+  "request_text": "# Autoloop Task: Address review feedback for orientation/motion refactor\n\n## Scope\nApply changes only in `SkyLensServerless/` (and necessary tests/docs in this repo) to address code review issues from the previous PR.\n\n## Primary review issues to fix\n1. **Compass validation safety (high priority)** in `SkyLensServerless/lib/sensors/orientation.ts`:\n   - Current behavior may continue promoting compass-backed samples to absolute while validation is failing until an invalid threshold is reached.\n   - Update behavior so failed compass validation stops absolute promotion immediately (fallback to relative sample behavior) instead of returning knowingly-invalid promoted samples.\n   - Preserve required Safari validation/upgrade/downgrade semantics while prioritizing correctness and user safety.\n\n2. **Duplicate orientation reset logic (medium priority)** in `SkyLensServerless/components/viewer/viewer-shell.tsx`:\n   - Extract duplicated orientation-state reset blocks into a shared helper function.\n   - Use the helper from both relevant call sites (including retry permissions and restart/reset flow) to reduce maintenance risk and ensure consistency.\n\n## Validation requirements\n- Update/add tests to verify:\n  - Compass-backed invalid samples are not promoted as absolute during failed validation.\n  - Existing expected upgrade/downgrade behavior remains correct.\n  - Shared orientation reset helper is used without regressions in viewer startup/retry flow.\n- Run targeted tests plus any impacted suites and ensure they pass.\n\n## Execution mode\n- Use autoloop with pairs: `plan,implement,test`.\n- Enable full auto answers.\n- Do **not** set max iterations.\n- Complete all work through autoloop (do not manually implement outside autoloop).",
+  "request_updated_at": "2026-03-28T23:23:55.372014+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/improve-orientation-motion-review-fixes/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260328T232355Z-19bf0b0e",
+    "mode": "single",
+    "phase_ids": [
+      "orientation-motion-review-fixes"
+    ],
+    "explicit": true,
+    "current_phase_index": 1,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "orientation-motion-review-fixes": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "orientation-motion-review-fixes",
+      "run_id": "run-20260328T232355Z-19bf0b0e",
+      "status": "in_progress",
+      "ts": "2026-03-28T23:26:53.692199+00:00"
+    },
+    {
+      "phase_id": "orientation-motion-review-fixes",
+      "run_id": "run-20260328T232355Z-19bf0b0e",
+      "status": "completed",
+      "ts": "2026-03-28T23:44:27.288755+00:00",
+      "pair": "test"
+    }
+  ]
+}

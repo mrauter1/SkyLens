@@ -1149,7 +1149,7 @@ export function subscribeToOrientationPose(
         return providerSample
       }
 
-      return promoteCompassBackedSample(providerSample)
+      return providerSample
     }
 
     if (!validationPassed || !canAttemptAbsoluteUpgrade()) {
