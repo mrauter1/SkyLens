@@ -7,14 +7,14 @@ test('embedded validation page delegates the required permissions to the live vi
 
   expect(response).not.toBeNull()
   expect(response?.headers()['permissions-policy']).toBe(
-    'accelerometer=(self), gyroscope=(self), magnetometer=(self)',
+    'camera=(self), geolocation=(self), accelerometer=(self), gyroscope=(self), magnetometer=(self)',
   )
 
   const iframe = page.getByTestId('viewer-embed-frame')
 
   await expect(iframe).toHaveAttribute(
     'allow',
-    'accelerometer; gyroscope; magnetometer',
+    'camera; geolocation; accelerometer; gyroscope; magnetometer',
   )
 
   const viewerFrame = page.frameLocator('[data-testid="viewer-embed-frame"]')

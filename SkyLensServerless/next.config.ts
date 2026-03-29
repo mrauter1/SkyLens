@@ -1,7 +1,7 @@
 import type { NextConfig } from 'next'
 
 export const SKYLENS_PERMISSIONS_POLICY =
-  'accelerometer=(self), gyroscope=(self), magnetometer=(self)'
+  'camera=(self), geolocation=(self), accelerometer=(self), gyroscope=(self), magnetometer=(self)'
 
 export const SKYLENS_RESPONSE_HEADERS = [
   {

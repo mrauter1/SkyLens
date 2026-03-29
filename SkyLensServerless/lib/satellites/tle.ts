@@ -9,23 +9,24 @@ const TLE_CACHE_KEY = 'skylens-serverless.tle-catalog.v1'
 const REFRESH_WINDOW_MS = 6 * 60 * 60 * 1000
 const STALE_WINDOW_MS = 24 * 60 * 60 * 1000
 const ISS_NORAD_ID = 25544
-const DEFAULT_TLE_PROXY_URL_TEMPLATE = 'https://corsproxy.io/?{url}'
 
-type TleRelayAttempt = {
+type TleFetchAttempt = {
   groupId: SatelliteGroupId
-  relayIndex: number
-  relayTemplate: string
-  relayUrl: string
-  relayPath: string
+  requestUrl: string
+  requestPath: string
+  relayIndex?: number
+  relayTemplate?: string
+  relayUrl?: string
+  relayPath?: string
   status?: number
   message: string
 }
 
 class TleGroupFetchError extends Error {
   readonly groupId: SatelliteGroupId
-  readonly attempts: TleRelayAttempt[]
+  readonly attempts: TleFetchAttempt[]
 
-  constructor(groupId: SatelliteGroupId, attempts: TleRelayAttempt[], options?: { cause?: unknown }) {
+  constructor(groupId: SatelliteGroupId, attempts: TleFetchAttempt[], options?: { cause?: unknown }) {
     super(`TLE upstream failed for ${groupId}.`, options?.cause ? { cause: options.cause } : undefined)
     this.name = 'TleGroupFetchError'
     this.groupId = groupId
@@ -145,10 +146,10 @@ export function getTleCacheHealth(now = new Date()): CacheHealth {
 }
 
 async function fetchSatelliteCatalog(fetchImpl: typeof fetch) {
-  const relayTemplates = getTleRelayTemplates()
+  const relayTemplates = getConfiguredTleRelayTemplates()
   const groupResponses = await Promise.all(
     TLE_GROUP_SOURCES.map(async ({ groupId, url }) => {
-      return fetchTleGroupWithRelayFallback(groupId, url, relayTemplates, fetchImpl)
+      return fetchTleGroupWithFallback(groupId, url, relayTemplates, fetchImpl)
     }),
   )
 
@@ -281,25 +282,24 @@ function getCachedEntry() {
   }
 }
 
-async function fetchTleGroupWithRelayFallback(
+async function fetchTleGroupWithFallback(
   groupId: SatelliteGroupId,
   upstreamUrl: string,
-  relayTemplates: readonly string[],
+  relayTemplates: readonly string[] | null,
   fetchImpl: typeof fetch,
 ) {
-  const attempts: TleRelayAttempt[] = []
+  const attempts: TleFetchAttempt[] = []
+  const requestTargets = buildTleRequestTargets(upstreamUrl, relayTemplates)
 
-  for (const [relayIndex, relayTemplate] of relayTemplates.entries()) {
-    const relayUrl = buildBrowserSafeTleUrl(upstreamUrl, relayTemplate)
-
+  for (const target of requestTargets) {
     try {
-      const response = await fetchImpl(relayUrl, {
+      const response = await fetchImpl(target.requestUrl, {
         cache: 'no-store',
       })
 
       if (!response.ok) {
         attempts.push(
-          buildRelayAttempt(groupId, relayIndex, relayTemplate, relayUrl, {
+          buildFetchAttempt(groupId, target, {
             status: response.status,
             message: `HTTP ${response.status}`,
           }),
@@ -312,70 +312,90 @@ async function fetchTleGroupWithRelayFallback(
       return parseTleGroup(text, groupId)
     } catch (cause) {
       attempts.push(
-        buildRelayAttempt(groupId, relayIndex, relayTemplate, relayUrl, {
+        buildFetchAttempt(groupId, target, {
           message: getErrorMessage(cause),
         }),
       )
     }
   }
 
-  throw new TleGroupFetchError(groupId, attempts, {
-    cause: attempts.at(-1)?.message,
-  })
+  throw new TleGroupFetchError(groupId, attempts, { cause: attempts.at(-1)?.message })
 }
 
-function getTleRelayTemplates() {
+function getConfiguredTleRelayTemplates() {
   const configuredTemplates = process.env.NEXT_PUBLIC_SKYLENS_TLE_PROXY_URL_TEMPLATE
     ?.split(',')
     .map((template) => template.trim())
     .filter((template) => template.length > 0)
 
-  const relayTemplates =
-    configuredTemplates && configuredTemplates.length > 0
-      ? configuredTemplates
-      : [DEFAULT_TLE_PROXY_URL_TEMPLATE]
+  if (!configuredTemplates || configuredTemplates.length === 0) {
+    return null
+  }
 
-  for (const [relayIndex, relayTemplate] of relayTemplates.entries()) {
+  for (const [relayIndex, relayTemplate] of configuredTemplates.entries()) {
     if (!relayTemplate.includes('{url}')) {
       throw new Error(`TLE proxy template at relay index ${relayIndex} must include {url}.`)
     }
   }
 
-  return relayTemplates
+  return configuredTemplates
 }
 
-function buildBrowserSafeTleUrl(url: string, template: string) {
-  return template.replace('{url}', encodeURIComponent(url))
+type TleRequestTarget = {
+  requestUrl: string
+  relayIndex?: number
+  relayTemplate?: string
+  relayUrl?: string
 }
 
-function buildRelayAttempt(
+function buildTleRequestTargets(
+  upstreamUrl: string,
+  relayTemplates: readonly string[] | null,
+): TleRequestTarget[] {
+  if (!relayTemplates) {
+    return [{ requestUrl: upstreamUrl }]
+  }
+
+  return relayTemplates.map((relayTemplate, relayIndex) => {
+    const relayUrl = relayTemplate.replace('{url}', encodeURIComponent(upstreamUrl))
+
+    return {
+      requestUrl: relayUrl,
+      relayIndex,
+      relayTemplate,
+      relayUrl,
+    }
+  })
+}
+
+function buildFetchAttempt(
   groupId: SatelliteGroupId,
-  relayIndex: number,
-  relayTemplate: string,
-  relayUrl: string,
+  request: TleRequestTarget,
   details: {
     status?: number
     message: string
   },
-): TleRelayAttempt {
+): TleFetchAttempt {
   return {
     groupId,
-    relayIndex,
-    relayTemplate,
-    relayUrl,
-    relayPath: getRelayPath(relayUrl),
+    requestUrl: request.requestUrl,
+    requestPath: getUrlPath(request.requestUrl),
+    relayIndex: request.relayIndex,
+    relayTemplate: request.relayTemplate,
+    relayUrl: request.relayUrl,
+    relayPath: request.relayUrl ? getUrlPath(request.relayUrl) : undefined,
     status: details.status,
     message: details.message,
   }
 }
 
-function getRelayPath(relayUrl: string) {
+function getUrlPath(urlString: string) {
   try {
-    const url = new URL(relayUrl)
+    const url = new URL(urlString)
 
     return `${url.pathname}${url.search}`
   } catch {
-    return relayUrl
+    return urlString
   }
 }
 

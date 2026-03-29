@@ -1,0 +1,4 @@
+# Plan ↔ Plan Verifier Feedback
+
+- Added a single-phase implementation plan focused on the actual drift in `SkyLensServerless/`: the root app already has the corrected camera/geolocation contract, while the serverless fork still has motion-only headers, embed delegation, exported artifacts, tests, and parity text. The plan now makes `next.config.ts` the canonical contract source, requires regenerated `out/` artifacts, and treats mobile embed visibility as a regression gate.
+- PLAN-001 `non-blocking`: No blocking findings in cycle 1 verification. The plan and single-phase contract stay aligned with the request by limiting scope to the actual `SkyLensServerless/` regression, preserving prior CelesTrak and mobile UX behavior, centralizing the permissions contract in `next.config.ts`, and requiring regeneration plus validation of the exported `_headers` and embed artifacts.

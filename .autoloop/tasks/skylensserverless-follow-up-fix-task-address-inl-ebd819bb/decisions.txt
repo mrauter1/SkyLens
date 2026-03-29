@@ -1,0 +1,5 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260329T222355Z-59dec5a0" ts="2026-03-29T22:23:55.953399+00:00" />
+Treat `SkyLensServerless/next.config.ts` as the authoritative permissions-policy contract; `public/_headers` and committed `out/_headers` must stay in sync with it.
+Restore camera and geolocation in both the response header contract and embedded iframe delegation; motion sensor permissions remain required and must not be dropped.
+Refresh committed `SkyLensServerless/out/` artifacts via the normal build path so exported embed-validation content and `_headers` reflect the same contract as source files.
+Regression validation must include prior viewer/mobile behavior coverage, not only header/delegation string assertions, to avoid re-breaking the earlier UX fixes.

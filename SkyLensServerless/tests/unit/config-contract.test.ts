@@ -47,7 +47,7 @@ describe('getPublicConfig', () => {
     expect(PRIVACY_REASSURANCE_COPY).toEqual([
       'Camera stays on your device.',
       'Approximate location-based aircraft queries go directly from your browser to OpenSky.',
-      'Live satellite catalogs are fetched from CelesTrak through the configured browser-safe relay.',
+      'Live satellite catalogs are fetched directly from CelesTrak.',
       'No camera frames are uploaded.',
     ])
   })

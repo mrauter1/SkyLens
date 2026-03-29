@@ -1,0 +1,36 @@
+{
+  "task_id": "skylensserverless-follow-up-fixes-for-review-com-b8a11a92",
+  "created_at": "2026-03-29T22:26:30.680217+00:00",
+  "request_text": "# SkyLensServerless follow-up fixes for review comments and required permissions\n\n## Requirements\n- Camera and geolocation are required project capabilities.\n- Address inline review concerns from the prior PR.\n\n## Work to complete\n1) Restore permissions policy contract so it includes camera and geolocation plus accelerometer, gyroscope, and magnetometer.\n2) Keep policy values consistent across runtime config, static headers, and generated export headers.\n3) Update embedded viewer delegation so required capabilities are delegated where needed.\n4) Update related tests so the corrected permissions and delegation contract is enforced.\n5) Update parity/docs text to reflect the corrected contract.\n6) Preserve prior direct CelesTrak behavior and desktop/mobile viewer UX changes; do not regress mobile.\n\n## Acceptance\n- Permissions policy includes camera and geolocation.\n- Headers and generated output are consistent.\n- Embed delegation aligns with required capabilities.\n- Tests updated and passing.\n- Docs/parity updated.\n\nUse autoloop with full-auto answers and plan, implement, test pairs until complete.",
+  "request_updated_at": "2026-03-29T22:26:30.680319+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/skylensserverless-follow-up-fixes-for-review-com-b8a11a92/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260329T222630Z-8af61951",
+    "mode": "single",
+    "phase_ids": [
+      "restore-serverless-permissions-parity"
+    ],
+    "explicit": true,
+    "current_phase_index": 1,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "restore-serverless-permissions-parity": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "restore-serverless-permissions-parity",
+      "run_id": "run-20260329T222630Z-8af61951",
+      "status": "in_progress",
+      "ts": "2026-03-29T22:28:46.631017+00:00"
+    },
+    {
+      "phase_id": "restore-serverless-permissions-parity",
+      "run_id": "run-20260329T222630Z-8af61951",
+      "status": "completed",
+      "ts": "2026-03-29T22:37:01.757601+00:00",
+      "pair": "test"
+    }
+  ]
+}

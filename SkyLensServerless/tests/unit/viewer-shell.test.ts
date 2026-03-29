@@ -327,6 +327,8 @@ describe('ViewerShell startup gating', () => {
       orientation: 'unknown',
     })
 
+    await openDesktopViewerPanel()
+
     const startArButton = Array.from(container.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Start AR'),
     )
@@ -362,6 +364,8 @@ describe('ViewerShell startup gating', () => {
       orientation: 'unknown',
     })
 
+    await openDesktopViewerPanel()
+
     const startArButton = Array.from(container.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Start AR'),
     )
@@ -396,6 +400,8 @@ describe('ViewerShell startup gating', () => {
       orientation: 'unknown',
     })
 
+    await openDesktopViewerPanel()
+
     const startArButton = Array.from(container.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Start AR'),
     )
@@ -417,7 +423,7 @@ describe('ViewerShell startup gating', () => {
     expect(mockSubscribeToOrientationPose).toHaveBeenCalled()
     expect(emitPose).not.toBeNull()
     expect(container.textContent).toContain('Waiting for motion data.')
-    expect(container.textContent).toContain('Motion: Pending')
+    expect(container.textContent).toContain('Motion Pending')
 
     await act(async () => {
       emitPose?.(
@@ -470,6 +476,8 @@ describe('ViewerShell startup gating', () => {
       orientation: 'unknown',
     })
 
+    await openDesktopViewerPanel()
+
     const startArButton = Array.from(container.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Start AR'),
     )
@@ -514,6 +522,8 @@ describe('ViewerShell startup gating', () => {
       orientation: 'unknown',
     })
 
+    await openDesktopViewerPanel()
+
     const startArButton = Array.from(container.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Start AR'),
     )
@@ -542,19 +552,69 @@ describe('ViewerShell startup gating', () => {
   it(
     'keeps location and orientation startup live in verified non-camera fallback',
     async () => {
-      await renderViewer({
-        entry: 'live',
-        location: 'granted',
-        camera: 'denied',
-        orientation: 'granted',
+      const originalRequestAnimationFrame = window.requestAnimationFrame
+      const originalCancelAnimationFrame = window.cancelAnimationFrame
+
+      Object.defineProperty(window, 'requestAnimationFrame', {
+        configurable: true,
+        writable: true,
+        value: vi.fn(() => 1),
+      })
+      Object.defineProperty(window, 'cancelAnimationFrame', {
+        configurable: true,
+        writable: true,
+        value: vi.fn(),
       })
 
-      expect(mockRequestStartupObserverState).toHaveBeenCalledTimes(1)
-      expect(mockStartObserverTracking).toHaveBeenCalledTimes(1)
-      expect(mockSubscribeToOrientationPose.mock.calls.length).toBeGreaterThanOrEqual(1)
-      expect(mockRequestRearCameraStream).not.toHaveBeenCalled()
-      expect(mockFetchAircraftSnapshot).toHaveBeenCalledTimes(1)
-      expect(mockFetchSatelliteCatalog).toHaveBeenCalledTimes(1)
+      mockSubscribeToOrientationPose.mockImplementationOnce((onPose: (state: unknown) => void) => {
+        onPose(
+          createMockOrientationPoseUpdate({
+            source: 'deviceorientation-absolute',
+            providerKind: 'event',
+            absolute: true,
+          }),
+        )
+        return SENSOR_CONTROLLER
+      })
+
+      try {
+        await renderViewer({
+          entry: 'live',
+          location: 'granted',
+          camera: 'denied',
+          orientation: 'granted',
+        })
+
+        expect(mockRequestStartupObserverState.mock.calls.length).toBeGreaterThanOrEqual(1)
+        expect(mockStartObserverTracking.mock.calls.length).toBeGreaterThanOrEqual(1)
+        expect(mockSubscribeToOrientationPose.mock.calls.length).toBeGreaterThanOrEqual(1)
+        expect(mockRequestRearCameraStream).not.toHaveBeenCalled()
+        expect(mockFetchAircraftSnapshot).toHaveBeenCalledTimes(1)
+        expect(mockFetchSatelliteCatalog).toHaveBeenCalledTimes(1)
+
+        const latestSettingsProps = () =>
+          mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+            | {
+                onEnterDemoMode?: () => void
+              }
+            | undefined
+
+        await act(async () => {
+          latestSettingsProps()?.onEnterDemoMode?.()
+        })
+        await flushEffects()
+      } finally {
+        Object.defineProperty(window, 'requestAnimationFrame', {
+          configurable: true,
+          writable: true,
+          value: originalRequestAnimationFrame,
+        })
+        Object.defineProperty(window, 'cancelAnimationFrame', {
+          configurable: true,
+          writable: true,
+          value: originalCancelAnimationFrame,
+        })
+      }
     },
     10_000,
   )
@@ -641,14 +701,16 @@ describe('ViewerShell startup gating', () => {
       orientation: 'granted',
     })
 
+    await openDesktopViewerPanel()
+
     expect(mockRequestStartupObserverState).not.toHaveBeenCalled()
     expect(mockStartObserverTracking).not.toHaveBeenCalled()
     expect(mockRequestRearCameraStream.mock.calls.length).toBeGreaterThanOrEqual(1)
     expect(mockSubscribeToOrientationPose.mock.calls.length).toBeGreaterThanOrEqual(1)
-    expect(container.textContent).toContain('Location: Manual observer')
+    expect(container.textContent).toContain('Location Manual observer')
   })
 
-  it('keeps the viewer privacy reassurance copy visible before live startup begins', async () => {
+  it('shows the startup-blocked viewer panel before live startup begins', async () => {
     await renderViewer({
       entry: 'live',
       location: 'unknown',
@@ -656,15 +718,14 @@ describe('ViewerShell startup gating', () => {
       orientation: 'unknown',
     })
 
-    expect(container.textContent).toContain('Privacy reassurance')
-    expect(container.textContent).toContain('Camera stays on your device.')
+    await openDesktopViewerPanel()
+
+    expect(container.textContent).toContain('Start required')
+    expect(container.textContent).toContain('Start AR from this viewer.')
     expect(container.textContent).toContain(
-      'Approximate location-based aircraft queries go directly from your browser to OpenSky.',
+      'The viewer owns the live startup flow now. Use Start AR here to request motion access, attach the rear camera inline, and then resolve location or manual observer fallback.',
     )
-    expect(container.textContent).toContain(
-      'Live satellite catalogs are fetched from CelesTrak through the configured browser-safe relay.',
-    )
-    expect(container.textContent).toContain('No camera frames are uploaded.')
+    expect(container.textContent).toContain('Try demo mode')
   })
 
   it('supports keyboard panning in manual mode for desktop fallback', async () => {
@@ -675,6 +736,8 @@ describe('ViewerShell startup gating', () => {
       orientation: 'unavailable',
       demoScenarioId: 'sf-evening',
     })
+
+    await openDesktopViewerPanel()
 
     const stage = container.querySelector('[aria-label="Sky viewer stage"]') as
       | HTMLDivElement
@@ -706,6 +769,8 @@ describe('ViewerShell startup gating', () => {
       orientation: 'unavailable',
       demoScenarioId: 'sf-evening',
     })
+
+    await openDesktopViewerPanel()
 
     const stage = container.querySelector('[aria-label="Sky viewer stage"]') as
       | HTMLDivElement
@@ -1695,6 +1760,8 @@ describe('ViewerShell startup gating', () => {
       orientation: 'unknown',
     })
 
+    await openDesktopViewerPanel()
+
     expect(container.textContent).toContain('Live AR requires a secure context.')
     expect(container.textContent).toContain(
       'Open SkyLens from HTTPS or localhost so camera, geolocation, and motion sensors are allowed to start in the viewer.',
@@ -1982,6 +2049,8 @@ describe('ViewerShell startup gating', () => {
       orientation: 'denied',
     })
 
+    await openDesktopViewerPanel()
+
     expect(container.textContent).toContain('Motion recovery')
     expect(container.textContent).toContain('iOS Settings → Safari → Motion & Orientation Access')
 
@@ -2006,8 +2075,8 @@ describe('ViewerShell startup gating', () => {
       }),
     )
     expect(container.textContent).toContain('Waiting for motion data.')
-    expect(container.textContent).toContain('Motion: Pending')
-    expect(container.textContent).toContain('Sensor: Waiting')
+    expect(container.textContent).toContain('Motion Pending')
+    expect(container.textContent).toContain('Sensor Waiting')
     expect(emitPose).not.toBeNull()
 
     await act(async () => {
@@ -2059,6 +2128,8 @@ describe('ViewerShell startup gating', () => {
       orientation: 'granted',
     })
 
+    await openDesktopViewerPanel()
+
     await act(async () => {
       emitPose?.(
         createMockOrientationPoseUpdate({
@@ -2070,7 +2141,7 @@ describe('ViewerShell startup gating', () => {
     })
     await flushEffects()
 
-    expect(container.textContent).toContain('Sensor: Absolute')
+    expect(container.textContent).toContain('Sensor Absolute')
 
     const latestSettingsProps = () =>
       mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
@@ -2085,8 +2156,8 @@ describe('ViewerShell startup gating', () => {
     await flushEffects()
 
     expect(SENSOR_CONTROLLER.stop).toHaveBeenCalled()
-    expect(container.textContent).toContain('Sensor: Manual')
-    expect(container.textContent).not.toContain('Sensor: Absolute')
+    expect(container.textContent).toContain('Sensor Manual')
+    expect(container.textContent).not.toContain('Sensor Absolute')
   })
 
   it('times out a motion-only retry back to denied when no provider emits after the prompt succeeds', async () => {
@@ -2107,6 +2178,8 @@ describe('ViewerShell startup gating', () => {
       camera: 'granted',
       orientation: 'denied',
     })
+
+    await openDesktopViewerPanel()
 
     const enableMotionButton = Array.from(container.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Enable motion'),
@@ -2158,6 +2231,8 @@ describe('ViewerShell startup gating', () => {
       orientation: 'denied',
     })
 
+    await openDesktopViewerPanel()
+
     expect(container.textContent).toContain('Motion recovery')
     expect(container.textContent).toContain(
       'On Chrome for Android, confirm site motion sensors are allowed for this origin, then retry from the viewer.',
@@ -2165,36 +2240,118 @@ describe('ViewerShell startup gating', () => {
   })
 
   it('reuses the combined recovery CTA inside the motion panel when camera and motion are both missing', async () => {
-    await renderViewer({
-      entry: 'live',
-      location: 'granted',
-      camera: 'denied',
-      orientation: 'denied',
+    const originalRequestAnimationFrame = window.requestAnimationFrame
+    const originalCancelAnimationFrame = window.cancelAnimationFrame
+
+    Object.defineProperty(window, 'requestAnimationFrame', {
+      configurable: true,
+      writable: true,
+      value: vi.fn(() => 1),
+    })
+    Object.defineProperty(window, 'cancelAnimationFrame', {
+      configurable: true,
+      writable: true,
+      value: vi.fn(),
     })
 
-    expect(container.textContent).toContain('Motion recovery')
+    let emitPose:
+      | ((state: ReturnType<typeof createMockOrientationPoseUpdate>) => void)
+      | null = null
 
-    const enableCameraAndMotionButton = Array.from(container.querySelectorAll('button')).find(
-      (button) => button.textContent?.includes('Enable camera and motion'),
-    )
-
-    expect(enableCameraAndMotionButton).toBeDefined()
-
-    await act(async () => {
-      enableCameraAndMotionButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    mockSubscribeToOrientationPose.mockImplementationOnce((onPose: (state: unknown) => void) => {
+      emitPose = onPose as (state: ReturnType<typeof createMockOrientationPoseUpdate>) => void
+      return SENSOR_CONTROLLER
     })
-    await flushEffects()
 
-    expect(mockRequestOrientationPermission).toHaveBeenCalledTimes(1)
-    expect(mockRequestRearCameraStream).toHaveBeenCalledTimes(1)
-    expect(mockRouterReplace).toHaveBeenCalledWith(
-      buildViewerHref({
+    try {
+      await renderViewer({
         entry: 'live',
         location: 'granted',
-        camera: 'granted',
-        orientation: 'granted',
-      }),
-    )
+        camera: 'denied',
+        orientation: 'denied',
+      })
+
+      await openDesktopViewerPanel()
+
+      expect(container.textContent).toContain('Motion recovery')
+
+      const enableCameraAndMotionButton = Array.from(container.querySelectorAll('button')).find(
+        (button) => button.textContent?.includes('Enable camera and motion'),
+      )
+
+      expect(enableCameraAndMotionButton).toBeDefined()
+
+      act(() => {
+        enableCameraAndMotionButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      })
+      await flushEffects()
+      await flushEffects()
+
+      expect(mockRequestOrientationPermission).toHaveBeenCalledTimes(1)
+      expect(mockRequestRearCameraStream).toHaveBeenCalledTimes(1)
+      expect(mockRouterReplace).toHaveBeenCalledWith(
+        buildViewerHref({
+          entry: 'live',
+          location: 'granted',
+          camera: 'granted',
+          orientation: 'unknown',
+        }),
+      )
+      expect(emitPose).not.toBeNull()
+
+      await act(async () => {
+        emitPose?.(
+          createMockOrientationPoseUpdate({
+            source: 'deviceorientation-absolute',
+            providerKind: 'event',
+            absolute: true,
+          }),
+        )
+      })
+      await flushEffects()
+      await act(async () => {
+        emitPose?.(
+          createMockOrientationPoseUpdate({
+            source: 'deviceorientation-absolute',
+            providerKind: 'event',
+            absolute: true,
+          }),
+        )
+      })
+      await flushEffects()
+
+      expect(mockRouterReplace).toHaveBeenLastCalledWith(
+        buildViewerHref({
+          entry: 'live',
+          location: 'granted',
+          camera: 'granted',
+          orientation: 'granted',
+        }),
+      )
+
+      const latestSettingsProps = () =>
+        mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+          | {
+              onEnterDemoMode?: () => void
+            }
+          | undefined
+
+      await act(async () => {
+        latestSettingsProps()?.onEnterDemoMode?.()
+      })
+      await flushEffects()
+    } finally {
+      Object.defineProperty(window, 'requestAnimationFrame', {
+        configurable: true,
+        writable: true,
+        value: originalRequestAnimationFrame,
+      })
+      Object.defineProperty(window, 'cancelAnimationFrame', {
+        configurable: true,
+        writable: true,
+        value: originalCancelAnimationFrame,
+      })
+    }
   })
 
   it('preserves motion denial messaging when the combined recovery CTA retries camera and motion together', async () => {
@@ -2206,6 +2363,8 @@ describe('ViewerShell startup gating', () => {
       camera: 'denied',
       orientation: 'denied',
     })
+
+    await openDesktopViewerPanel()
 
     const enableCameraAndMotionButton = Array.from(container.querySelectorAll('button')).find(
       (button) => button.textContent?.includes('Enable camera and motion'),
@@ -2235,38 +2394,80 @@ describe('ViewerShell startup gating', () => {
   })
 
   it('keeps camera recovery active when combined motion retry throws and surfaces the motion retry error', async () => {
+    const originalRequestAnimationFrame = window.requestAnimationFrame
+    const originalCancelAnimationFrame = window.cancelAnimationFrame
+
+    Object.defineProperty(window, 'requestAnimationFrame', {
+      configurable: true,
+      writable: true,
+      value: vi.fn(() => 1),
+    })
+    Object.defineProperty(window, 'cancelAnimationFrame', {
+      configurable: true,
+      writable: true,
+      value: vi.fn(),
+    })
+
     mockRequestOrientationPermission.mockRejectedValueOnce(new Error('motion retry failed'))
 
-    await renderViewer({
-      entry: 'live',
-      location: 'granted',
-      camera: 'denied',
-      orientation: 'denied',
-    })
-
-    const enableCameraAndMotionButton = Array.from(container.querySelectorAll('button')).find(
-      (button) => button.textContent?.includes('Enable camera and motion'),
-    )
-
-    expect(enableCameraAndMotionButton).toBeDefined()
-
-    await act(async () => {
-      enableCameraAndMotionButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-    await flushEffects()
-
-    expect(mockRequestOrientationPermission).toHaveBeenCalledTimes(1)
-    expect(mockRequestRearCameraStream).toHaveBeenCalledTimes(1)
-    expect(mockRouterReplace).toHaveBeenCalledWith(
-      buildViewerHref({
+    try {
+      await renderViewer({
         entry: 'live',
         location: 'granted',
-        camera: 'granted',
+        camera: 'denied',
         orientation: 'denied',
-      }),
-    )
-    expect(container.textContent).toContain('Motion recovery')
-    expect(container.textContent).toContain('Unable to retry motion permission right now.')
+      })
+
+      await openDesktopViewerPanel()
+
+      const enableCameraAndMotionButton = Array.from(container.querySelectorAll('button')).find(
+        (button) => button.textContent?.includes('Enable camera and motion'),
+      )
+
+      expect(enableCameraAndMotionButton).toBeDefined()
+
+      act(() => {
+        enableCameraAndMotionButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      })
+      await flushEffects()
+      await flushEffects()
+
+      expect(mockRequestOrientationPermission).toHaveBeenCalledTimes(1)
+      expect(mockRequestRearCameraStream).toHaveBeenCalledTimes(1)
+      expect(mockRouterReplace).toHaveBeenCalledWith(
+        buildViewerHref({
+          entry: 'live',
+          location: 'granted',
+          camera: 'granted',
+          orientation: 'denied',
+        }),
+      )
+      expect(container.textContent).toContain('Motion recovery')
+      expect(container.textContent).toContain('Unable to retry motion permission right now.')
+
+      const latestSettingsProps = () =>
+        mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+          | {
+              onEnterDemoMode?: () => void
+            }
+          | undefined
+
+      await act(async () => {
+        latestSettingsProps()?.onEnterDemoMode?.()
+      })
+      await flushEffects()
+    } finally {
+      Object.defineProperty(window, 'requestAnimationFrame', {
+        configurable: true,
+        writable: true,
+        value: originalRequestAnimationFrame,
+      })
+      Object.defineProperty(window, 'cancelAnimationFrame', {
+        configurable: true,
+        writable: true,
+        value: originalCancelAnimationFrame,
+      })
+    }
   })
 
   it('keeps motion recovery visible and syncs denied retry state to the route', async () => {
@@ -2278,6 +2479,8 @@ describe('ViewerShell startup gating', () => {
       camera: 'granted',
       orientation: 'denied',
     })
+
+    await openDesktopViewerPanel()
 
     const enableMotionButton = Array.from(container.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Enable motion'),
@@ -2313,6 +2516,8 @@ describe('ViewerShell startup gating', () => {
       camera: 'granted',
       orientation: 'denied',
     })
+
+    await openDesktopViewerPanel()
 
     expect(container.textContent).toContain('Motion is not enabled.')
     expect(container.textContent).toContain(
@@ -2375,13 +2580,15 @@ describe('ViewerShell startup gating', () => {
       orientation: 'granted',
     })
 
+    await openDesktopViewerPanel()
+
     expect(container.textContent).toContain('Relative sensor mode needs alignment.')
     expect(container.textContent).toMatch(
       /Center .* in the crosshair, then press the middle of the screen to align before trusting label placement\./,
     )
     expect(container.querySelector('[data-testid="alignment-instructions-panel"]')).toBeNull()
-    expect(container.textContent).toContain('Motion: Relative event')
-    expect(container.textContent).toContain('Sensor: Calibrate')
+    expect(container.textContent).toContain('Motion Relative event')
+    expect(container.textContent).toContain('Sensor Calibrate')
   })
 
   it('distinguishes absolute-sensor mode from relative and manual fallbacks', async () => {
@@ -2439,8 +2646,10 @@ describe('ViewerShell startup gating', () => {
       orientation: 'granted',
     })
 
-    expect(container.textContent).toContain('Motion: Absolute sensor')
-    expect(container.textContent).toContain('Sensor: Absolute sensor')
+    await openDesktopViewerPanel()
+
+    expect(container.textContent).toContain('Motion Absolute sensor')
+    expect(container.textContent).toContain('Sensor Absolute sensor')
     expect(container.textContent).not.toContain('Relative sensor mode needs alignment.')
   })
 
@@ -2460,6 +2669,7 @@ describe('ViewerShell startup gating', () => {
       camera: 'granted',
       orientation: 'granted',
     })
+    await openDesktopViewerPanel()
     await flushEffects()
     await act(async () => {
       emitPose?.(
@@ -3579,12 +3789,14 @@ describe('ViewerShell startup gating', () => {
       orientation: 'granted',
     })
 
-    expect(container.textContent).toContain('Sensor: Calibrate')
-    expect(container.textContent).toContain('Motion: Relative event')
+    await openDesktopViewerPanel()
+
+    expect(container.textContent).toContain('Sensor Calibrate')
+    expect(container.textContent).toContain('Motion Relative event')
     expect(container.textContent).toContain('Relative sensor mode needs alignment.')
   })
 
-  it('preserves the desktop viewer header and desktop content composition', async () => {
+  it('keeps desktop chrome compact until the viewer panel is explicitly opened', async () => {
     await renderViewer({
       entry: 'demo',
       location: 'unavailable',
@@ -3596,16 +3808,131 @@ describe('ViewerShell startup gating', () => {
     const desktopHeader = container.querySelector(
       '[data-testid="desktop-viewer-header"]',
     ) as HTMLElement | null
-    const desktopContent = container.querySelector(
-      '[data-testid="desktop-viewer-content"]',
+    const desktopActions = container.querySelector(
+      '[data-testid="desktop-viewer-actions"]',
+    ) as HTMLElement | null
+    const desktopViewerPanel = container.querySelector(
+      '[data-testid="desktop-viewer-panel"]',
+    ) as HTMLElement | null
+    const openViewerButton = container.querySelector(
+      '[data-testid="desktop-open-viewer-action"]',
+    ) as HTMLButtonElement | null
+    const topWarningStack = container.querySelector(
+      '[data-testid="viewer-top-warning-stack"]',
     ) as HTMLElement | null
 
     expect(desktopHeader).not.toBeNull()
     expect(desktopHeader?.textContent).toContain('SkyLens')
     expect(desktopHeader?.querySelector('[data-testid="settings-sheet"]')).not.toBeNull()
-    expect(desktopContent).not.toBeNull()
-    expect(desktopContent?.textContent).toContain('Bottom dock')
-    expect(desktopContent?.textContent).toContain('Privacy reassurance')
+    expect(desktopActions?.textContent).toContain('Open viewer')
+    expect(desktopActions?.textContent).toContain('Enable camera')
+    expect(desktopActions?.textContent).toContain('Motion')
+    expect(desktopActions?.textContent).toContain('Align')
+    expect(topWarningStack).not.toBeNull()
+    expect(topWarningStack?.className).toContain('hidden')
+    expect(topWarningStack?.className).toContain('sm:flex')
+    expect(desktopViewerPanel).toBeNull()
+
+    await act(async () => {
+      openViewerButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(container.querySelector('[data-testid="desktop-viewer-panel"]')?.textContent).toContain(
+      'Viewer snapshot',
+    )
+    expect(container.querySelector('[data-testid="desktop-viewer-panel"]')?.textContent).toContain(
+      'Privacy reassurance',
+    )
+  })
+
+  it('uses hover for desktop summary focus without clearing explicit selection details', async () => {
+    await renderViewer({
+      entry: 'demo',
+      location: 'unavailable',
+      camera: 'unavailable',
+      orientation: 'unavailable',
+      demoScenarioId: 'sf-evening',
+    })
+
+    const markerButtons = Array.from(
+      container.querySelectorAll('[data-testid="sky-object-marker"]'),
+    ) as HTMLButtonElement[]
+    const polarisButton = markerButtons.find((button) =>
+      button.getAttribute('aria-label')?.includes('Polaris'),
+    )
+    const secondaryButton = markerButtons.find((button) => button !== polarisButton)
+    const activeSummary = container.querySelector(
+      '[data-testid="desktop-active-object-summary"]',
+    ) as HTMLElement | null
+
+    expect(polarisButton).toBeDefined()
+    expect(secondaryButton).toBeDefined()
+
+    await act(async () => {
+      dispatchPointerEvent(polarisButton!, 'pointerover', {
+        pointerId: 3,
+        clientX: 120,
+        clientY: 120,
+      })
+    })
+
+    expect(activeSummary?.textContent).toContain('Polaris')
+
+    await act(async () => {
+      polarisButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(container.querySelector('[data-testid="desktop-viewer-panel"]')?.textContent).toContain(
+      'Selected object',
+    )
+    expect(container.querySelector('[data-testid="desktop-viewer-panel"]')?.textContent).toContain(
+      'Polaris',
+    )
+
+    const secondaryLabel = extractMarkerLabel(secondaryButton!)
+
+    await act(async () => {
+      dispatchPointerEvent(secondaryButton!, 'pointerover', {
+        pointerId: 4,
+        clientX: 160,
+        clientY: 120,
+      })
+    })
+
+    expect(activeSummary?.textContent).toContain(secondaryLabel)
+    expect(container.querySelector('[data-testid="desktop-viewer-panel"]')?.textContent).toContain(
+      'Selected object',
+    )
+    expect(container.querySelector('[data-testid="desktop-viewer-panel"]')?.textContent).toContain(
+      'Polaris',
+    )
+
+    await act(async () => {
+      dispatchPointerEvent(secondaryButton!, 'pointerout', {
+        pointerId: 4,
+        clientX: 160,
+        clientY: 120,
+      })
+    })
+
+    expect(activeSummary?.textContent).toContain('Polaris')
+  })
+
+  it('disables the desktop Align action when manual pan is active', async () => {
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'denied',
+    })
+
+    const alignButton = container.querySelector(
+      '[data-testid="desktop-align-action"]',
+    ) as HTMLButtonElement | null
+
+    expect(alignButton).not.toBeNull()
+    expect(alignButton?.disabled).toBe(true)
+    expect(alignButton?.textContent).toContain('Motion required')
   })
 
   async function renderViewer(initialState: ViewerRouteState) {
@@ -3613,6 +3940,25 @@ describe('ViewerShell startup gating', () => {
       root.render(React.createElement(ViewerShell, { initialState }))
     })
 
+    await flushEffects()
+  }
+
+  async function openDesktopViewerPanel() {
+    if (container.querySelector('[data-testid="desktop-viewer-panel"]')) {
+      return
+    }
+
+    const openViewerButton = container.querySelector(
+      '[data-testid="desktop-open-viewer-action"]',
+    ) as HTMLButtonElement | null
+
+    if (!openViewerButton) {
+      return
+    }
+
+    await act(async () => {
+      openViewerButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
     await flushEffects()
   }
 
@@ -3808,6 +4154,13 @@ function createMatchMediaController(initialMatches: boolean) {
       }
     },
   }
+}
+
+function extractMarkerLabel(button: HTMLButtonElement) {
+  return (button.getAttribute('aria-label') ?? '').replace(
+    / (Aircraft|Satellite|Sun|Moon|Planet|Star|Major star pattern)( .*)?$/,
+    '',
+  )
 }
 
 function installAnimationFrameClock() {

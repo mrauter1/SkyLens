@@ -20,7 +20,7 @@ describe('next config', () => {
 
   it('emits the live ar permissions-policy header for all routes', async () => {
     expect(SKYLENS_PERMISSIONS_POLICY).toBe(
-      'accelerometer=(self), gyroscope=(self), magnetometer=(self)',
+      'camera=(self), geolocation=(self), accelerometer=(self), gyroscope=(self), magnetometer=(self)',
     )
     await expect(nextConfig.headers?.()).resolves.toEqual(SKYLENS_NEXT_HEADERS)
   })
@@ -29,5 +29,20 @@ describe('next config', () => {
     const artifact = readFileSync(resolve(PROJECT_ROOT, 'public/_headers'), 'utf8')
 
     expect(artifact).toBe(SKYLENS_STATIC_HOST_HEADERS)
+  })
+
+  it('ships generated export headers that preserve permissions-policy parity', () => {
+    const artifact = readFileSync(resolve(PROJECT_ROOT, 'out/_headers'), 'utf8')
+
+    expect(artifact).toBe(SKYLENS_STATIC_HOST_HEADERS)
+  })
+
+  it('ships generated embed export artifacts with the delegated five-capability contract', () => {
+    const artifact = readFileSync(resolve(PROJECT_ROOT, 'out/embed-validation.html'), 'utf8')
+
+    expect(artifact).toContain('camera; geolocation; accelerometer; gyroscope; magnetometer')
+    expect(artifact).toContain('camera, geolocation, and motion sensors.')
+    expect(artifact).not.toContain('allow=\"accelerometer; gyroscope; magnetometer\"')
+    expect(artifact).not.toContain('accelerometer, gyroscope, and magnetometer.')
   })
 })

@@ -97,3 +97,27 @@ test('mobile overlay keeps lower sections reachable on a short viewport', async 
 
   await expect(mobileOverlay.getByText('Privacy reassurance')).toBeInViewport()
 })
+
+test('desktop viewer keeps actions visible and opens the compact viewer panel on demand', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 960 })
+  await page.goto(SF_DEMO_ROUTE)
+
+  const desktopHeader = page.getByTestId('desktop-viewer-header')
+  const openViewerAction = page.getByTestId('desktop-open-viewer-action')
+  const desktopViewerPanel = page.getByTestId('desktop-viewer-panel')
+
+  await expect(desktopHeader).toBeVisible()
+  await expect(page.getByTestId('desktop-viewer-actions')).toContainText('Open viewer')
+  await expect(page.getByTestId('desktop-viewer-actions')).toContainText('Enable camera')
+  await expect(page.getByTestId('desktop-viewer-actions')).toContainText('Motion')
+  await expect(page.getByTestId('desktop-viewer-actions')).toContainText('Align')
+  await expect(desktopViewerPanel).toHaveCount(0)
+
+  await openViewerAction.click()
+
+  await expect(desktopViewerPanel).toBeVisible()
+  await expect(desktopViewerPanel.getByText('Viewer snapshot')).toBeVisible()
+  await expect(desktopViewerPanel.getByText('Privacy reassurance')).toBeVisible()
+})
