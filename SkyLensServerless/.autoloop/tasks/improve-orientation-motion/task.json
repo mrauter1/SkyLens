@@ -1,0 +1,7 @@
+{
+  "task_id": "improve-orientation-motion",
+  "created_at": "2026-03-28T21:59:19.197367+00:00",
+  "request_text": "# Autoloop Task: Improve Orientation and Motion Compatibility in SkyLensServerless\n\n## Scope\nApply all implementation work only within the `SkyLensServerless/` app.\n\n## Source of truth\nUse `SkyLensServerless/ImproveOrientarionAndMotion.md` as the single source of truth.\n\n## Execution requirements\n- Execute iterative pairs in this exact set: `plan,implement,test`.\n- Enable full auto answers.\n- Do not set `max_iterations`.\n- Continue until the task is complete and tests/checks pass (or failures are fully diagnosed with actionable output).\n- Do not manually implement changes outside autoloop.\n\n## Deliverables\n- Code updates under `SkyLensServerless/` implementing the orientation/motion refactor defined in the source task.\n- Updated/added tests needed for the new behavior.\n- Verification output from the `test` phase.",
+  "request_updated_at": "2026-03-28T21:59:19.197426+00:00",
+  "phase_plan_path": ".autoloop/tasks/improve-orientation-motion/plan/phase_plan.yaml"
+}

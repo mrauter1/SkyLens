@@ -1,0 +1,66 @@
+version: 1
+task_id: improve-orientation-motion
+request_snapshot_ref: /workspace/SkyLens/SkyLensServerless/.autoloop/tasks/improve-orientation-motion/runs/run-20260328T215919Z-e9ce4f1b/request.md
+phases:
+  - phase_id: orientation-runtime-refactor
+    title: Refactor Orientation Runtime And Provider Arbitration
+    objective: Implement the source-of-truth provider ladder, readiness model, and failover behavior inside the orientation runtime without regressing current Safari event support.
+    status: planned
+    in_scope:
+      - Update orientation types, constants, capability helpers, and permission-hint helpers in lib/sensors/orientation.ts.
+      - Add relative sensor support, rewrite event classification, and refactor raw pose creation for matrix/quaternion-backed samples.
+      - Replace the current stream race with coordinated provider arbitration, Safari compass validation upgrade, absolute upgrade windows, stall recovery, and lifecycle restarts.
+    out_of_scope:
+      - Devicemotion as a pose source.
+      - User-agent-based provider selection.
+      - Manual pan control redesign.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: The runtime exposes the new type surface, prompt-only permission flow, and exact provider preference order from the source task.
+      - id: AC-2
+        text: Relative vs absolute classification, Safari compass validation upgrade, and provider restart behavior are encoded in runtime logic rather than viewer heuristics.
+      - id: AC-3
+        text: Screen correction is applied only where appropriate so screen-framed sensor data is not double-corrected.
+    deliverables:
+      - Updated lib/sensors/orientation.ts
+      - Orientation runtime test plan coverage implemented in tests/unit/orientation.test.ts
+    risks:
+      - iOS Safari may regress if compass-backed event samples are promoted to absolute before validation completes.
+      - Provider restart logic may thrash if stall timing and upgrade timing interact incorrectly.
+      - Persisted calibration may drift if new source labels are not accepted everywhere they are serialized.
+    rollback:
+      - Revert to the last known-good absolute sensor plus event fallback selection path if the coordinator proves unstable.
+      - Disable relative-sensor startup while keeping the new event classification if only Generic Sensor behavior is problematic.
+  - phase_id: viewer-integration-and-verification
+    title: Integrate Viewer Readiness Model And Complete Verification
+    objective: Update ViewerShell and tests so motion readiness depends on actual samples, provider-specific UI/copy is accurate, and automated verification covers the new browser behaviors.
+    status: planned
+    in_scope:
+      - Update components/viewer/viewer-shell.tsx startup, timeout, status-label, diagnostics, and recovery-copy behavior around the new orientation coordinator.
+      - Extend viewer settings compatibility if the new orientation source affects serialized calibration state.
+      - Verify the required Permissions-Policy behavior and add or update unit tests for runtime and viewer behavior.
+    out_of_scope:
+      - Broad redesign of the viewer shell layout.
+      - Changes outside the SkyLensServerless app.
+      - Physical-device execution infrastructure.
+    dependencies:
+      - orientation-runtime-refactor
+    acceptance_criteria:
+      - id: AC-1
+        text: Viewer route orientation remains unknown until the first usable orientation sample and only then transitions to granted.
+      - id: AC-2
+        text: Relative and absolute providers produce distinct status/recovery behavior without regressing manual, camera-only, or demo flows.
+      - id: AC-3
+        text: Unit tests cover prompt denial, no-provider timeout classification, provider-specific calibration UX, and Safari validated-upgrade behavior.
+    deliverables:
+      - Updated components/viewer/viewer-shell.tsx
+      - Updated tests/unit/viewer-shell.test.ts
+      - Verification of permissions-policy handling in next.config.ts
+    risks:
+      - Viewer state may still mark motion ready too early if route-state updates are not tied to the first usable sample.
+      - Recovery copy may drift from actual behavior if browser-family messaging leaks into provider selection logic.
+      - Existing startup gating tests may need broader fixture control to simulate sample-driven readiness correctly.
+    rollback:
+      - Keep the new runtime behind the existing viewer startup wiring temporarily if sample-driven route updates cause broader regressions.
+      - Preserve the current generic motion labels if copy changes create confusion before provider diagnostics are stable.

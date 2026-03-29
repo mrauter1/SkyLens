@@ -19,7 +19,9 @@ describe('next config', () => {
   })
 
   it('emits the live ar permissions-policy header for all routes', async () => {
-    expect(SKYLENS_PERMISSIONS_POLICY).toContain('camera=(self)')
+    expect(SKYLENS_PERMISSIONS_POLICY).toBe(
+      'accelerometer=(self), gyroscope=(self), magnetometer=(self)',
+    )
     await expect(nextConfig.headers?.()).resolves.toEqual(SKYLENS_NEXT_HEADERS)
   })
 

@@ -1,0 +1,4 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260328T215919Z-e9ce4f1b" ts="2026-03-28T21:59:19.309005+00:00" />
+Keep route orientation state at unknown after permission prompting until the first usable orientation sample arrives; permission results alone do not mean readiness.
+Add relative-sensor to persisted calibration source handling, but do not add any public compass-specific OrientationSource enum value.
+Preserve the existing narrow accelerometer/gyroscope/magnetometer Permissions-Policy allowlist and use browser-family detection only for recovery/help copy, never provider selection.

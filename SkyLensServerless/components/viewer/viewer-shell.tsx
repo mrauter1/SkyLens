@@ -100,6 +100,8 @@ import {
   createPoseCalibrationFromReferencePose,
   createManualPoseState,
   createIdentityPoseCalibration,
+  getOrientationCapabilities,
+  getScreenOrientationCorrectionDeg,
   recenterManualPose,
   requestOrientationPermission,
   subscribeToOrientationPose,
@@ -143,6 +145,7 @@ type StartupState =
   | 'unsupported'
   | 'ready-to-request'
   | 'requesting'
+  | 'awaiting-orientation'
   | 'camera-only'
   | 'sensor-relative-needs-calibration'
   | 'sensor-absolute'
@@ -154,6 +157,13 @@ type RuntimeExperience = {
   title: string
   body: string
 }
+
+type BrowserFamily =
+  | 'ios-safari'
+  | 'chrome-android'
+  | 'firefox-android'
+  | 'samsung-internet'
+  | 'other'
 
 type ManualObserverDraft = {
   lat: string
@@ -215,6 +225,7 @@ const EMPTY_CONSTELLATION_SCENE = {
 const WORLD_UP: [number, number, number] = [0, 0, 1]
 const SCENE_CLOCK_COARSE_INTERVAL_MS = 1_000
 const AIRCRAFT_REQUEST_TIMEOUT_MS = 8_000
+const ORIENTATION_READY_TIMEOUT_MS = 1_500
 const SCENE_CLOCK_FRAME_INTERVAL_MS: Record<Exclude<MotionQuality, 'low'>, number> = {
   balanced: 1_000 / 15,
   high: 1_000 / 30,
@@ -313,6 +324,9 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const [isMobileAlignmentFocusActive, setIsMobileAlignmentFocusActive] = useState(false)
   const [motionRetryError, setMotionRetryError] = useState<string | null>(null)
   const [manualObserverError, setManualObserverError] = useState<string | null>(null)
+  const [orientationSampleRateHz, setOrientationSampleRateHz] = useState<number | null>(null)
+  const [orientationUpgradedFromRelative, setOrientationUpgradedFromRelative] =
+    useState(false)
   const [manualObserverDraft, setManualObserverDraft] = useState<ManualObserverDraft>(() =>
     createManualObserverDraft(persistedViewerSettings.manualObserver),
   )
@@ -327,8 +341,18 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const cameraStreamRef = useRef<MediaStream | null>(null)
   const cameraRequestIdRef = useRef(0)
   const lastOpenedCameraPreferenceRef = useRef<string | null>(null)
+  const orientationStartupTimeoutRef = useRef<number | null>(null)
+  const viewerRouteStateRef = useRef(state)
   const liveObserverRef = useRef<ObserverState | null>(persistedManualObserver)
   const latestAircraftSnapshotTimeSRef = useRef<number | null>(null)
+  const previousOrientationSampleTimestampRef = useRef<number | null>(null)
+  const previousOrientationSelectionRef = useRef<{
+    source: OrientationSource | null
+    absolute: boolean
+  }>({
+    source: null,
+    absolute: false,
+  })
   const sceneTimeMsRef = useRef(sceneTimeMs)
   const aircraftTrackerRef = useRef(createAircraftTracker())
   const poorSinceRef = useRef<number | null>(null)
@@ -366,6 +390,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     startupState,
     hasObserver: observer !== null,
   })
+  const browserFamily = getBrowserFamily()
   const locationError = state.entry === 'demo' ? null : liveLocationError
   const manualMode =
     experience.mode === 'demo' || experience.mode === 'manual-pan'
@@ -433,10 +458,16 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const motionStatusValue = getMotionBadgeValue(
     experience.mode,
     state,
-    cameraPose,
     startupState,
     orientationSource,
+    latestOrientationSample,
   )
+  const orientationDiagnosticsNowMs =
+    state.entry === 'live' ? sceneTimeMs : getCurrentTimestampMs()
+  const orientationSampleAgeMs =
+    latestOrientationSample === null
+      ? null
+      : Math.max(0, orientationDiagnosticsNowMs - latestOrientationSample.timestampMs)
   const constellationScene =
     observer && sceneSnapshot.error === null
       ? buildVisibleConstellations({
@@ -630,9 +661,14 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     orientationSource,
     orientationAbsolute,
     cameraPose,
+    latestOrientationSample,
+    poseCalibration: viewerSettings.poseCalibration,
+    orientationUpgradedFromRelative,
   })
   const showMobilePermissionAction =
     state.entry === 'live' &&
+    startupState !== 'awaiting-orientation' &&
+    startupState !== 'requesting' &&
     (state.camera !== 'granted' || state.orientation !== 'granted')
   const showMobileAlignAction = state.entry === 'live' && !isMobileAlignmentFocusActive
   const permissionRecoveryAction = getPermissionRecoveryAction(state)
@@ -677,10 +713,18 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     setIsMobileAlignmentFocusActive(false)
   }
 
-  const commitViewerRouteState = (nextState: ViewerRouteState) => {
+  const clearOrientationStartupTimeout = useCallback(() => {
+    if (orientationStartupTimeoutRef.current !== null) {
+      window.clearTimeout(orientationStartupTimeoutRef.current)
+      orientationStartupTimeoutRef.current = null
+    }
+  }, [])
+
+  const commitViewerRouteState = useCallback((nextState: ViewerRouteState) => {
+    viewerRouteStateRef.current = nextState
     setState(nextState)
     router.replace(buildViewerHref(nextState))
-  }
+  }, [router])
 
   const syncCameraDevices = async () => {
     if (typeof navigator === 'undefined' || !navigator.mediaDevices) {
@@ -831,11 +875,11 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       }),
     )
 
-    if (orientation !== 'granted') {
+    if (orientation === 'denied' || orientation === 'unavailable') {
       setMotionRetryError(
         orientation === 'denied'
-          ? 'Motion access is still denied. Check iOS Settings → Safari → Motion & Orientation Access, then retry.'
-          : 'Motion sensors are unavailable on this device/browser right now.',
+          ? getMotionDeniedMessage(browserFamily)
+          : getMotionUnavailableMessage(browserFamily),
       )
     }
   }
@@ -847,6 +891,28 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       setMotionRetryError('Unable to retry motion permission right now.')
       return null
     }
+  }
+
+  const normalizeOrientationPromptStatus = (
+    orientation: PermissionStatusValue,
+  ): PermissionStatusValue => (
+    orientation === 'granted' || orientation === 'unavailable'
+      ? 'unknown'
+      : orientation
+  )
+
+  const resetOrientationSessionState = (baselineAbsolute: boolean) => {
+    previousOrientationSampleTimestampRef.current = null
+    previousOrientationSelectionRef.current = {
+      source: null,
+      absolute: false,
+    }
+    setOrientationSampleRateHz(null)
+    setOrientationUpgradedFromRelative(false)
+    setOrientationNeedsCalibration(false)
+    setLatestOrientationSample(null)
+    setOrientationSource(null)
+    setOrientationAbsolute(baselineAbsolute)
   }
 
   const handleRetryPermissions = () => {
@@ -867,6 +933,8 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       }
 
       setStartupState('requesting')
+      clearOrientationStartupTimeout()
+      resetOrientationSessionState(false)
       markViewerOnboardingCompleted()
       setViewerSettings((current) => ({
         ...current,
@@ -888,9 +956,11 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         }
 
         const observerResult = await requestInitialObserver()
+        const normalizedOrientation =
+          orientation === null ? null : normalizeOrientationPromptStatus(orientation)
         const nextState: ViewerRouteState = {
           ...state,
-          orientation: orientation ?? state.orientation,
+          orientation: normalizedOrientation ?? state.orientation,
           camera,
           location: observerResult.locationStatus,
         }
@@ -913,7 +983,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         }
 
         applyOrientationRetryResult({
-          orientation,
+          orientation: normalizedOrientation,
           nextState,
           hasObserver: observerResult.hasObserver,
           orientationNeedsCalibration: false,
@@ -980,11 +1050,13 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         return
       }
 
+      const normalizedOrientation = normalizeOrientationPromptStatus(orientation)
+
       applyOrientationRetryResult({
-        orientation,
+        orientation: normalizedOrientation,
         nextState: {
           ...state,
-          orientation,
+          orientation: normalizedOrientation,
         },
         hasObserver: observer !== null,
       })
@@ -1843,11 +1915,20 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   }, [])
 
   useEffect(() => {
+    viewerRouteStateRef.current = state
+  }, [state])
+
+  useEffect(() => {
     orientationControllerRef.current?.stop()
     orientationControllerRef.current = null
     poorSinceRef.current = null
 
     if (!hasLiveSessionStarted || manualMode) {
+      clearOrientationStartupTimeout()
+      setCalibrationBanner(null)
+      resetOrientationSessionState(
+        viewerRouteStateRef.current.orientation === 'granted',
+      )
       return
     }
 
@@ -1865,10 +1946,40 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         setOrientationAbsolute(orientationAbsolute)
         setOrientationNeedsCalibration(orientationNeedsCalibration)
         setLatestOrientationSample(sample)
+        clearOrientationStartupTimeout()
+        if (previousOrientationSampleTimestampRef.current !== null) {
+          const sampleIntervalMs = sample.timestampMs - previousOrientationSampleTimestampRef.current
+
+          if (sampleIntervalMs > 0) {
+            setOrientationSampleRateHz(1_000 / sampleIntervalMs)
+          }
+        }
+        previousOrientationSampleTimestampRef.current = sample.timestampMs
+        const previousSelection = previousOrientationSelectionRef.current
+        const upgradedFromRelative =
+          orientationAbsolute &&
+          (previousSelection.source === 'relative-sensor' ||
+            previousSelection.source === 'deviceorientation-relative' ||
+            (!previousSelection.absolute && previousSelection.source !== null))
+        setOrientationUpgradedFromRelative((current) =>
+          orientationAbsolute ? current || upgradedFromRelative : false,
+        )
+        previousOrientationSelectionRef.current = {
+          source: nextOrientationSource,
+          absolute: orientationAbsolute,
+        }
+        const currentRouteState = viewerRouteStateRef.current
+
+        if (currentRouteState.orientation !== 'granted') {
+          commitViewerRouteState({
+            ...currentRouteState,
+            orientation: 'granted',
+          })
+        }
         setStartupState(
           resolveStartupState({
             orientationStatus: 'granted',
-            cameraStatus: state.camera,
+            cameraStatus: currentRouteState.camera,
             hasObserver: liveObserverRef.current !== null,
             orientationNeedsCalibration,
             orientationAbsolute,
@@ -1911,17 +2022,60 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         orientationControllerRef.current = null
       }
 
+      clearOrientationStartupTimeout()
       poorSinceRef.current = null
       setCalibrationBanner(null)
-      setOrientationSource(null)
-      setOrientationAbsolute(state.orientation === 'granted')
-      setOrientationNeedsCalibration(false)
-      setLatestOrientationSample(null)
+      previousOrientationSampleTimestampRef.current = null
+      previousOrientationSelectionRef.current = {
+        source: null,
+        absolute: false,
+      }
     }
   }, [
+    clearOrientationStartupTimeout,
+    commitViewerRouteState,
     hasLiveSessionStarted,
     manualMode,
-    state.camera,
+  ])
+
+  useEffect(() => {
+    clearOrientationStartupTimeout()
+
+    if (
+      state.entry !== 'live' ||
+      startupState !== 'awaiting-orientation' ||
+      state.orientation !== 'unknown'
+    ) {
+      return
+    }
+
+    orientationStartupTimeoutRef.current = window.setTimeout(() => {
+      const currentRouteState = viewerRouteStateRef.current
+      const nextOrientationStatus = resolveOrientationTimeoutStatus()
+
+      setMotionRetryError(getMotionStartupTimeoutMessage(browserFamily, nextOrientationStatus))
+      commitViewerRouteState({
+        ...currentRouteState,
+        orientation: nextOrientationStatus,
+      })
+      setStartupState(
+        resolveStartupState({
+          orientationStatus: nextOrientationStatus,
+          cameraStatus: currentRouteState.camera,
+          hasObserver: liveObserverRef.current !== null,
+          orientationNeedsCalibration: false,
+          orientationAbsolute: false,
+        }),
+      )
+    }, ORIENTATION_READY_TIMEOUT_MS)
+
+    return clearOrientationStartupTimeout
+  }, [
+    browserFamily,
+    clearOrientationStartupTimeout,
+    commitViewerRouteState,
+    startupState,
+    state.entry,
     state.orientation,
   ])
 
@@ -2221,19 +2375,20 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     onOpenChange: setIsMobileSettingsSheetOpen,
   }
   const motionDisabledWarning =
-    state.entry !== 'demo' && state.orientation !== 'granted'
+    state.entry !== 'demo' &&
+    (state.orientation === 'denied' || state.orientation === 'unavailable')
       ? {
           title: 'Motion is not enabled.',
           body: 'Sky elements will not appear in the right location until motion is enabled. Use manual pan in the meantime.',
         }
       : null
   const motionRecoveryPanel =
-    state.entry !== 'demo' && state.orientation !== 'granted' ? (
+    state.entry !== 'demo' &&
+    (state.orientation === 'denied' || state.orientation === 'unavailable') ? (
       <section className="rounded-[1.25rem] border border-sky-100/10 bg-white/5 p-4">
         <p className="text-xs uppercase tracking-[0.2em] text-amber-200/70">Motion recovery</p>
         <p className="mt-2 text-sm leading-6 text-sky-100/80">
-          On iPhone Safari, enable motion in iOS Settings → Safari → Motion & Orientation
-          Access, then return and retry.
+          {getMotionRecoveryBody(browserFamily)}
         </p>
         <button
           type="button"
@@ -2725,6 +2880,12 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                   body={`Center ${calibrationTarget.label} in the crosshair, then press the middle of the screen to align before trusting label placement.`}
                 />
               ) : null}
+              {startupState === 'awaiting-orientation' ? (
+                <FallbackBanner
+                  title="Waiting for motion data."
+                  body="SkyLens requested motion access and is waiting for the first usable sample before it marks orientation ready."
+                />
+              ) : null}
               {calibrationBanner ? (
                 <FallbackBanner
                   title="Calibration"
@@ -2737,6 +2898,13 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                   body={`Move phone in a figure eight or open Alignment to use ${calibrationTarget.label}.`}
                 />
               ) : null}
+              <DevelopmentOrientationDiagnostics
+                sample={latestOrientationSample}
+                sampleAgeMs={orientationSampleAgeMs}
+                sampleRateHz={orientationSampleRateHz}
+                poseCalibration={viewerSettings.poseCalibration}
+                orientationUpgradedFromRelative={orientationUpgradedFromRelative}
+              />
               {shouldShowAlignmentInstructions ? (
                 <AlignmentInstructionsPanel
                   targetLabel={calibrationTarget.label}
@@ -2999,6 +3167,12 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                           body={`Center ${calibrationTarget.label} in the crosshair, then press the middle of the screen to align before trusting label placement.`}
                         />
                       ) : null}
+                      {startupState === 'awaiting-orientation' ? (
+                        <FallbackBanner
+                          title="Waiting for motion data."
+                          body="SkyLens requested motion access and is waiting for the first usable sample before it marks orientation ready."
+                        />
+                      ) : null}
                       {calibrationBanner ? (
                         <FallbackBanner
                           title="Calibration"
@@ -3011,6 +3185,13 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                           body={`Move phone in a figure eight or open Alignment to use ${calibrationTarget.label}.`}
                         />
                       ) : null}
+                      <DevelopmentOrientationDiagnostics
+                        sample={latestOrientationSample}
+                        sampleAgeMs={orientationSampleAgeMs}
+                        sampleRateHz={orientationSampleRateHz}
+                        poseCalibration={viewerSettings.poseCalibration}
+                        orientationUpgradedFromRelative={orientationUpgradedFromRelative}
+                      />
                       <section className="rounded-[1.25rem] border border-sky-100/10 bg-white/5 p-4">
                         <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">
                           Viewer snapshot
@@ -3195,6 +3376,12 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                             body={`Center ${calibrationTarget.label} in the crosshair, then press the middle of the screen to align before trusting label placement.`}
                           />
                         ) : null}
+                        {startupState === 'awaiting-orientation' ? (
+                          <FallbackBanner
+                            title="Waiting for motion data."
+                            body="SkyLens requested motion access and is waiting for the first usable sample before it marks orientation ready."
+                          />
+                        ) : null}
                         {calibrationBanner ? (
                           <FallbackBanner
                             title="Calibration"
@@ -3207,6 +3394,13 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                             body={`Move phone in a figure eight or open Alignment to use ${calibrationTarget.label}.`}
                           />
                         ) : null}
+                        <DevelopmentOrientationDiagnostics
+                          sample={latestOrientationSample}
+                          sampleAgeMs={orientationSampleAgeMs}
+                          sampleRateHz={orientationSampleRateHz}
+                          poseCalibration={viewerSettings.poseCalibration}
+                          orientationUpgradedFromRelative={orientationUpgradedFromRelative}
+                        />
                         <section className="rounded-[1.25rem] border border-sky-100/10 bg-white/5 p-4">
                           <div className="flex flex-col gap-4">
                             <div>
@@ -3824,18 +4018,44 @@ function getSensorStatusValue({
   orientationSource,
   orientationAbsolute,
   cameraPose,
+  latestOrientationSample,
+  poseCalibration,
+  orientationUpgradedFromRelative,
 }: {
   startupState: StartupState
   orientationSource: OrientationSource | null
   orientationAbsolute: boolean
   cameraPose: CameraPose
+  latestOrientationSample: OrientationSample | null
+  poseCalibration: PoseCalibration
+  orientationUpgradedFromRelative: boolean
 }) {
   if (cameraPose.mode === 'manual') {
     return 'Manual'
   }
 
+  if (startupState === 'awaiting-orientation') {
+    return 'Waiting'
+  }
+
   if (startupState === 'sensor-relative-needs-calibration') {
-    return 'Relative'
+    return latestOrientationSample?.compassBacked ? 'Compass relative' : 'Calibrate'
+  }
+
+  if (orientationUpgradedFromRelative) {
+    return 'Upgraded'
+  }
+
+  if (latestOrientationSample?.compassBacked && orientationAbsolute) {
+    return 'Compass validated'
+  }
+
+  if (latestOrientationSample?.compassBacked) {
+    return 'Compass-backed'
+  }
+
+  if (poseCalibration.calibrated) {
+    return 'Calibrated'
   }
 
   if (orientationSource === 'absolute-sensor') {
@@ -3930,6 +4150,161 @@ function FallbackBanner({
       </p>
     </section>
   )
+}
+
+function DevelopmentOrientationDiagnostics({
+  sample,
+  sampleAgeMs,
+  sampleRateHz,
+  poseCalibration,
+  orientationUpgradedFromRelative,
+}: {
+  sample: OrientationSample | null
+  sampleAgeMs: number | null
+  sampleRateHz: number | null
+  poseCalibration: PoseCalibration
+  orientationUpgradedFromRelative: boolean
+}) {
+  if (process.env.NODE_ENV === 'production') {
+    return null
+  }
+
+  const rows = [
+    ['Selected source', sample?.source ?? 'pending'],
+    ['Provider kind', sample?.rawSample.providerKind ?? 'pending'],
+    ['Absolute', formatDiagnosticsBoolean(sample?.absolute)],
+    ['Compass-backed', formatDiagnosticsBoolean(sample?.compassBacked)],
+    ['Sample rate', sampleRateHz === null ? 'pending' : `${sampleRateHz.toFixed(1)} Hz`],
+    ['Last sample age', sampleAgeMs === null ? 'pending' : `${Math.round(sampleAgeMs)} ms`],
+    ['Screen angle', `${getScreenOrientationCorrectionDeg()}°`],
+    ['Compass heading', formatDiagnosticsDegrees(sample?.reportedCompassHeadingDeg)],
+    ['Compass accuracy', formatDiagnosticsDegrees(sample?.compassAccuracyDeg)],
+    ['Calibration active', formatDiagnosticsBoolean(poseCalibration.calibrated)],
+    ['Upgraded', formatDiagnosticsBoolean(orientationUpgradedFromRelative)],
+  ] as const
+
+  return (
+    <section
+      className="rounded-[1.25rem] border border-sky-100/10 bg-slate-950/55 p-4 text-sm"
+      data-testid="orientation-diagnostics"
+    >
+      <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">Orientation diagnostics</p>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        {rows.map(([label, value]) => (
+          <div
+            key={label}
+            className="rounded-2xl border border-sky-100/10 bg-white/5 px-3 py-2"
+          >
+            <p className="text-[10px] uppercase tracking-[0.16em] text-sky-200/60">{label}</p>
+            <p className="mt-1 text-sm text-sky-50">{value}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function formatDiagnosticsBoolean(value: boolean | undefined) {
+  if (typeof value !== 'boolean') {
+    return 'pending'
+  }
+
+  return value ? 'yes' : 'no'
+}
+
+function formatDiagnosticsDegrees(value: number | undefined) {
+  return typeof value === 'number' ? `${value.toFixed(1)}°` : 'n/a'
+}
+
+function getBrowserFamily(): BrowserFamily {
+  if (typeof navigator === 'undefined') {
+    return 'other'
+  }
+
+  const userAgent = navigator.userAgent
+  const isAndroid = /Android/i.test(userAgent)
+  const isSafari = /Safari/i.test(userAgent) && !/CriOS|Chrome|FxiOS|Firefox|SamsungBrowser/i.test(userAgent)
+
+  if (/iPhone|iPad|iPod/i.test(userAgent) && isSafari) {
+    return 'ios-safari'
+  }
+
+  if (isAndroid && /SamsungBrowser/i.test(userAgent)) {
+    return 'samsung-internet'
+  }
+
+  if (isAndroid && /Firefox/i.test(userAgent)) {
+    return 'firefox-android'
+  }
+
+  if (isAndroid && /Chrome|CriOS/i.test(userAgent)) {
+    return 'chrome-android'
+  }
+
+  return 'other'
+}
+
+function getMotionRecoveryBody(browserFamily: BrowserFamily) {
+  switch (browserFamily) {
+    case 'ios-safari':
+      return 'On iPhone Safari, enable motion in iOS Settings → Safari → Motion & Orientation Access, then return and retry.'
+    case 'chrome-android':
+      return 'On Chrome for Android, confirm site motion sensors are allowed for this origin, then retry from the viewer.'
+    case 'firefox-android':
+      return 'On Firefox for Android, motion can stay on a relative event path. Retry here, then align before trusting labels if relative mode comes back.'
+    case 'samsung-internet':
+      return 'On Samsung Internet, retry motion here and confirm site sensor permissions. Chromium-like behavior can vary by Samsung Internet version.'
+    default:
+      return 'Retry motion from this viewer and confirm this browser allows accelerometer, gyroscope, and magnetometer access for the page.'
+  }
+}
+
+function getMotionDeniedMessage(browserFamily: BrowserFamily) {
+  switch (browserFamily) {
+    case 'ios-safari':
+      return 'Motion access is still denied. Check iOS Settings → Safari → Motion & Orientation Access, then retry.'
+    case 'chrome-android':
+      return 'Motion access is still denied. Check this site’s motion sensor permission in Chrome for Android, then retry.'
+    case 'firefox-android':
+      return 'Motion access is still denied. Firefox for Android can require a relative fallback, so retry and align if sensors return.'
+    case 'samsung-internet':
+      return 'Motion access is still denied. Check Samsung Internet site permissions, then retry because sensor behavior can vary by version.'
+    default:
+      return 'Motion access is still denied. Check this browser’s site sensor permissions, then retry.'
+  }
+}
+
+function getMotionUnavailableMessage(browserFamily: BrowserFamily) {
+  switch (browserFamily) {
+    case 'firefox-android':
+      return 'Motion sensors are unavailable right now. Firefox for Android can fall back to relative events when they are exposed, so retry and align if that path returns.'
+    case 'samsung-internet':
+      return 'Motion sensors are unavailable right now. Samsung Internet can vary by version and device, so retry and fall back to manual pan if needed.'
+    default:
+      return 'Motion sensors are unavailable on this device/browser right now.'
+  }
+}
+
+function getMotionStartupTimeoutMessage(
+  browserFamily: BrowserFamily,
+  orientationStatus: Extract<PermissionStatusValue, 'denied' | 'unavailable'>,
+) {
+  return orientationStatus === 'denied'
+    ? getMotionDeniedMessage(browserFamily)
+    : getMotionUnavailableMessage(browserFamily)
+}
+
+function resolveOrientationTimeoutStatus(): Extract<
+  PermissionStatusValue,
+  'denied' | 'unavailable'
+> {
+  const capabilities = getOrientationCapabilities()
+
+  return capabilities.hasEvents ||
+    capabilities.hasAbsoluteSensor ||
+    capabilities.hasRelativeSensor
+    ? 'denied'
+    : 'unavailable'
 }
 
 function getInitialReducedMotionPreference() {
@@ -4543,11 +4918,14 @@ function blockingEyebrow(state: ViewerRouteState, startupState: StartupState) {
 function getMotionBadgeValue(
   experienceMode: RuntimeExperience['mode'],
   state: ViewerRouteState,
-  cameraPose: CameraPose,
   startupState: StartupState,
   orientationSource: OrientationSource | null,
+  latestOrientationSample: OrientationSample | null,
 ) {
-  if (experienceMode === 'blocked' && startupState === 'requesting') {
+  if (
+    (experienceMode === 'blocked' && startupState === 'requesting') ||
+    startupState === 'awaiting-orientation'
+  ) {
     return 'Pending'
   }
 
@@ -4555,27 +4933,26 @@ function getMotionBadgeValue(
     return badgeValue(state.orientation)
   }
 
-  if (cameraPose.mode === 'manual') {
-    return 'Manual pan'
+  if (state.orientation !== 'granted') {
+    return badgeValue(state.orientation)
   }
 
-  if (startupState === 'sensor-relative-needs-calibration') {
-    return 'Align first'
+  if (!latestOrientationSample) {
+    return 'Pending'
   }
 
-  if (orientationSource === 'absolute-sensor') {
-    return 'Absolute sensor'
+  switch (orientationSource) {
+    case 'absolute-sensor':
+      return 'Absolute sensor'
+    case 'relative-sensor':
+      return 'Relative sensor'
+    case 'deviceorientation-absolute':
+      return 'Absolute event'
+    case 'deviceorientation-relative':
+      return 'Relative event'
+    default:
+      return 'Manual'
   }
-
-  if (cameraPose.alignmentHealth === 'good') {
-    return 'Aligned'
-  }
-
-  if (cameraPose.alignmentHealth === 'poor') {
-    return 'Noisy'
-  }
-
-  return 'Settling'
 }
 
 function createDefaultSensorCameraPose(): CameraPose {
@@ -4691,6 +5068,14 @@ function describeRuntimeExperience({
     }
   }
 
+  if (startupState === 'awaiting-orientation') {
+    return {
+      mode: state.camera === 'granted' ? 'live' : 'non-camera',
+      title: 'Waiting for motion',
+      body: 'SkyLens requested motion access and is waiting for the first usable sample before it marks orientation ready.',
+    }
+  }
+
   if (startupState === 'camera-only' || !hasObserver) {
     return {
       mode: state.orientation !== 'granted' ? 'manual-pan' : 'live',
@@ -4736,6 +5121,10 @@ function resolveStartupState({
   orientationAbsolute?: boolean
 }): StartupState {
   void cameraStatus
+
+  if (orientationStatus === 'unknown') {
+    return 'awaiting-orientation'
+  }
 
   if (orientationStatus !== 'granted') {
     return 'manual'

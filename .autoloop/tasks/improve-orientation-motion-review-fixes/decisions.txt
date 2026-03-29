@@ -1,0 +1,5 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260328T232355Z-19bf0b0e" ts="2026-03-28T23:23:55.496021+00:00" />
+On the Safari compass-backed event path, a sample that fails validation must fall back to relative behavior immediately on that sample even if the validated state is not cleared until the sustained-invalid threshold is reached.
+The ViewerShell reset extraction should stay local to viewer-shell and parameterize only the baseline absolute value so retry and startup/manual reset flows share one reset path without changing route or storage contracts.
+<autoloop-decisions-header version="1" block_seq="2" owner="implementer" phase_id="orientation-motion-review-fixes" pair="implement" turn_seq="1" run_id="run-20260328T232355Z-19bf0b0e" ts="2026-03-28T23:26:53.758727+00:00" />
+ViewerShell now uses one local resetOrientationSessionState helper to clear the shared orientation session refs and diagnostics state; retry still forces baseline absolute false while startup/manual resets still restore the route-derived baseline absolute flag.
