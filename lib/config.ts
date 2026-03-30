@@ -48,6 +48,7 @@ export const LANDING_DESCRIPTION = "Point your phone at the sky and see what's a
 
 export const PRIVACY_REASSURANCE_COPY = [
   'Camera stays on your device.',
+  'Location is used only to calculate what is above you right now.',
   'Approximate location-based aircraft queries go directly from your browser to OpenSky.',
   'No camera frames are uploaded.',
 ] as const

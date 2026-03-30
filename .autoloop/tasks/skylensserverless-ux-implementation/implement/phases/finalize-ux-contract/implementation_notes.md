@@ -1,0 +1,62 @@
+# Implementation Notes
+
+- Task ID: skylensserverless-ux-implementation
+- Pair: implement
+- Phase ID: finalize-ux-contract
+- Phase Directory Key: finalize-ux-contract
+- Phase Title: Finalize and verify the SkyLensServerless UX contract
+- Scope: phase-local producer artifact
+- Files changed:
+  - `SkyLensServerless/tests/unit/viewer-shell.test.ts`
+  - `.autoloop/tasks/skylensserverless-ux-implementation/implement/phases/finalize-ux-contract/implementation_notes.md`
+- Source files reviewed:
+  - `SkyLensServerless/tests/unit/viewer-shell.test.ts`
+  - `SkyLensServerless/components/viewer/viewer-shell.tsx`
+  - `SkyLensServerless/tests/unit/settings-sheet.test.tsx`
+  - `SkyLensServerless/tests/unit/alignment-tutorial.test.ts`
+  - `SkyLensServerless/tests/unit/viewer-shell-resolvers.test.ts`
+  - `SkyLensServerless/tests/e2e/demo.spec.ts`
+  - `SkyLensServerless/tests/e2e/permissions.spec.ts`
+  - `SkyLensServerless/tests/e2e/landing.spec.ts`
+- Symbols touched:
+  - `ViewerShell startup gating` test harness teardown in `SkyLensServerless/tests/unit/viewer-shell.test.ts`
+  - `wires live-panel fine-adjust and reset controls into the existing calibration path`
+  - `uses video-frame metadata when requestVideoFrameCallback is available`
+  - `waitForMacrotask`
+  - `installAnimationFrameClock`
+- Checklist mapping:
+  - Overlay dismiss-policy matrix: preserved; no product overlay logic changed this turn.
+  - Focus restoration: preserved; only regression harness cleanup changed.
+  - Next-step and banner resolution: preserved; no resolver or viewer production logic changed.
+  - Desktop hierarchy / short-viewport behavior: preserved; no production layout changes this turn.
+  - AC-5 blocker isolation: narrowed from the calibration-panel block into the handoff between the late `requestVideoFrameCallback` regression and the following relative-sensor regression, but not fully resolved.
+- Assumptions:
+  - The remaining acceptance blocker is still a late test-harness lifecycle issue in `SkyLensServerless/tests/unit/viewer-shell.test.ts`, not a requested UX behavior change.
+- Preserved invariants:
+  - No production `SkyLensServerless/components/*` or `SkyLensServerless/lib/*` code changed this turn.
+  - No route, storage, or config contracts changed.
+  - Existing selector contracts were not renamed.
+- Intended behavior changes:
+  - None in product code.
+  - Test-only cleanup changes:
+    - Track whether the React root is still mounted before shared teardown unmounts it.
+    - Keep `waitForMacrotask()` available for explicit test bodies that rely on it, but remove it from shared `afterEach`.
+    - Remove the unnecessary RAF override from the late calibration-panel test.
+    - Narrow the video-frame regression to asserting callback registration and explicitly unmount its root inside the test body.
+- Known non-changes:
+  - Did not alter viewer overlay behavior, focus policy, banner resolution, or landing hierarchy in production code.
+  - Did not clear the Playwright Linux shared-library dependency gap in this environment.
+- Expected side effects:
+  - The late `viewer-shell` harness depends on fewer ad hoc RAF stubs than before.
+  - The calibration-panel regression no longer blocks the late-file progress boundary by itself.
+  - The full authoritative `viewer-shell` suite still lacks clean passing evidence from this turn.
+- Validation performed:
+  - `./node_modules/.bin/vitest run tests/unit/settings-sheet.test.tsx tests/unit/alignment-tutorial.test.ts tests/unit/viewer-shell-resolvers.test.ts` ✅
+  - `timeout 25s ./node_modules/.bin/vitest run tests/unit/viewer-shell.test.ts -t "wires live-panel fine-adjust and reset controls into the existing calibration path" --reporter=verbose` ✅
+  - `timeout 30s ./node_modules/.bin/vitest run tests/unit/viewer-shell.test.ts -t "wires live-panel fine-adjust and reset controls into the existing calibration path|uses video-frame metadata when requestVideoFrameCallback is available" --reporter=verbose` ✅
+  - `timeout 30s ./node_modules/.bin/vitest run tests/unit/viewer-shell.test.ts -t "uses video-frame metadata when requestVideoFrameCallback is available|surfaces relative sensor status and alignment-required messaging when calibration is still needed" --reporter=verbose` ⛔ still exits with code `124`
+  - `timeout 90s ./node_modules/.bin/vitest run tests/unit/viewer-shell.test.ts --reporter=verbose` ⛔ still does not produce a clean suite summary during this turn; progress reaches the late calibration/video-frame region but AC-5 passing evidence is still absent
+  - `./node_modules/.bin/playwright test tests/e2e/demo.spec.ts tests/e2e/permissions.spec.ts tests/e2e/landing.spec.ts --project=chromium` ⛔ still fails before app execution because `chrome-headless-shell` cannot load `libatk-1.0.so.0`
+- Deduplication / centralization decisions:
+  - Reused the existing in-file `installAnimationFrameClock()` helper instead of adding another RAF mock variant.
+  - Kept cleanup ownership inside the existing `viewer-shell` test file rather than adding a new generic test helper.

@@ -1,0 +1,84 @@
+version: 1
+task_id: skylensserverless-ux-implementation
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/skylensserverless-ux-implementation/runs/run-20260330T183135Z-a086c089/request.md
+phases:
+- phase_id: finalize-ux-contract
+  title: Finalize and verify the SkyLensServerless UX contract
+  objective: Close the remaining full-suite `viewer-shell` validation blocker while preserving
+    the already-passing overlay, guidance, banner, desktop-hierarchy, and Playwright
+    regression evidence.
+  status: in_progress
+  in_scope:
+  - Keep all implementation and validation work anchored to the authoritative `/workspace/SkyLens/SkyLensServerless`
+    package tree rather than the duplicated root-level app files.
+  - Preserve the currently passing scoped resolver/settings unit suites and required
+    Chromium Playwright coverage while resolving the one remaining acceptance blocker.
+  - Run the touched unit and e2e suites against the current implementation from the
+    authoritative package context.
+  - Fix any scoped regressions in outside-click and Escape dismissal behavior for
+    SettingsSheet and viewer-owned overlays.
+  - Fix any scoped regressions in per-surface focus restoration, including opener-unmount
+    fallback behavior.
+  - Fix any scoped regressions in alignment next-step resolution, banner prioritization,
+    and overflow determinism while keeping decisions in the existing local resolvers.
+  - Fix any scoped regressions in desktop hierarchy or short-viewport mobile overlay
+    behavior without reopening removed overlay or banner branches.
+  - Isolate and remove the open-handle, teardown, or long-running path that keeps
+    the full `tests/unit/viewer-shell.test.ts` file from exiting normally.
+  out_of_scope:
+  - Route, storage, or config contract changes
+  - New global modal or workflow abstractions
+  - Unrelated visual redesign outside the named landing/viewer surfaces
+  dependencies: []
+  acceptance_criteria:
+  - id: AC-1
+    text: SettingsSheet, the mobile viewer overlay, and the mobile alignment instructions
+      overlay honor the intended dismiss-policy matrix for backdrop and Escape, while
+      guarded alignment focus remains non-dismissible by backdrop.
+  - id: AC-2
+    text: Dismissible overlays restore focus to their opener or an explicit surviving
+      fallback control after each close path.
+  - id: AC-3
+    text: Alignment guidance resolves to one primary next step and desktop/mobile
+      banners resolve to one prioritized primary banner plus deterministic overflow
+      from the shared resolvers.
+  - id: AC-4
+    text: Desktop landing and desktop viewer retain the reduced hierarchy, and mobile
+      short-viewport overlays remain reachable without a fullscreen takeover regression.
+  - id: AC-5
+    text: The touched unit and e2e suites for settings, the full `tests/unit/viewer-shell.test.ts`
+      suite, banner/tutorial resolvers, demo flow, permissions flow, and landing flow
+      pass against the final implementation from the authoritative `SkyLensServerless`
+      package context, with the `viewer-shell` suite exiting normally and the required
+      Playwright Chromium specs still green after any relevant changes.
+  deliverables:
+  - Validation evidence recorded from the authoritative `SkyLensServerless` package
+    context
+  - Finalized scoped implementation in the existing overlay, resolver, and landing
+    files
+  - Passing evidence for the full `tests/unit/viewer-shell.test.ts` suite without
+    `-t` subset filtering or external `timeout`
+  - Preserved passing Playwright evidence for `tests/e2e/demo.spec.ts`, `tests/e2e/permissions.spec.ts`,
+    and `tests/e2e/landing.spec.ts` from the current Chromium-capable environment
+  - Passing regression coverage in `tests/unit/settings-sheet.test.tsx`, `tests/unit/alignment-tutorial.test.ts`,
+    `tests/unit/viewer-shell-resolvers.test.ts`, `tests/unit/viewer-shell.test.ts`,
+    `tests/e2e/demo.spec.ts`, `tests/e2e/permissions.spec.ts`, and `tests/e2e/landing.spec.ts`
+  - Preserved stable selector contract for the current overlay and desktop-action
+    surfaces unless a required UX fix forces an explicit rename
+  risks:
+  - The duplicated root-level app tree can still cause edits or validation to happen
+    against the wrong package unless the scoped package boundary is enforced first.
+  - Current code may still hide a dismissal or focus edge case that only appears under
+    one close path or viewport.
+  - Quick visual cleanup can accidentally re-expand desktop clutter or leak into mobile
+    layouts.
+  - Minor markup cleanup can break deterministic test hooks if selectors drift.
+  - The full `tests/unit/viewer-shell.test.ts` suite may still hide an open handle,
+    leaked timer, or teardown ordering bug not covered by prior subset runs.
+  - Fixing the timeout by broad product refactoring instead of isolating the failing
+    teardown path would create unnecessary scope and regression risk.
+  rollback:
+  - Revert only the final gap-fix changes that introduce regressions while keeping
+    the already-landed shared overlay/resolver structure intact.
+  - Prefer restoring a prior local conditional or class change over reintroducing
+    removed parallel overlay/banner implementations.
