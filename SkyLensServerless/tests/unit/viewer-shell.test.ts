@@ -1479,6 +1479,90 @@ describe('ViewerShell startup gating', () => {
     expect(document.activeElement).toBe(restoredAlignButton)
   })
 
+  it('keeps mobile alignment restore on the mobile surface even when a desktop control still owns focus', async () => {
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'granted',
+    })
+
+    const desktopSettingsButton = container.querySelector(
+      '[data-focus-surface="desktop-settings-trigger"]',
+    ) as HTMLButtonElement | null
+    const alignButton = container.querySelector(
+      '[data-testid="mobile-align-action"]',
+    ) as HTMLButtonElement | null
+
+    expect(desktopSettingsButton).not.toBeNull()
+    expect(alignButton).not.toBeNull()
+
+    desktopSettingsButton!.focus()
+
+    await act(async () => {
+      alignButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    const backdrop = container.querySelector(
+      '[data-testid="mobile-alignment-overlay-backdrop"]',
+    ) as HTMLButtonElement | null
+
+    expect(backdrop).not.toBeNull()
+
+    await act(async () => {
+      backdrop!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    const restoredAlignButton = container.querySelector(
+      '[data-testid="mobile-align-action"]',
+    ) as HTMLButtonElement | null
+
+    expect(document.activeElement).toBe(restoredAlignButton)
+  })
+
+  it('skips hidden mobile alignment restore targets and falls back to the next visible control', async () => {
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'granted',
+    })
+
+    const alignButton = container.querySelector(
+      '[data-testid="mobile-align-action"]',
+    ) as HTMLButtonElement | null
+    const openViewerButton = container.querySelector(
+      '[data-testid="mobile-viewer-overlay-trigger"]',
+    ) as HTMLButtonElement | null
+
+    expect(alignButton).not.toBeNull()
+    expect(openViewerButton).not.toBeNull()
+
+    alignButton!.focus()
+
+    await act(async () => {
+      alignButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    alignButton!.style.visibility = 'hidden'
+
+    const backdrop = container.querySelector(
+      '[data-testid="mobile-alignment-overlay-backdrop"]',
+    ) as HTMLButtonElement | null
+
+    expect(backdrop).not.toBeNull()
+
+    await act(async () => {
+      backdrop!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(document.activeElement).toBe(openViewerButton)
+  })
+
   it('falls back to the mobile Align action when alignment closes after its settings opener unmounts', async () => {
     await renderViewer({
       entry: 'live',
@@ -2053,6 +2137,58 @@ describe('ViewerShell startup gating', () => {
     expect(container.querySelector('[data-testid="mobile-viewer-overlay-trigger"]')).not.toBeNull()
     expect(document.documentElement.style.overflow).toBe('hidden')
     expect(document.body.style.overflow).toBe('hidden')
+  })
+
+  it('keeps hidden focusable elements out of the mobile viewer overlay tab loop', async () => {
+    await renderViewer({
+      entry: 'demo',
+      location: 'unavailable',
+      camera: 'unavailable',
+      orientation: 'unavailable',
+      demoScenarioId: 'sf-evening',
+    })
+
+    const mobileTrigger = container.querySelector(
+      '[data-testid="mobile-viewer-overlay-trigger"]',
+    ) as HTMLButtonElement | null
+
+    expect(mobileTrigger).not.toBeNull()
+
+    await act(async () => {
+      mobileTrigger!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    const panel = container.querySelector(
+      '[data-testid="mobile-viewer-overlay"]',
+    ) as HTMLElement | null
+    const firstButton = panel?.querySelector('button') as HTMLButtonElement | null
+    const buttons = Array.from(panel?.querySelectorAll('button') ?? [])
+    const lastVisibleButton = buttons.at(-1) as HTMLButtonElement | undefined
+
+    expect(panel).not.toBeNull()
+    expect(firstButton).not.toBeNull()
+    expect(lastVisibleButton).toBeDefined()
+
+    const hiddenButton = document.createElement('button')
+    hiddenButton.type = 'button'
+    hiddenButton.textContent = 'Hidden'
+    hiddenButton.style.visibility = 'hidden'
+    panel!.appendChild(hiddenButton)
+
+    lastVisibleButton!.focus()
+
+    await act(async () => {
+      panel!.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'Tab',
+          bubbles: true,
+          cancelable: true,
+        }),
+      )
+    })
+
+    expect(document.activeElement).toBe(firstButton)
   })
 
   it('locks and unlocks document scroll from ViewerShell when the settings sheet reports open state', async () => {

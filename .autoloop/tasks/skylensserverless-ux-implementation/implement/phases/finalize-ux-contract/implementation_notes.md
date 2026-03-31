@@ -7,58 +7,63 @@
 - Phase Title: Finalize and verify the SkyLensServerless UX contract
 - Scope: phase-local producer artifact
 - Files changed:
+  - `SkyLensServerless/components/viewer/viewer-shell.tsx`
+  - `SkyLensServerless/tests/unit/viewer-shell-resolvers.test.ts`
   - `SkyLensServerless/tests/unit/viewer-shell.test.ts`
   - `.autoloop/tasks/skylensserverless-ux-implementation/implement/phases/finalize-ux-contract/implementation_notes.md`
   - `.autoloop/tasks/skylensserverless-ux-implementation/decisions.txt`
 - Source files reviewed:
-  - `SkyLensServerless/tests/unit/viewer-shell.test.ts`
   - `SkyLensServerless/components/viewer/viewer-shell.tsx`
+  - `SkyLensServerless/tests/unit/viewer-shell-resolvers.test.ts`
+  - `SkyLensServerless/tests/unit/viewer-shell.test.ts`
   - `SkyLensServerless/tests/unit/settings-sheet.test.tsx`
   - `SkyLensServerless/tests/unit/alignment-tutorial.test.ts`
-  - `SkyLensServerless/tests/unit/viewer-shell-resolvers.test.ts`
   - `SkyLensServerless/tests/e2e/demo.spec.ts`
   - `SkyLensServerless/tests/e2e/permissions.spec.ts`
   - `SkyLensServerless/tests/e2e/landing.spec.ts`
 - Symbols touched:
-  - `ViewerShell startup gating` test harness teardown in `SkyLensServerless/tests/unit/viewer-shell.test.ts`
-  - `surfaces estimated aircraft labels and badges in the selected detail view`
-  - `uses video-frame metadata when requestVideoFrameCallback is available`
-  - `surfaces relative sensor status and alignment-required messaging when calibration is still needed`
-  - `installAnimationFrameClock`
+  - `resolveViewerBannerFeed`
+  - `openAlignmentExperience`
+  - `fixAlignment`
+  - `getActiveFocusableElement`
+  - `isElementVisible`
+  - `isFocusableElement`
+  - `canRestoreFocusTarget`
+  - `getFocusableElements`
+  - `CompactPersistentNotice`
 - Checklist mapping:
-  - Overlay dismiss-policy matrix: preserved; no product overlay logic changed this turn.
-  - Focus restoration: preserved; only regression harness cleanup changed.
-  - Next-step and banner resolution: preserved; no resolver or viewer production logic changed.
-  - Desktop hierarchy / short-viewport behavior: preserved; no production layout changes this turn.
-  - AC-5 blocker isolation: resolved in the authoritative package context by removing the late test-harness render-loop leaks and recording clean package-local unit/e2e evidence.
+  - Overlay dismiss-policy matrix: preserved; outside-click and Escape contracts stayed unchanged.
+  - Focus restoration: tightened with one shared visibility/focusability predicate for trap and restore paths.
+  - Next-step and banner resolution: preserved one primary actionable banner while adding a compact persistent motion warning lane.
+  - Desktop hierarchy / short-viewport behavior: preserved; only compact warning rendering was added to the existing banner stack.
+  - AC-5 blocker isolation: resolved in the authoritative package context with updated unit coverage plus green package-local Chromium Playwright evidence.
 - Assumptions:
-  - The remaining acceptance blocker is still a late test-harness lifecycle issue in `SkyLensServerless/tests/unit/viewer-shell.test.ts`, not a requested UX behavior change.
+  - Motion-loss and motion-pending warnings map to the existing `motion-recovery` and `awaiting-orientation` banner ids for this scoped review fix.
 - Preserved invariants:
-  - No production `SkyLensServerless/components/*` or `SkyLensServerless/lib/*` code changed this turn.
+  - One primary actionable banner remains the default across desktop and mobile.
+  - Existing overlay/backdrop dismissal behavior and stable selectors were preserved.
   - No route, storage, or config contracts changed.
-  - Existing selector contracts were not renamed.
 - Intended behavior changes:
-  - None in product code.
-  - Test-only cleanup changes:
-    - Shared teardown now clears pending fake timers after unmount/cleanup and the custom RAF helper clears any queued timeout-backed frame handles on restore.
-    - The `requestVideoFrameCallback` regression now uses a deterministic scheduled-frame mock plus explicit cancellation assertions instead of a never-fired stub.
-    - The relative-sensor regression uses a one-shot orientation subscription emission so it no longer creates an artificial resubscribe loop during render.
-    - The estimated-aircraft detail regression now reuses the existing fake-timer/RAF harness so the demo scene clock is controlled during selected-detail assertions instead of depending on real-time animation.
+  - `resolveViewerBannerFeed(...)` now exposes a compact persistent notice for motion-loss / motion-pending warnings when another actionable banner is primary.
+  - Alignment opening no longer falls back to ambient `document.activeElement` when the caller already knows the surface; mobile quick-action flows pass explicit mobile context, while settings-trigger flows reuse the focused settings trigger when available.
+  - Focus restore and focus trapping both reject hidden, inert, `aria-hidden`, CSS-hidden, disabled, or otherwise non-focusable targets.
+  - New unit regressions cover compact motion warning selection, mobile-surface restore with stale desktop focus, hidden restore-target fallback, and hidden tab-stop filtering.
 - Known non-changes:
-  - Did not alter viewer overlay behavior, focus policy, banner resolution, or landing hierarchy in production code.
-  - Did not change Playwright config or app routing; Chromium dependency provisioning stayed environment-local.
+  - Did not modify `SettingsSheet`, landing UI, routing, or viewer data pipelines.
+  - Did not reintroduce stacked primary banners or fullscreen mobile overlays.
 - Expected side effects:
-  - The late `viewer-shell` harness now uses deterministic frame/timer cleanup and no longer leaves teardown-dependent handles behind.
-  - Package-local validation is reproducible because the authoritative package now has local `vitest`/`playwright` binaries plus Chromium runtime assets/deps installed.
-  - The selected-aircraft detail regression no longer needs the suite to outrun a live demo animation loop to finish inside the full-file budget.
+  - Desktop/mobile surfaces can keep a camera/location recovery banner primary while still surfacing a terse motion warning outside overflow.
+  - Mobile alignment close paths now restore to the correct surviving mobile control even when a desktop control still owns focus or the original opener becomes hidden.
+  - Package-local Playwright validation is now runnable in this workspace because Chromium assets and Linux shared-library deps were installed.
 - Validation performed:
   - `pnpm install --frozen-lockfile` from `/workspace/SkyLens/SkyLensServerless` ✅
   - `./node_modules/.bin/playwright install chromium` ✅
   - `./node_modules/.bin/playwright install-deps chromium` ✅
-  - `./node_modules/.bin/vitest run tests/unit/settings-sheet.test.tsx tests/unit/alignment-tutorial.test.ts tests/unit/viewer-shell-resolvers.test.ts` ✅
-  - `./node_modules/.bin/vitest run tests/unit/viewer-shell.test.ts` ✅ (`67` tests passed)
+  - `./node_modules/.bin/vitest run tests/unit/viewer-shell-resolvers.test.ts` ✅ (`8` tests passed)
+  - `./node_modules/.bin/vitest run tests/unit/viewer-shell.test.ts --testNamePattern "mobile alignment restore|hidden mobile alignment restore|hidden focusable"` ✅ (`3` tests passed, scoped regression check)
+  - `./node_modules/.bin/vitest run tests/unit/settings-sheet.test.tsx tests/unit/alignment-tutorial.test.ts tests/unit/viewer-shell-resolvers.test.ts` ✅ (`20` tests passed)
+  - `./node_modules/.bin/vitest run tests/unit/viewer-shell.test.ts` ✅ (`70` tests passed)
   - `./node_modules/.bin/playwright test tests/e2e/demo.spec.ts tests/e2e/permissions.spec.ts tests/e2e/landing.spec.ts --project=chromium` ✅ (`14` specs passed)
 - Deduplication / centralization decisions:
-  - Reused the existing in-file `installAnimationFrameClock()` helper and extended its restore cleanup instead of introducing a second timer/RAF helper.
-  - Kept the fixes local to `SkyLensServerless/tests/unit/viewer-shell.test.ts`; no new shared test utility or production abstraction was added.
-  - Reused the same timer/RAF control pattern already present in the scene-cadence tests instead of inventing a second demo-clock stabilization path for the estimated-aircraft regression.
+  - Reused one shared DOM visibility/focusability rule for both dismissal restore and tab trapping instead of keeping divergent helper logic.
+  - Kept the compact-warning model inside `resolveViewerBannerFeed(...)` plus local `viewer-shell` rendering rather than adding a new banner subsystem.

@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
   type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEventHandler,
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
   type RefObject,
@@ -161,6 +162,8 @@ export type ViewerBannerItem = {
   footer?: string | null
 }
 
+type ViewerSurface = 'mobile' | 'desktop'
+
 type StartupState =
   | 'unsupported'
   | 'ready-to-request'
@@ -280,6 +283,20 @@ const MOTION_AFFORDANCE_SAMPLE_LIMITS: Record<MotionQuality, number> = {
   balanced: 8,
   high: 16,
 }
+const COMPACT_MOTION_WARNING_IDS = ['motion-recovery', 'awaiting-orientation'] as const
+const FOCUSABLE_SELECTOR = [
+  'button:not([disabled])',
+  '[href]',
+  'input:not([disabled]):not([type="hidden"])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  'summary',
+  'iframe',
+  'audio[controls]',
+  'video[controls]',
+  '[contenteditable]:not([contenteditable="false"])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(', ')
 
 export function resolveViewerBannerFeed({
   astronomyFailureBanner,
@@ -299,6 +316,7 @@ export function resolveViewerBannerFeed({
 }: ViewerBannerResolverInput): {
   primary: ViewerBannerItem | null
   overflow: ViewerBannerItem[]
+  compactNotice: ViewerBannerItem | null
 } {
   const candidates: Array<ViewerBannerItem & { priority: number }> = []
 
@@ -419,6 +437,7 @@ export function resolveViewerBannerFeed({
     return {
       primary: null,
       overflow: [],
+      compactNotice: null,
     }
   }
 
@@ -426,10 +445,19 @@ export function resolveViewerBannerFeed({
   const featuredIndex = primaryIndex === -1 ? 0 : primaryIndex
   const primary = ordered[featuredIndex]
   const overflow = ordered.filter((_, index) => index !== featuredIndex)
+  const compactNotice =
+    COMPACT_MOTION_WARNING_IDS.includes(primary.id as (typeof COMPACT_MOTION_WARNING_IDS)[number])
+      ? null
+      : ordered.find((item) =>
+          COMPACT_MOTION_WARNING_IDS.includes(
+            item.id as (typeof COMPACT_MOTION_WARNING_IDS)[number],
+          ),
+        ) ?? null
 
   return {
     primary,
     overflow,
+    compactNotice,
   }
 }
 
@@ -949,17 +977,24 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     setIsMobileOverlayOpen(false)
   }
 
-  const openAlignmentExperience = () => {
-    const opener = getActiveFocusableElement()
+  const openAlignmentExperience = (
+    request?: {
+      opener?: HTMLElement | null
+      surface?: ViewerSurface
+    },
+  ) => {
+    const opener = request?.opener ?? (request?.surface ? null : getActiveFocusableElement())
     const openerTestId = opener?.getAttribute('data-testid')
     const openerSurface = opener?.getAttribute('data-focus-surface')
     const alignmentSurface =
-      isMobileOverlayOpen ||
+      request?.surface ??
+      (isMobileOverlayOpen ||
+      isMobileSettingsSheetOpen ||
       openerSurface === 'mobile-settings-trigger' ||
       openerTestId === 'mobile-align-action' ||
       openerTestId === 'mobile-viewer-overlay-trigger'
         ? 'mobile'
-        : 'desktop'
+        : 'desktop')
 
     alignmentOverlayRestoreTargetRef.current = {
       opener,
@@ -2580,7 +2615,19 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   }
 
   const fixAlignment = () => {
-    openAlignmentExperience()
+    const activeOpener = getActiveFocusableElement()
+    const activeSurface = activeOpener?.getAttribute('data-focus-surface')
+
+    openAlignmentExperience({
+      opener:
+        activeSurface === 'mobile-settings-trigger' || activeSurface === 'desktop-settings-trigger'
+          ? activeOpener
+          : null,
+      surface:
+        isMobileSettingsSheetOpen || activeSurface === 'mobile-settings-trigger'
+          ? 'mobile'
+          : 'desktop',
+    })
   }
 
   const alignCalibrationTarget = () => {
@@ -2836,10 +2883,16 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const desktopAlignActionStatus = manualMode
     ? 'Motion required'
     : alignmentBadgeValue(state, cameraPose, startupState)
-  const handleSharedBannerAction = (actionId?: ViewerBannerActionId) => {
+  const handleSharedBannerAction = (
+    actionId?: ViewerBannerActionId,
+    context?: {
+      opener?: HTMLElement | null
+      surface?: ViewerSurface
+    },
+  ) => {
     switch (actionId) {
       case 'open-alignment':
-        openAlignmentExperience()
+        openAlignmentExperience(context)
         break
       case 'recover-motion':
         handlePermissionRecoveryAction()
@@ -2889,12 +2942,19 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const desktopPrimaryAction =
     sharedBannerFeed.primary?.actionLabel && sharedBannerFeed.primary.actionId
     ? {
-        kind: sharedBannerFeed.primary.actionId ?? 'banner',
+        kind: sharedBannerFeed.primary.actionId,
         eyebrow: 'Next action',
         title: sharedBannerFeed.primary.title,
         body: sharedBannerFeed.primary.body,
         label: sharedBannerFeed.primary.actionLabel,
-        onClick: () => handleSharedBannerAction(sharedBannerFeed.primary?.actionId),
+        onClick:
+          sharedBannerFeed.primary.actionId === 'open-alignment'
+            ? ((event) =>
+                handleSharedBannerAction(sharedBannerFeed.primary.actionId, {
+                  opener: event.currentTarget,
+                  surface: 'desktop',
+                })) satisfies MouseEventHandler<HTMLButtonElement>
+            : () => handleSharedBannerAction(sharedBannerFeed.primary?.actionId),
         disabled: sharedBannerFeed.primary.actionDisabled,
         tone: sharedBannerFeed.primary.critical
           ? 'critical'
@@ -2909,7 +2969,11 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
           title: alignmentTutorial.primaryStep.title,
           body: alignmentTutorial.primaryStep.body,
           label: alignmentTutorial.primaryStep.ctaLabel ?? 'Open alignment',
-          onClick: openAlignmentExperience,
+          onClick: ((event) =>
+            openAlignmentExperience({
+              opener: event.currentTarget,
+              surface: 'desktop',
+            })) satisfies MouseEventHandler<HTMLButtonElement>,
           disabled: false,
           tone: 'success',
         }
@@ -3320,12 +3384,23 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                 actionLabel={sharedBannerFeed.primary.actionLabel}
                 onAction={
                   sharedBannerFeed.primary.actionId
-                    ? () => handleSharedBannerAction(sharedBannerFeed.primary?.actionId)
+                    ? (event) =>
+                        handleSharedBannerAction(sharedBannerFeed.primary?.actionId, {
+                          opener: event.currentTarget,
+                          surface: 'desktop',
+                        })
                     : undefined
                 }
                 actionDisabled={sharedBannerFeed.primary.actionDisabled}
                 footer={sharedBannerFeed.primary.footer}
               />
+              {sharedBannerFeed.compactNotice ? (
+                <CompactPersistentNotice
+                  testId="desktop-compact-motion-warning"
+                  title={sharedBannerFeed.compactNotice.title}
+                  body={sharedBannerFeed.compactNotice.body}
+                />
+              ) : null}
               {sharedBannerFeed.overflow.length > 0 ? (
                 <BannerOverflowDisclosure
                   banners={sharedBannerFeed.overflow}
@@ -3464,7 +3539,12 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                       <DesktopActionButton
                         label="Align"
                         status={desktopAlignActionStatus}
-                        onClick={openAlignmentExperience}
+                        onClick={(event) =>
+                          openAlignmentExperience({
+                            opener: event.currentTarget,
+                            surface: 'desktop',
+                          })
+                        }
                         disabled={!canOpenDesktopAlignment}
                         dataTestId="desktop-align-action"
                       />
@@ -3814,12 +3894,23 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                     actionLabel={sharedBannerFeed.primary.actionLabel}
                     onAction={
                       sharedBannerFeed.primary.actionId
-                        ? () => handleSharedBannerAction(sharedBannerFeed.primary?.actionId)
+                        ? (event) =>
+                            handleSharedBannerAction(sharedBannerFeed.primary?.actionId, {
+                              opener: event.currentTarget,
+                              surface: 'mobile',
+                            })
                         : undefined
                     }
                     actionDisabled={sharedBannerFeed.primary.actionDisabled}
                     footer={sharedBannerFeed.primary.footer}
                   />
+                  {sharedBannerFeed.compactNotice ? (
+                    <CompactPersistentNotice
+                      testId="mobile-compact-motion-warning"
+                      title={sharedBannerFeed.compactNotice.title}
+                      body={sharedBannerFeed.compactNotice.body}
+                    />
+                  ) : null}
                   {sharedBannerFeed.overflow.length > 0 ? (
                     <BannerOverflowDisclosure
                       banners={sharedBannerFeed.overflow}
@@ -4116,7 +4207,12 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                   <button
                     ref={mobileAlignActionRef}
                     type="button"
-                    onClick={openAlignmentExperience}
+                    onClick={() =>
+                      openAlignmentExperience({
+                        opener: mobileAlignActionRef.current,
+                        surface: 'mobile',
+                      })
+                    }
                     data-testid="mobile-align-action"
                     className="min-h-11 rounded-full border border-sky-100/15 bg-slate-950/80 px-5 py-3 text-sm font-semibold text-sky-50 shadow-[0_12px_30px_rgba(3,7,13,0.32)]"
                   >
@@ -4644,7 +4740,7 @@ function DesktopActionButton({
 }: {
   label: string
   status: string
-  onClick: () => void
+  onClick: MouseEventHandler<HTMLButtonElement>
   disabled?: boolean
   dataTestId?: string
 }) {
@@ -4673,7 +4769,9 @@ function CompactTopBanner({
   onAction,
   actionDisabled = false,
   footer,
-}: Omit<ViewerBannerItem, 'id' | 'actionId'> & { onAction?: () => void }) {
+}: Omit<ViewerBannerItem, 'id' | 'actionId'> & {
+  onAction?: MouseEventHandler<HTMLButtonElement>
+}) {
   const className = critical
     ? 'border-rose-300/20 bg-rose-500/12 text-rose-50'
     : tone === 'info'
@@ -4721,7 +4819,13 @@ function BannerOverflowDisclosure({
 }: {
   banners: ViewerBannerItem[]
   variant: 'desktop' | 'mobile'
-  onAction: (actionId?: ViewerBannerActionId) => void
+  onAction: (
+    actionId?: ViewerBannerActionId,
+    context?: {
+      opener?: HTMLElement | null
+      surface?: ViewerSurface
+    },
+  ) => void
 }) {
   return (
     <details
@@ -4742,7 +4846,15 @@ function BannerOverflowDisclosure({
               critical={banner.critical}
               tone={banner.tone}
               actionLabel={banner.actionLabel}
-              onAction={banner.actionId ? () => onAction(banner.actionId) : undefined}
+              onAction={
+                banner.actionId
+                  ? (event) =>
+                      onAction(banner.actionId, {
+                        opener: event.currentTarget,
+                        surface: 'desktop',
+                      })
+                  : undefined
+              }
               actionDisabled={banner.actionDisabled}
               footer={banner.footer}
             />
@@ -4754,7 +4866,15 @@ function BannerOverflowDisclosure({
               critical={banner.critical}
               tone={banner.tone}
               actionLabel={banner.actionLabel}
-              onAction={banner.actionId ? () => onAction(banner.actionId) : undefined}
+              onAction={
+                banner.actionId
+                  ? (event) =>
+                      onAction(banner.actionId, {
+                        opener: event.currentTarget,
+                        surface: 'mobile',
+                      })
+                  : undefined
+              }
               actionDisabled={banner.actionDisabled}
               footer={banner.footer}
             />
@@ -4770,6 +4890,26 @@ function StatusBadge({ label, value }: { label: string; value: string }) {
     <div className="rounded-full border border-sky-100/10 bg-slate-950/55 px-3 py-2 text-xs uppercase tracking-[0.16em] text-sky-100/80">
       {label}: {value}
     </div>
+  )
+}
+
+function CompactPersistentNotice({
+  testId,
+  title,
+  body,
+}: {
+  testId: string
+  title: string
+  body: string
+}) {
+  return (
+    <section
+      className="rounded-full border border-amber-200/15 bg-slate-950/48 px-3 py-2 text-[11px] text-amber-50/88 shadow-[0_10px_24px_rgba(3,7,13,0.14)]"
+      data-testid={testId}
+      role="status"
+    >
+      <span className="font-semibold">{title}</span> <span>{body}</span>
+    </section>
   )
 }
 
@@ -5058,11 +5198,46 @@ type AlignmentInstructionsProps = {
 }
 
 function getActiveFocusableElement() {
-  return document.activeElement instanceof HTMLElement ? document.activeElement : null
+  if (!(document.activeElement instanceof HTMLElement)) {
+    return null
+  }
+
+  return canRestoreFocusTarget(document.activeElement) ? document.activeElement : null
+}
+
+function isElementVisible(element: HTMLElement) {
+  if (
+    element.hasAttribute('hidden') ||
+    element.closest('[hidden]') ||
+    element.hasAttribute('inert') ||
+    element.closest('[inert]') ||
+    element.getAttribute('aria-hidden') === 'true' ||
+    element.closest('[aria-hidden="true"]')
+  ) {
+    return false
+  }
+
+  if (typeof window !== 'undefined' && typeof window.getComputedStyle === 'function') {
+    const style = window.getComputedStyle(element)
+
+    if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse') {
+      return false
+    }
+  }
+
+  return true
 }
 
 function canRestoreFocusTarget(target: HTMLElement | null | undefined): target is HTMLElement {
-  return Boolean(target && target.isConnected && !target.hasAttribute('disabled'))
+  return Boolean(target && target.isConnected && isElementVisible(target) && isFocusableElement(target))
+}
+
+function isFocusableElement(element: HTMLElement) {
+  if (!element.isConnected || element.hasAttribute('disabled') || !isElementVisible(element)) {
+    return false
+  }
+
+  return element.matches(FOCUSABLE_SELECTOR) || element.tabIndex >= 0
 }
 
 function resolveFocusRestoreTarget(...targets: Array<HTMLElement | null | undefined>) {
@@ -5071,10 +5246,8 @@ function resolveFocusRestoreTarget(...targets: Array<HTMLElement | null | undefi
 
 function getFocusableElements(root: HTMLElement) {
   return Array.from(
-    root.querySelectorAll<HTMLElement>(
-      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-    ),
-  ).filter((element) => !element.hasAttribute('hidden'))
+    root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+  ).filter((element) => isFocusableElement(element))
 }
 
 function trapFocusWithinPanel(

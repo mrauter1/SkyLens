@@ -1,103 +1,83 @@
 # SkyLensServerless UX implementation plan
 
 ## Scope
-- In scope: `SkyLensServerless/components/ui/compact-mobile-panel-shell.tsx`, `SkyLensServerless/components/settings/settings-sheet.tsx`, `SkyLensServerless/components/viewer/viewer-shell.tsx`, `SkyLensServerless/lib/viewer/alignment-tutorial.ts`, `SkyLensServerless/components/landing/landing-screen.tsx`, and touched tests under `SkyLensServerless/tests/unit` and `SkyLensServerless/tests/e2e`.
-- Out of scope: route or storage schema changes, new modal infrastructure, unrelated viewer rendering refactors, and docs-only outputs.
-- Treat `/workspace/SkyLens/SkyLensServerless` as the authoritative product package for this task. The duplicated root-level `app/`, `components/`, `lib/`, and `tests/` trees are comparison-only and must not absorb implementation scope.
+- In scope: `SkyLensServerless/components/viewer/viewer-shell.tsx` and directly touched unit/e2e coverage under `SkyLensServerless/tests/`.
+- Out of scope: landing/settings/mobile-shell refactors unless required by a viewer-shell fix, route/storage/config changes, new modal infrastructure, and unrelated visual cleanup.
+- Treat `/workspace/SkyLens/SkyLensServerless` as the authoritative package. The duplicated root-level app tree remains comparison-only.
 
 ## Current codebase state
-- `CompactMobilePanelShell` already provides the full-height sheet frame with safe-area margins, internal scrolling, and stable shell/panel/scroll test hooks.
-- `SettingsSheet` already owns its trigger, focus trap, focus restore, and backdrop dismissal locally.
-- `viewer-shell.tsx` already uses the shared compact sheet for the mobile viewer and mobile alignment instructions, records opener/fallback focus targets, and guards alignment-focus mode from backdrop dismissal by removing the overlay shell entirely in that state.
-- `buildAlignmentTutorialModel(...)` already resolves to one `primaryStep` plus at most one `supportingNotice`.
-- `resolveViewerBannerFeed(...)` already drives both desktop top banners and mobile fallback banners from one prioritized resolver with deterministic overflow ordering.
-- `landing-screen.tsx` already reduces hierarchy to one dominant live-viewer CTA plus a lighter support column.
-- The current authoritative package snapshot does not have installed local test binaries under `/workspace/SkyLens/SkyLensServerless/node_modules/.bin`, and `npm test -- --run tests/unit/viewer-shell.test.ts` currently fails immediately because `vitest` is not resolvable in that unbootstrapped package context.
-- Prior authoritative feedback still indicates that, once the package is bootstrapped and Chromium is provisioned, the likely remaining product-side blocker is the full `tests/unit/viewer-shell.test.ts` file not exiting normally while the smaller resolver/settings suites and required Playwright specs are otherwise green.
+- The requested UX foundation is already landed: compact full-height mobile sheets, outside-click dismissal for allowed overlays, shared next-step guidance, shared banner resolution, and reduced desktop hierarchy.
+- The current run intent is narrower than the earlier completion slice: review the five viewer-shell review comments, keep only the valid ones, and implement only those fixes.
+- Current code inspection shows the likely valid review items are:
+  - banner selection can hide critical non-primary warnings inside overflow because any actionable item becomes primary
+  - the desktop primary-action `kind` uses redundant nullish coalescing after an `actionId` guard
+  - the focus-trap helper uses a narrow selector and only filters `[hidden]`, so hidden or non-interactive nodes can still be considered focusable
+  - alignment opener surface inference currently depends on `document.activeElement`, which is unreliable for mobile tap flows
+  - focus-restore target validation only checks connection and `disabled`, so hidden or non-focusable nodes can still be chosen
+- The authoritative package is not currently bootstrapped in this workspace snapshot: `/workspace/SkyLens/SkyLensServerless/node_modules/.bin/vitest` and `./node_modules/.bin/playwright` are both absent and must be restored before implement/test phases treat runner failures as product failures.
 
 ## Execution target for this run
-- Treat the current implementation as the baseline contract and finish the task by validating it end to end, then fixing only the concrete gaps found during regression testing or focused review.
-- Start by bootstrapping the nested `SkyLensServerless/` package so local Vitest and Playwright binaries exist before interpreting any runner failure as a product regression.
-- Run validation and any required fixes from the nested `SkyLensServerless/` package context so unit and e2e evidence comes from the scoped app, not the duplicated root-level tree.
-- Treat the active blocking implementation feedback as mandatory completion gates for this run:
-  - `ENV-BOOTSTRAP`: install the package dependencies in `/workspace/SkyLens/SkyLensServerless` and restore local `node_modules/.bin/vitest` / `node_modules/.bin/playwright` before attempting acceptance validation.
-  - `IMP-001`: the full `tests/unit/viewer-shell.test.ts` suite must complete and pass in the normal runner; subset-only evidence is not sufficient to close the phase.
-  - `IMP-007`: the remaining work must land an actual package-scoped fix for the `viewer-shell` full-suite timeout or open-handle path before the phase can close.
-- If Playwright Chromium or its Linux runtime dependencies are missing after JS bootstrap, provision them as environment setup and then rerun the required specs; do not treat missing browser assets or shared libraries as app-side UX regressions.
-- Do not reopen the removed fullscreen mobile overlay path, reintroduce separate mobile banner decision trees, or add generic abstractions to solve issues that can stay local to the scoped files.
+- Preserve the existing UX contract and scope fixes to the validated review items inside `viewer-shell.tsx` plus direct regression coverage.
+- Keep the single-primary-banner model, but preserve "No motion" or equivalent motion-loss/pending warnings as a separate always-visible compact notice rather than burying them in overflow.
+- Replace inference-by-`document.activeElement` for alignment openers with explicit opener/surface capture from the invoking control so touch interactions restore focus predictably.
+- Use one shared focusability/visibility predicate for both focus trapping and dismissal focus restore so hidden, inert, or non-focusable targets are excluded consistently.
+- Treat package bootstrap as a prerequisite for later phases, not as the product fix itself.
 
 ## Single completion phase
 
-### Finalize and verify the UX contract
-- Recreate a reproducible package-local validation environment first, then keep the currently intended resolver/settings/e2e contract intact while isolating the one remaining blocker in the full `viewer-shell` unit file.
-- Bootstrap only the authoritative nested package:
+### Finalize the review-validated viewer-shell fixes
+- Bootstrap only the authoritative nested package before acceptance validation:
   - install JS dependencies in `/workspace/SkyLens/SkyLensServerless`
   - verify local `vitest` and `playwright` binaries resolve from `./node_modules/.bin/`
-  - provision Chromium runtime assets only if the required Playwright command still reports them missing
-- Resolve the remaining completion blocker before claiming the phase complete:
-  - make `tests/unit/viewer-shell.test.ts` finish successfully without narrowing to `-t` subsets or relying on external `timeout`
-- Fix only the scoped regressions discovered in the current code path:
-  - outside-click and `Escape` close behavior for settings and viewer-owned overlays
-  - per-surface focus restoration, including opener-unmount fallbacks
-  - single-next-step / single-primary-CTA resolver behavior
-  - single-primary-banner prioritization and deterministic overflow ordering
-  - desktop hierarchy reduction without re-expanding banner clutter
-  - mobile short-viewport overlay stability
-- Prefer the smallest package-scoped fix that eliminates the lingering open-handle or teardown leak in `tests/unit/viewer-shell.test.ts` or its directly exercised viewer code; do not broaden into unrelated product refactors if the issue is isolated to the test harness.
-- Keep all behavior decisions anchored to the existing local seams:
-  - `CompactMobilePanelShell` for shared sheet framing only
-  - `SettingsSheet` for settings-trigger ownership and local dismissal
-  - `buildAlignmentTutorialModel(...)` for alignment next-step wording
-  - `resolveViewerBannerFeed(...)` for banner priority
-  - `viewer-shell.tsx` for per-surface wiring, restore targets, and layout-specific presentation
+  - provision Playwright Chromium assets only if the package-local command reports them missing
+- Apply only the review findings that remain valid after code inspection:
+  - protect critical motion-related warnings from disappearing behind banner overflow by keeping one compact persistent notice visible alongside the single primary banner
+  - remove the redundant nullish coalescing in the guarded desktop primary-action `kind`
+  - tighten focusable-element discovery to actual tabbable/focusable, visible elements used by the overlay panels
+  - pass explicit opener/surface context into alignment-opening paths instead of relying on `document.activeElement`
+  - tighten focus-restore eligibility so dismiss paths never target hidden or non-focusable nodes
+- Keep all changes local to the existing seams:
+  - `resolveViewerBannerFeed(...)` for banner priority and any pinned compact-warning metadata if needed
+  - `viewer-shell.tsx` for alignment opener plumbing, compact warning presentation, and focus restore/trap integration
+  - direct regression tests in `SkyLensServerless/tests/unit/viewer-shell*.test*` and touched e2e flows only if the viewer rendering contract changes
+- Do not reopen retired fullscreen mobile overlays, add new shared infrastructure, or split banner logic back into separate desktop/mobile decision trees.
 
 ## Interfaces and local contracts
-- `CompactMobilePanelShell`
-  - Remains presentational.
-  - Preserve `COMPACT_MOBILE_PANEL_MAX_HEIGHT`, `shellTestId`, `panelTestId`, and scroll-region test hooks.
-- `SettingsSheet`
-  - Retains trigger ownership, focus trap, local backdrop dismissal, and upward `onOpenChange` reporting for viewer scroll lock.
-  - Must always restore focus to the settings trigger on close.
-- `buildAlignmentTutorialModel(...)`
-  - Continues to return `{ status, primaryStep, supportingNotice }`.
-  - `primaryStep` remains the single source for the dominant alignment instruction and CTA label.
 - `resolveViewerBannerFeed(...)`
-  - Continues to return `{ primary, overflow }`.
-  - Must remain deterministic for identical inputs and stay shared across desktop/mobile surfaces.
+  - Remains the shared banner-priority source for desktop and mobile.
+  - May grow one local optional field for a compact persistent warning if that is the smallest way to keep motion-loss/pending warnings always visible without reintroducing multiple primary banners.
+  - Must stay deterministic for identical inputs.
 - `viewer-shell.tsx`
-  - Owns overlay open/close policy, focus-restore fallbacks, and layout-specific rendering.
-  - Must preserve stable selectors already used by tests, especially `mobile-viewer-overlay*`, `mobile-alignment-overlay*`, `settings-sheet-*`, `alignment-start-action`, `viewer-top-warning-stack`, and `desktop-open-viewer-action`.
+  - Continues to own overlay dismiss policy, focus restoration, and layout-specific rendering.
+  - Alignment openers should accept explicit opener context or derive it from the invoking event target, not from ambient document focus alone.
+  - Focus trap and focus restore should use the same visibility/focusability rules.
+  - Preserve stable selectors already used by tests, especially `mobile-viewer-overlay*`, `mobile-alignment-overlay*`, `settings-sheet-*`, `alignment-start-action`, `viewer-top-warning-stack`, `desktop-open-viewer-action`, and `mobile-align-action`.
 
 ## Compatibility and regression notes
-- No public route, config, storage, or developer-workflow contract change is planned.
-- The intentional behavior change remains the requested UX simplification only: full-height sheet overlays, outside-click dismissal for non-guarded sheets, one dominant next step, one default actionable banner, and reduced desktop chrome.
-- The highest regression surface is still mobile overlay/focus behavior because it depends on local restore-target wiring plus responsive layout branching.
+- No public route, config, storage, or workflow contract change is planned.
+- The only intentional behavior adjustment in this run is visibility handling for compact motion warnings and focus-target correctness; the one-primary-action banner model remains intact.
+- The main regression surfaces are mobile tap alignment flows, overlay focus restoration after close, and banner visibility parity across desktop/mobile.
 
 ## Validation approach
 - Environment prerequisite
   - Bootstrap `/workspace/SkyLens/SkyLensServerless` first so `./node_modules/.bin/vitest` and `./node_modules/.bin/playwright` exist locally.
   - If Playwright Chromium is missing after dependency install, provision it in the same package context before reading e2e failures as product behavior.
 - Unit
-  - `./node_modules/.bin/vitest run tests/unit/settings-sheet.test.tsx tests/unit/alignment-tutorial.test.ts tests/unit/viewer-shell-resolvers.test.ts`
+  - `./node_modules/.bin/vitest run tests/unit/viewer-shell-resolvers.test.ts`
   - `./node_modules/.bin/vitest run tests/unit/viewer-shell.test.ts`
 - E2E
-  - `./node_modules/.bin/playwright test tests/e2e/demo.spec.ts tests/e2e/permissions.spec.ts tests/e2e/landing.spec.ts --project=chromium`
-- Completion gate
-  - `tests/unit/viewer-shell.test.ts` must pass as a full suite in the default test runner from `/workspace/SkyLens/SkyLensServerless`; filtered subsets and external `timeout` kills are diagnostic evidence only.
-  - If the eventual fix touches viewer/landing behavior, rerun the required Playwright specs after the final scoped change rather than relying on earlier-cycle pass evidence.
+  - Rerun only if the final viewer-shell change affects rendered viewer behavior beyond unit coverage:
+    `./node_modules/.bin/playwright test tests/e2e/demo.spec.ts tests/e2e/permissions.spec.ts tests/e2e/landing.spec.ts --project=chromium`
 - Required assertions
-  - settings, mobile viewer, and mobile alignment overlays close correctly on backdrop and `Escape` where allowed
-  - guarded alignment focus remains non-dismissible by backdrop because the overlay shell is absent in that mode
-  - focus returns to the original opener or explicit surviving fallback control after each dismiss path
-  - next-step and banner resolvers keep one dominant action path with deterministic output
-  - short-viewport mobile overlays keep lower controls reachable without reverting to a fullscreen takeover
+  - one primary banner remains actionable by default while motion-loss or motion-pending warnings stay visible in a compact form
+  - critical non-primary warnings do not silently disappear behind collapsed overflow when the UX contract requires them to remain visible
+  - alignment opened from mobile controls or touch-driven banner/actions restores focus to the correct surviving mobile control
+  - focus trapping ignores hidden/non-visible nodes and focus restoration rejects hidden/non-focusable targets
+  - outside-click and `Escape` dismissal behavior for the existing overlays remains unchanged
 
 ## Risk register
-- Focus restoration risk: close-after-state-change can still target a detached element. Control with current fallback-target logic plus dismissal-path tests.
-- Resolver drift risk: ad hoc JSX conditionals can reintroduce desktop/mobile banner or CTA divergence. Control by keeping decisions inside `buildAlignmentTutorialModel(...)` and `resolveViewerBannerFeed(...)`.
-- Desktop/mobile style bleed risk: visual cleanup fixes can accidentally widen scope across breakpoints. Control by keeping layout adjustments local to the existing landing and desktop viewer containers.
-- Selector churn risk: low-level markup cleanup can break deterministic regression coverage. Control by preserving current test ids unless the UX contract itself requires a rename.
-- Validation-evidence risk: the phase can look source-complete while still failing the required completion proof if the full viewer-shell suite hangs or Playwright runs in an under-provisioned container. Control by treating those verifier findings as first-class blockers and closing them before phase completion.
-- Workspace-targeting risk: the repository contains duplicated root-level and nested app trees plus missing local installs in the current snapshot, which can create false-negative runner failures or edits in the wrong package. Control by keeping implementation and validation anchored to `/workspace/SkyLens/SkyLensServerless` after dependency bootstrap.
-- Runner-mismatch risk: generic `npm test` from an unbootstrapped package context can fail before exercising the scoped suites, which would hide the real acceptance blocker. Control by restoring package-local binaries first and recording evidence with the explicit `./node_modules/.bin/*` commands from the authoritative package directory.
-- Over-fix risk: the remaining blocker may tempt unrelated product cleanup even though the currently failing evidence is isolated to the full `viewer-shell` suite exit path. Control by starting from the test teardown/open-handle path and only touching production viewer code when the leak is proven to originate there.
+- Scope-drift risk: the current request is review-validation, not a general UX refresh. Control by limiting edits to the five reviewed behaviors and direct regression tests.
+- Banner-clutter risk: fixing hidden warnings could accidentally reintroduce stacked banners. Control by keeping one primary banner and using only a very compact persistent warning for required motion visibility.
+- Mobile misclassification risk: using ambient document focus for opener inference can still misroute restore targets on touch devices. Control by plumbing explicit opener/surface context from the invoking control.
+- Focus-regression risk: separate trap and restore predicates can diverge again. Control by sharing one DOM-level visibility/focusability rule.
+- Workspace/setup risk: missing package-local binaries can still produce false product failures. Control by bootstrapping `/workspace/SkyLens/SkyLensServerless` before implement/test validation.

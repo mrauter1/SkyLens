@@ -57,6 +57,7 @@ describe('resolveViewerBannerFeed', () => {
       'camera',
       'calibration',
     ])
+    expect(result.compactNotice).toBeNull()
   })
 
   it('falls back to the highest-priority non-actionable banner when no actions are available', () => {
@@ -85,6 +86,7 @@ describe('resolveViewerBannerFeed', () => {
       critical: true,
     })
     expect(result.overflow.map((banner) => banner.id)).toEqual(['calibration', 'demo'])
+    expect(result.compactNotice).toBeNull()
   })
 
   it('drops alignment actions when the surface should stay informational only', () => {
@@ -111,6 +113,7 @@ describe('resolveViewerBannerFeed', () => {
       actionLabel: undefined,
     })
     expect(result.overflow.map((banner) => banner.id)).toEqual(['alignment-guidance'])
+    expect(result.compactNotice).toBeNull()
   })
 
   it('keeps the camera fallback banner for live unavailable-camera states', () => {
@@ -137,6 +140,7 @@ describe('resolveViewerBannerFeed', () => {
       actionLabel: 'Enable camera',
     })
     expect(result.overflow).toEqual([])
+    expect(result.compactNotice).toBeNull()
   })
 
   it('does not synthesize a camera banner while startup is still pending', () => {
@@ -159,6 +163,37 @@ describe('resolveViewerBannerFeed', () => {
 
     expect(result.primary).toBeNull()
     expect(result.overflow).toEqual([])
+    expect(result.compactNotice).toBeNull()
+  })
+
+  it('keeps motion-pending copy visible as a compact notice when another action becomes primary', () => {
+    const result = resolveViewerBannerFeed({
+      astronomyFailureBanner: null,
+      demoScenario: null,
+      cameraStatus: 'denied',
+      cameraRetryAvailable: true,
+      motionRecovery: null,
+      locationError: null,
+      locationRetryAvailable: false,
+      cameraError: null,
+      startupState: 'awaiting-orientation',
+      calibrationTargetLabel: 'Moon',
+      calibrationBanner: null,
+      showAlignmentGuidance: false,
+      alignmentActionAvailable: false,
+      manualMode: false,
+    })
+
+    expect(result.primary).toMatchObject({
+      id: 'camera-disabled',
+      actionId: 'retry-camera',
+    })
+    expect(result.compactNotice).toMatchObject({
+      id: 'awaiting-orientation',
+      title: 'Waiting for motion data.',
+    })
+    expect(result.primary?.id).not.toBe(result.compactNotice?.id)
+    expect(result.overflow.map((banner) => banner.id)).toEqual(['awaiting-orientation'])
   })
 })
 

@@ -9,60 +9,70 @@
 
 ## Behavior-to-Coverage Map
 
-- AC-1 Overlay dismiss policy
-  - `tests/unit/settings-sheet.test.tsx`
-  - `tests/unit/viewer-shell.test.ts`
-  - `tests/e2e/demo.spec.ts`
-  - `tests/e2e/permissions.spec.ts`
-  - Covers backdrop close, Escape close, inner-panel click immunity, and guarded alignment-focus non-dismiss behavior.
+- AC-1 Package bootstrap and authoritative validation
+  - Commands run from `/workspace/SkyLens/SkyLensServerless`:
+    - `pnpm install --frozen-lockfile`
+    - `./node_modules/.bin/playwright install chromium`
+    - `./node_modules/.bin/playwright install-deps chromium`
+    - `./node_modules/.bin/vitest run tests/unit/settings-sheet.test.tsx tests/unit/alignment-tutorial.test.ts tests/unit/viewer-shell-resolvers.test.ts`
+    - `./node_modules/.bin/vitest run tests/unit/viewer-shell.test.ts`
+    - `./node_modules/.bin/playwright test tests/e2e/demo.spec.ts tests/e2e/permissions.spec.ts tests/e2e/landing.spec.ts --project=chromium`
+  - Covers package-local runner availability plus reproducible unit/e2e execution in the authoritative app tree.
 
-- AC-2 Focus restoration
-  - `tests/unit/settings-sheet.test.tsx`
-  - `tests/unit/viewer-shell.test.ts`
-  - `tests/e2e/demo.spec.ts`
-  - `tests/e2e/permissions.spec.ts`
-  - Covers opener restore, opener-unmount fallback, and alignment/settings return targets.
-
-- AC-3 Next-step and banner determinism
-  - `tests/unit/alignment-tutorial.test.ts`
+- AC-2 Compact motion-warning visibility with one primary banner
   - `tests/unit/viewer-shell-resolvers.test.ts`
-  - Covers one primary step, supporting notice constraints, prioritized primary banner selection, and deterministic overflow ordering.
+  - Resolver coverage checks:
+    - actionable banner priority stays deterministic
+    - `compactNotice` remains `null` when the motion banner itself is primary
+    - `awaiting-orientation` stays visible as a separate compact notice when `camera-disabled` becomes primary
+    - compact notice stays distinct from the primary banner id
 
-- AC-4 Desktop hierarchy and mobile reachability
+- AC-3 Alignment opener inference and focus restoration
   - `tests/unit/viewer-shell.test.ts`
-  - `tests/e2e/demo.spec.ts`
-  - `tests/e2e/landing.spec.ts`
   - `tests/e2e/permissions.spec.ts`
-  - Covers compact desktop viewer hierarchy, landing CTA prominence, short-viewport mobile overlay reachability, and preserved compact sheet behavior.
+  - Covers:
+    - backdrop close restores to mobile Align
+    - stale desktop focus does not hijack a mobile alignment open/close cycle
+    - hidden mobile restore targets fall back to the next visible control
+    - opener-unmount fallback and reopened mobile-settings fallback remain intact
+    - end-to-end alignment backdrop close still restores focus to Align
 
-- AC-5 Full validation contract
+- AC-4 Focus-trap and restore filtering for hidden/non-focusable nodes
+  - `tests/unit/viewer-shell.test.ts`
   - `tests/unit/settings-sheet.test.tsx`
-  - `tests/unit/alignment-tutorial.test.ts`
-  - `tests/unit/viewer-shell-resolvers.test.ts`
+  - Covers:
+    - hidden restore targets are skipped during alignment close
+    - hidden tab stops are excluded from the mobile overlay tab loop
+    - existing settings-sheet focus restore and dismissal behavior remain unchanged
+
+- AC-5 Preserved outside-click / Escape overlay behavior and mobile stability
   - `tests/unit/viewer-shell.test.ts`
   - `tests/e2e/demo.spec.ts`
   - `tests/e2e/permissions.spec.ts`
-  - `tests/e2e/landing.spec.ts`
-  - Covers the required authoritative package-local unit and Chromium Playwright evidence.
+  - Covers:
+    - viewer and alignment backdrops still close the correct overlay
+    - Escape close behavior and focus restoration remain intact
+    - compact mobile overlays still keep lower content reachable on short viewports
+    - desktop viewer controls and landing/demo entry flows remain stable after the scoped viewer-shell changes
 
 ## Preserved Invariants Checked
 
 - Stable selector contract remains intact for `mobile-viewer-overlay*`, `mobile-alignment-overlay*`, `settings-sheet-*`, `alignment-start-action`, `viewer-top-warning-stack`, and `desktop-open-viewer-action`.
-- Product behavior remains unchanged outside the requested UX contract; the final fix stayed in `tests/unit/viewer-shell.test.ts`.
-- Shared resolver ownership remains in existing local seams; no duplicated banner or next-step assertions were introduced.
+- One primary actionable banner remains the default on viewer surfaces; compact motion copy augments rather than replaces that contract.
+- Outside-click and Escape dismissal policies remain unchanged for settings and viewer-owned overlays.
 
 ## Edge Cases and Failure Paths
 
-- Late-file `viewer-shell` regressions cover timeout-prone render-loop paths:
-  - scheduled `requestVideoFrameCallback`
-  - one-shot relative-sensor emission
-  - estimated-aircraft selected-detail rendering under a controlled demo clock
-- Playwright coverage confirms the provisioned Chromium environment still exercises demo, permissions, and landing flows after the test-harness stabilization.
+- Stale desktop focus before a mobile alignment tap.
+- Hidden opener / restore targets after an overlay opens.
+- Hidden focusable nodes appended inside the active mobile overlay panel.
+- Actionable non-motion banners coexisting with motion-pending copy in the resolver.
 
 ## Stabilization Notes
 
-- The selected-aircraft detail regression now runs under `vi.useFakeTimers()` plus the existing `installAnimationFrameClock()` helper so the demo scene clock is deterministic in both focused and full-file runs.
-- Full authoritative validation was rerun from `/workspace/SkyLens/SkyLensServerless` after the refinement.
+- Resolver assertions stay purely data-driven to avoid UI timing on the compact-warning contract.
+- DOM-level focus tests use explicit `visibility: hidden` targets and direct keyboard events so the shared focusability predicate is exercised deterministically.
+- Full authoritative validation was rerun from `/workspace/SkyLens/SkyLensServerless` after Chromium assets and runtime libraries were provisioned.
 
 ## Known Gaps
 
