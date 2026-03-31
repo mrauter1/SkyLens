@@ -130,19 +130,26 @@ export function SettingsSheet({
   const panelRef = useRef<HTMLElement | null>(null)
   const closeButtonRef = useRef<HTMLButtonElement | null>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
+  const wasOpenRef = useRef(false)
   const hasReportedOpenStateRef = useRef(false)
   const titleId = useId()
   const panelId = useId()
 
   useEffect(() => {
     if (!isOpen) {
+      if (!wasOpenRef.current) {
+        return
+      }
+
       const restoreTarget = triggerRef.current ?? previousFocusRef.current
 
       restoreTarget?.focus()
       previousFocusRef.current = null
+      wasOpenRef.current = false
       return
     }
 
+    wasOpenRef.current = true
     previousFocusRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null
 
@@ -224,6 +231,7 @@ export function SettingsSheet({
           shellChildren={
             <button
               type="button"
+              tabIndex={-1}
               aria-label="Close settings"
               data-testid="settings-sheet-backdrop"
               onClick={closeSheet}

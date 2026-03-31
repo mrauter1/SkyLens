@@ -58,7 +58,7 @@ export function LandingScreen() {
                   onClick={() => {
                     markViewerOnboardingCompleted()
                   }}
-                  className="inline-flex min-h-12 items-center justify-center rounded-full bg-amber-300 px-6 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-200 disabled:cursor-wait disabled:bg-amber-100"
+                  className="inline-flex min-h-12 items-center justify-center rounded-full bg-amber-300 px-6 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-200"
                 >
                   Open live viewer
                 </Link>
