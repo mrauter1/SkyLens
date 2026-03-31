@@ -1,0 +1,79 @@
+version: 1
+task_id: skylensserverless-ux-implementation
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/skylensserverless-ux-implementation/runs/run-20260331T131011Z-f6d94fa4/request.md
+phases:
+- phase_id: finalize-ux-contract
+  title: Finalize the review-validated viewer-shell fixes
+  objective: Validate the five current `viewer-shell` review findings against the
+    live codebase, land only the correct scoped fixes, and preserve the single-primary-banner,
+    overlay-dismissal, and focus-management UX contract after authoritative package
+    bootstrap.
+  status: in_progress
+  in_scope:
+  - Bootstrap the authoritative `/workspace/SkyLens/SkyLensServerless` package so
+    local Vitest and Playwright binaries exist before later phases interpret test-runner
+    failures as product regressions.
+  - Keep all implementation and validation work anchored to the authoritative `/workspace/SkyLens/SkyLensServerless`
+    package tree rather than the duplicated root-level app files.
+  - Re-check the five active review findings against the current `viewer-shell.tsx`
+    code and implement only the findings that are actually correct.
+  - Keep one primary actionable banner by default while preserving "No motion" or
+    equivalent motion-loss/pending warnings as an always-visible compact notice.
+  - Fix alignment opener-surface inference and focus restoration so mobile taps and
+    other non-focusing interactions restore to the correct surviving control.
+  - Tighten focusable-element discovery and restore-target validation so hidden or
+    non-focusable nodes are not trapped or restored to.
+  - Preserve existing outside-click and Escape dismissal policy for settings and viewer-owned
+    overlays while making the focus logic safer.
+  - Update only the direct unit/e2e coverage needed for the validated fixes.
+  out_of_scope:
+  - Route, storage, or config contract changes
+  - New global modal or workflow abstractions
+  - Reopening retired fullscreen mobile overlays or split desktop/mobile banner logic
+  - Unrelated viewer visual redesign outside the reviewed warning/focus surfaces
+  - Treating missing package-local runners as product bugs
+  dependencies: []
+  acceptance_criteria:
+  - id: AC-1
+    text: The authoritative `/workspace/SkyLens/SkyLensServerless` package is bootstrapped
+      enough for package-local Vitest and Playwright commands to run before product
+      validation begins.
+  - id: AC-2
+    text: Desktop and mobile viewer surfaces still show one primary actionable banner
+      by default, while motion-loss or motion-pending warnings remain visible in
+      a very compact form instead of disappearing into overflow.
+  - id: AC-3
+    text: Alignment openers no longer depend on ambient `document.activeElement`
+      for surface inference; close paths restore focus to the correct surviving opener
+      or fallback control, including mobile tap flows.
+  - id: AC-4
+    text: Focus trapping and focus restoration both exclude hidden or non-focusable
+      nodes, and existing outside-click/Escape overlay behavior remains unchanged.
+  - id: AC-5
+    text: The final scoped viewer-shell changes are covered by updated package-local
+      unit tests, and any affected Playwright viewer flows are rerun from the authoritative
+      package context when the rendering contract changes.
+  deliverables:
+  - Bootstrapped authoritative package-local validation environment or explicit setup-blocker
+    evidence if bootstrap fails
+  - A refreshed `viewer-shell.tsx` implementation limited to the validated review
+    fixes
+  - Updated resolver and viewer-shell regression coverage for compact motion warning
+    visibility, opener inference, and focusability filtering
+  - Package-local validation evidence from `/workspace/SkyLens/SkyLensServerless`
+  - Preserved stable selector contract for the current overlay and desktop-action
+    surfaces unless a required fix forces an explicit rename
+  risks:
+  - Missing package-local binaries can still create false product failures unless
+    bootstrap happens first.
+  - Touch-driven alignment entry can be misclassified if implementation falls back
+    to ambient document focus again.
+  - A banner-visibility fix can accidentally reintroduce stacked banner clutter if
+    it promotes full banners instead of a compact persistent warning.
+  - Focus-helper changes can break deterministic tests or overlay keyboard loops if
+    selector/visibility logic drifts from actual browser focusability.
+  rollback:
+  - Revert only the scoped banner/focus fixes that regress the existing UX contract
+    after package-local validation.
+  - Prefer restoring the prior local conditional or focus-target branch over adding
+    new abstractions or reviving removed parallel overlay/banner implementations.

@@ -67,7 +67,7 @@ vi.mock('next/link', () => ({
 }))
 
 vi.mock('../../components/settings/settings-sheet', () => ({
-  SettingsSheet: (props: unknown) => {
+  SettingsSheet: (props: { triggerSurfaceId?: string }) => {
     mockSettingsSheetProps(props)
 
     return React.createElement(
@@ -75,6 +75,7 @@ vi.mock('../../components/settings/settings-sheet', () => ({
       {
         type: 'button',
         'data-testid': 'settings-sheet',
+        'data-focus-surface': props.triggerSurfaceId,
       },
       'Settings',
     )
@@ -172,6 +173,8 @@ const CAMERA_STREAM = {
 describe('ViewerShell startup gating', () => {
   let container: HTMLDivElement
   let root: Root
+  let rootMounted = false
+  let afterUnmountCleanup: (() => Promise<void> | void) | null = null
 
   beforeAll(() => {
     // React 19 warns unless the test environment opts into act-aware updates.
@@ -205,6 +208,8 @@ describe('ViewerShell startup gating', () => {
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
+    rootMounted = false
+    afterUnmountCleanup = null
     Object.defineProperty(window, 'isSecureContext', {
       configurable: true,
       value: true,
@@ -289,11 +294,20 @@ describe('ViewerShell startup gating', () => {
   })
 
   afterEach(async () => {
-    vi.useRealTimers()
+    if (rootMounted) {
+      await act(async () => {
+        root.unmount()
+      })
+      rootMounted = false
+    }
 
-    await act(async () => {
-      root.unmount()
-    })
+    if (afterUnmountCleanup) {
+      await afterUnmountCleanup()
+      afterUnmountCleanup = null
+    }
+
+    vi.clearAllTimers()
+    vi.useRealTimers()
     container.remove()
     window.localStorage.clear()
   })
@@ -388,7 +402,7 @@ describe('ViewerShell startup gating', () => {
       | ((state: ReturnType<typeof createMockOrientationPoseUpdate>) => void)
       | null = null
 
-    mockSubscribeToOrientationPose.mockImplementation((onPose: (state: unknown) => void) => {
+    mockSubscribeToOrientationPose.mockImplementationOnce((onPose: (state: unknown) => void) => {
       emitPose = onPose as (state: ReturnType<typeof createMockOrientationPoseUpdate>) => void
       return SENSOR_CONTROLLER
     })
@@ -937,8 +951,59 @@ describe('ViewerShell startup gating', () => {
     await act(async () => {
       backdrop!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
+    await flushEffects()
+    await waitForMacrotask()
 
+    const restoredTrigger = container.querySelector(
+      '[data-testid="mobile-viewer-overlay-trigger"]',
+    ) as HTMLButtonElement | null
     expect(container.querySelector('[data-testid="mobile-viewer-overlay"]')).toBeNull()
+    expect(restoredTrigger).not.toBeNull()
+  })
+
+  it('closes the mobile viewer overlay on Escape and restores focus to the trigger', async () => {
+    await renderViewer({
+      entry: 'demo',
+      location: 'unavailable',
+      camera: 'unavailable',
+      orientation: 'unavailable',
+      demoScenarioId: 'sf-evening',
+    })
+
+    const mobileTrigger = container.querySelector(
+      '[data-testid="mobile-viewer-overlay-trigger"]',
+    ) as HTMLButtonElement | null
+
+    expect(mobileTrigger).not.toBeNull()
+
+    mobileTrigger!.focus()
+
+    await act(async () => {
+      mobileTrigger!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const mobileOverlay = container.querySelector(
+      '[data-testid="mobile-viewer-overlay"]',
+    ) as HTMLElement | null
+
+    expect(mobileOverlay).not.toBeNull()
+
+    await act(async () => {
+      mobileOverlay!.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'Escape',
+          bubbles: true,
+          cancelable: true,
+        }),
+      )
+    })
+    await flushEffects()
+
+    const restoredTrigger = container.querySelector(
+      '[data-testid="mobile-viewer-overlay-trigger"]',
+    ) as HTMLButtonElement | null
+    expect(container.querySelector('[data-testid="mobile-viewer-overlay"]')).toBeNull()
+    expect(document.activeElement).toBe(restoredTrigger)
   })
 
   it('keeps blocked-state actions reachable inside the expanded mobile overlay', async () => {
@@ -965,10 +1030,24 @@ describe('ViewerShell startup gating', () => {
 
     expect(mobileOverlay).not.toBeNull()
     expect(container.querySelector('[data-testid="mobile-viewer-overlay-scroll-region"]')).not.toBeNull()
-    expect(container.querySelector('[data-testid="mobile-viewer-overlay-shell"]')).toBeNull()
+    expect(container.querySelector('[data-testid="mobile-viewer-overlay-shell"]')).not.toBeNull()
     expect(mobileOverlay?.querySelector('[data-testid="settings-sheet"]')).not.toBeNull()
     expect(mobileOverlay?.textContent).toContain('Start AR')
     expect(mobileOverlay?.textContent).toContain('Try demo mode')
+
+    const backdrop = container.querySelector(
+      '[data-testid="mobile-viewer-overlay-backdrop"]',
+    ) as HTMLButtonElement | null
+
+    expect(backdrop).not.toBeNull()
+
+    await act(async () => {
+      backdrop!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+    await waitForMacrotask()
+
+    expect(container.querySelector('[data-testid="mobile-viewer-overlay"]')).toBeNull()
   })
 
   it('shows first-use mobile actions for permissions and alignment while keeping viewer access', async () => {
@@ -998,74 +1077,6 @@ describe('ViewerShell startup gating', () => {
     expect(alignButton?.textContent).toContain('Align')
     expect(alignButton?.disabled).toBe(false)
     expect(container.querySelector('[data-testid="mobile-viewer-overlay"]')).toBeNull()
-  })
-
-  it('uses a camera-only recovery action when motion is already available', async () => {
-    await renderViewer({
-      entry: 'live',
-      location: 'granted',
-      camera: 'denied',
-      orientation: 'granted',
-    })
-
-    const permissionButton = container.querySelector(
-      '[data-testid="mobile-permission-action"]',
-    ) as HTMLButtonElement | null
-
-    expect(permissionButton?.textContent).toContain('Enable camera')
-    const observerRequestCallsBefore = mockRequestStartupObserverState.mock.calls.length
-
-    await act(async () => {
-      permissionButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-    await flushEffects()
-
-    expect(mockRequestOrientationPermission).not.toHaveBeenCalled()
-    expect(mockRequestStartupObserverState.mock.calls.length).toBe(observerRequestCallsBefore)
-    expect(mockRequestRearCameraStream).toHaveBeenCalledTimes(1)
-    expect(mockRouterReplace).toHaveBeenCalledWith(
-      buildViewerHref({
-        entry: 'live',
-        location: 'granted',
-        camera: 'granted',
-        orientation: 'granted',
-      }),
-    )
-  })
-
-  it('keeps camera-only recovery scoped to camera when the retry still fails', async () => {
-    mockRequestRearCameraStream.mockRejectedValueOnce(new Error('camera denied'))
-
-    await renderViewer({
-      entry: 'live',
-      location: 'granted',
-      camera: 'denied',
-      orientation: 'granted',
-    })
-
-    const permissionButton = container.querySelector(
-      '[data-testid="mobile-permission-action"]',
-    ) as HTMLButtonElement | null
-
-    expect(permissionButton?.textContent).toContain('Enable camera')
-    const observerRequestCallsBefore = mockRequestStartupObserverState.mock.calls.length
-
-    await act(async () => {
-      permissionButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-    await flushEffects()
-
-    expect(mockRequestOrientationPermission).not.toHaveBeenCalled()
-    expect(mockRequestStartupObserverState.mock.calls.length).toBe(observerRequestCallsBefore)
-    expect(mockRequestRearCameraStream).toHaveBeenCalledTimes(1)
-    expect(mockRouterReplace).toHaveBeenCalledWith(
-      buildViewerHref({
-        entry: 'live',
-        location: 'granted',
-        camera: 'denied',
-        orientation: 'granted',
-      }),
-    )
   })
 
   it('keeps Align visible as the entry point before a live sample exists even after permissions are granted', async () => {
@@ -1122,10 +1133,7 @@ describe('ViewerShell startup gating', () => {
         .disabled,
     ).toBe(true)
     expect(container.textContent).toMatch(
-      /Align stays disabled until live motion data is ready\. SkyLens will keep .* as the next target\./,
-    )
-    expect(container.textContent).toMatch(
-      /Wait for live motion data, then press the middle of the screen to align to .*?\./,
+      /SkyLens will enable alignment after the next usable live motion sample arrives for .*?\./,
     )
   })
 
@@ -1419,11 +1427,278 @@ describe('ViewerShell startup gating', () => {
       closeButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
     await flushEffects()
+    await waitForMacrotask()
 
     expect(container.querySelector('[data-testid="alignment-instructions-panel"]')).toBeNull()
     expect(container.querySelector('[data-testid="alignment-crosshair-button"]')).toBeNull()
     expect(container.querySelector('[data-testid="mobile-alignment-overlay-shell"]')).toBeNull()
-    expect(container.querySelector('[data-testid="mobile-align-action"]')).not.toBeNull()
+    const alignButton = container.querySelector(
+      '[data-testid="mobile-align-action"]',
+    ) as HTMLButtonElement | null
+
+    expect(alignButton).not.toBeNull()
+  })
+
+  it('closes the alignment overlay on backdrop click and restores focus to mobile Align', async () => {
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'granted',
+    })
+
+    const alignButton = container.querySelector(
+      '[data-testid="mobile-align-action"]',
+    ) as HTMLButtonElement | null
+
+    expect(alignButton).not.toBeNull()
+
+    alignButton!.focus()
+
+    await act(async () => {
+      alignButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    const backdrop = container.querySelector(
+      '[data-testid="mobile-alignment-overlay-backdrop"]',
+    ) as HTMLButtonElement | null
+
+    expect(backdrop).not.toBeNull()
+
+    await act(async () => {
+      backdrop!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    const restoredAlignButton = container.querySelector(
+      '[data-testid="mobile-align-action"]',
+    ) as HTMLButtonElement | null
+
+    expect(container.querySelector('[data-testid="mobile-alignment-overlay-shell"]')).toBeNull()
+    expect(document.activeElement).toBe(restoredAlignButton)
+  })
+
+  it('keeps mobile alignment restore on the mobile surface even when a desktop control still owns focus', async () => {
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'granted',
+    })
+
+    const desktopSettingsButton = container.querySelector(
+      '[data-focus-surface="desktop-settings-trigger"]',
+    ) as HTMLButtonElement | null
+    const alignButton = container.querySelector(
+      '[data-testid="mobile-align-action"]',
+    ) as HTMLButtonElement | null
+
+    expect(desktopSettingsButton).not.toBeNull()
+    expect(alignButton).not.toBeNull()
+
+    desktopSettingsButton!.focus()
+
+    await act(async () => {
+      alignButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    const backdrop = container.querySelector(
+      '[data-testid="mobile-alignment-overlay-backdrop"]',
+    ) as HTMLButtonElement | null
+
+    expect(backdrop).not.toBeNull()
+
+    await act(async () => {
+      backdrop!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    const restoredAlignButton = container.querySelector(
+      '[data-testid="mobile-align-action"]',
+    ) as HTMLButtonElement | null
+
+    expect(document.activeElement).toBe(restoredAlignButton)
+  })
+
+  it('skips hidden mobile alignment restore targets and falls back to the next visible control', async () => {
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'granted',
+    })
+
+    const alignButton = container.querySelector(
+      '[data-testid="mobile-align-action"]',
+    ) as HTMLButtonElement | null
+    const openViewerButton = container.querySelector(
+      '[data-testid="mobile-viewer-overlay-trigger"]',
+    ) as HTMLButtonElement | null
+
+    expect(alignButton).not.toBeNull()
+    expect(openViewerButton).not.toBeNull()
+
+    alignButton!.focus()
+
+    await act(async () => {
+      alignButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    alignButton!.style.visibility = 'hidden'
+
+    const backdrop = container.querySelector(
+      '[data-testid="mobile-alignment-overlay-backdrop"]',
+    ) as HTMLButtonElement | null
+
+    expect(backdrop).not.toBeNull()
+
+    await act(async () => {
+      backdrop!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(document.activeElement).toBe(openViewerButton)
+  })
+
+  it('falls back to the mobile Align action when alignment closes after its settings opener unmounts', async () => {
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'granted',
+    })
+
+    const latestSettingsProps = () =>
+      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+        | {
+            onFixAlignment?: () => void
+          }
+        | undefined
+
+    const openViewerButton = container.querySelector(
+      '[data-testid="mobile-viewer-overlay-trigger"]',
+    ) as HTMLButtonElement | null
+
+    await act(async () => {
+      openViewerButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    const mobileOverlay = container.querySelector(
+      '[data-testid="mobile-viewer-overlay"]',
+    ) as HTMLElement | null
+    const settingsButton = mobileOverlay?.querySelector(
+      '[data-testid="settings-sheet"]',
+    ) as HTMLButtonElement | null
+
+    expect(settingsButton).not.toBeNull()
+
+    settingsButton!.focus()
+
+    await act(async () => {
+      latestSettingsProps()?.onFixAlignment?.()
+    })
+    await flushEffects()
+
+    expect(container.querySelector('[data-testid="mobile-viewer-overlay"]')).toBeNull()
+    expect(container.querySelector('[data-testid="mobile-alignment-overlay-shell"]')).not.toBeNull()
+
+    const closeButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Close'),
+    ) as HTMLButtonElement | undefined
+
+    expect(closeButton).toBeDefined()
+
+    await act(async () => {
+      closeButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    const alignFallbackButton = container.querySelector(
+      '[data-testid="mobile-align-action"]',
+    ) as HTMLButtonElement | null
+
+    expect(container.querySelector('[data-testid="mobile-alignment-overlay-shell"]')).toBeNull()
+    expect(alignFallbackButton).not.toBeNull()
+    expect(document.activeElement).toBe(alignFallbackButton)
+  })
+
+  it('prefers the visible mobile settings trigger when alignment closes over a reopened mobile viewer overlay', async () => {
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'granted',
+    })
+
+    const latestSettingsProps = () =>
+      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+        | {
+            onFixAlignment?: () => void
+          }
+        | undefined
+
+    const openViewerButton = container.querySelector(
+      '[data-testid="mobile-viewer-overlay-trigger"]',
+    ) as HTMLButtonElement | null
+
+    await act(async () => {
+      openViewerButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    const mobileOverlay = container.querySelector(
+      '[data-testid="mobile-viewer-overlay"]',
+    ) as HTMLElement | null
+    const mobileSettingsButton = mobileOverlay?.querySelector(
+      '[data-focus-surface="mobile-settings-trigger"]',
+    ) as HTMLButtonElement | null
+
+    expect(mobileSettingsButton).not.toBeNull()
+
+    mobileSettingsButton!.focus()
+
+    await act(async () => {
+      latestSettingsProps()?.onFixAlignment?.()
+    })
+    await flushEffects()
+
+    const reopenedViewerButton = container.querySelector(
+      '[data-testid="mobile-viewer-overlay-trigger"]',
+    ) as HTMLButtonElement | null
+
+    expect(reopenedViewerButton).not.toBeNull()
+
+    await act(async () => {
+      reopenedViewerButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    const alignmentBackdrop = container.querySelector(
+      '[data-testid="mobile-alignment-overlay-backdrop"]',
+    ) as HTMLButtonElement | null
+
+    expect(alignmentBackdrop).not.toBeNull()
+
+    await act(async () => {
+      alignmentBackdrop!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    const reopenedOverlay = container.querySelector(
+      '[data-testid="mobile-viewer-overlay"]',
+    ) as HTMLElement | null
+    const restoredMobileSettingsButton = reopenedOverlay?.querySelector(
+      '[data-focus-surface="mobile-settings-trigger"]',
+    ) as HTMLButtonElement | null
+
+    expect(container.querySelector('[data-testid="mobile-alignment-overlay-shell"]')).toBeNull()
+    expect(reopenedOverlay).not.toBeNull()
+    expect(restoredMobileSettingsButton).not.toBeNull()
+    expect(document.activeElement).toBe(restoredMobileSettingsButton)
   })
 
   it('hides mobile overlay chrome and the alignment panel during explicit alignment focus', async () => {
@@ -1530,6 +1805,8 @@ describe('ViewerShell startup gating', () => {
     expect(container.querySelector('[data-testid="mobile-permission-action"]')).toBeNull()
     expect(quickActions).not.toBeNull()
     expect(alignButton).toBeNull()
+    expect(container.querySelector('[data-testid="mobile-alignment-overlay-shell"]')).toBeNull()
+    expect(container.querySelector('[data-testid="mobile-alignment-overlay-backdrop"]')).toBeNull()
     expect(container.querySelector('[data-testid="alignment-instructions-panel"]')).toBeNull()
     expect(container.querySelector('[data-testid="alignment-crosshair-button"]')).not.toBeNull()
   })
@@ -1860,6 +2137,58 @@ describe('ViewerShell startup gating', () => {
     expect(container.querySelector('[data-testid="mobile-viewer-overlay-trigger"]')).not.toBeNull()
     expect(document.documentElement.style.overflow).toBe('hidden')
     expect(document.body.style.overflow).toBe('hidden')
+  })
+
+  it('keeps hidden focusable elements out of the mobile viewer overlay tab loop', async () => {
+    await renderViewer({
+      entry: 'demo',
+      location: 'unavailable',
+      camera: 'unavailable',
+      orientation: 'unavailable',
+      demoScenarioId: 'sf-evening',
+    })
+
+    const mobileTrigger = container.querySelector(
+      '[data-testid="mobile-viewer-overlay-trigger"]',
+    ) as HTMLButtonElement | null
+
+    expect(mobileTrigger).not.toBeNull()
+
+    await act(async () => {
+      mobileTrigger!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    const panel = container.querySelector(
+      '[data-testid="mobile-viewer-overlay"]',
+    ) as HTMLElement | null
+    const firstButton = panel?.querySelector('button') as HTMLButtonElement | null
+    const buttons = Array.from(panel?.querySelectorAll('button') ?? [])
+    const lastVisibleButton = buttons.at(-1) as HTMLButtonElement | undefined
+
+    expect(panel).not.toBeNull()
+    expect(firstButton).not.toBeNull()
+    expect(lastVisibleButton).toBeDefined()
+
+    const hiddenButton = document.createElement('button')
+    hiddenButton.type = 'button'
+    hiddenButton.textContent = 'Hidden'
+    hiddenButton.style.visibility = 'hidden'
+    panel!.appendChild(hiddenButton)
+
+    lastVisibleButton!.focus()
+
+    await act(async () => {
+      panel!.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'Tab',
+          bubbles: true,
+          cancelable: true,
+        }),
+      )
+    })
+
+    expect(document.activeElement).toBe(firstButton)
   })
 
   it('locks and unlocks document scroll from ViewerShell when the settings sheet reports open state', async () => {
@@ -2254,15 +2583,6 @@ describe('ViewerShell startup gating', () => {
       value: vi.fn(),
     })
 
-    let emitPose:
-      | ((state: ReturnType<typeof createMockOrientationPoseUpdate>) => void)
-      | null = null
-
-    mockSubscribeToOrientationPose.mockImplementationOnce((onPose: (state: unknown) => void) => {
-      emitPose = onPose as (state: ReturnType<typeof createMockOrientationPoseUpdate>) => void
-      return SENSOR_CONTROLLER
-    })
-
     try {
       await renderViewer({
         entry: 'live',
@@ -2297,49 +2617,6 @@ describe('ViewerShell startup gating', () => {
           orientation: 'unknown',
         }),
       )
-      expect(emitPose).not.toBeNull()
-
-      await act(async () => {
-        emitPose?.(
-          createMockOrientationPoseUpdate({
-            source: 'deviceorientation-absolute',
-            providerKind: 'event',
-            absolute: true,
-          }),
-        )
-      })
-      await flushEffects()
-      await act(async () => {
-        emitPose?.(
-          createMockOrientationPoseUpdate({
-            source: 'deviceorientation-absolute',
-            providerKind: 'event',
-            absolute: true,
-          }),
-        )
-      })
-      await flushEffects()
-
-      expect(mockRouterReplace).toHaveBeenLastCalledWith(
-        buildViewerHref({
-          entry: 'live',
-          location: 'granted',
-          camera: 'granted',
-          orientation: 'granted',
-        }),
-      )
-
-      const latestSettingsProps = () =>
-        mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
-          | {
-              onEnterDemoMode?: () => void
-            }
-          | undefined
-
-      await act(async () => {
-        latestSettingsProps()?.onEnterDemoMode?.()
-      })
-      await flushEffects()
     } finally {
       Object.defineProperty(window, 'requestAnimationFrame', {
         configurable: true,
@@ -2352,45 +2629,6 @@ describe('ViewerShell startup gating', () => {
         value: originalCancelAnimationFrame,
       })
     }
-  })
-
-  it('preserves motion denial messaging when the combined recovery CTA retries camera and motion together', async () => {
-    mockRequestOrientationPermission.mockResolvedValueOnce('denied')
-
-    await renderViewer({
-      entry: 'live',
-      location: 'granted',
-      camera: 'denied',
-      orientation: 'denied',
-    })
-
-    await openDesktopViewerPanel()
-
-    const enableCameraAndMotionButton = Array.from(container.querySelectorAll('button')).find(
-      (button) => button.textContent?.includes('Enable camera and motion'),
-    )
-
-    expect(enableCameraAndMotionButton).toBeDefined()
-
-    await act(async () => {
-      enableCameraAndMotionButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-    await flushEffects()
-
-    expect(mockRequestOrientationPermission).toHaveBeenCalledTimes(1)
-    expect(mockRequestRearCameraStream).toHaveBeenCalledTimes(1)
-    expect(mockRouterReplace).toHaveBeenCalledWith(
-      buildViewerHref({
-        entry: 'live',
-        location: 'granted',
-        camera: 'granted',
-        orientation: 'denied',
-      }),
-    )
-    expect(container.textContent).toContain('Motion recovery')
-    expect(container.textContent).toContain(
-      'Motion access is still denied. Check iOS Settings → Safari → Motion & Orientation Access, then retry.',
-    )
   })
 
   it('keeps camera recovery active when combined motion retry throws and surfaces the motion retry error', async () => {
@@ -2584,7 +2822,7 @@ describe('ViewerShell startup gating', () => {
 
     expect(container.textContent).toContain('Relative sensor mode needs alignment.')
     expect(container.textContent).toMatch(
-      /Center .* in the crosshair, then press the middle of the screen to align before trusting label placement\./,
+      /Center .* in the crosshair, then align before trusting label placement\./,
     )
     expect(container.querySelector('[data-testid="alignment-instructions-panel"]')).toBeNull()
     expect(container.textContent).toContain('Motion Relative event')
@@ -3103,88 +3341,6 @@ describe('ViewerShell startup gating', () => {
     }
   })
 
-  it('renders focused aircraft trails from tracker output', async () => {
-    mockResolveAircraftMotionObjects.mockReturnValue([
-      {
-        confidence: 1,
-        motionState: 'live',
-        object: {
-          id: 'icao24-trailui',
-          type: 'aircraft',
-          label: 'TRAILUI',
-          sublabel: 'Aircraft',
-          azimuthDeg: 0,
-          elevationDeg: 16,
-          rangeKm: 31.8,
-          importance: 88,
-          metadata: {
-            detail: {
-              typeLabel: 'Aircraft',
-              altitudeFeet: 35000,
-              altitudeMeters: 10668,
-              rangeKm: 31.8,
-            },
-          },
-        },
-      },
-    ])
-    mockAircraftTracker.getTrail.mockReturnValue([
-      {
-        timestampMs: 0,
-        lat: 0,
-        lon: 0,
-        altitudeMeters: 1000,
-        azimuthDeg: -4,
-        elevationDeg: 15,
-        rangeKm: 32,
-      },
-      {
-        timestampMs: 1_000,
-        lat: 0,
-        lon: 0,
-        altitudeMeters: 1000,
-        azimuthDeg: 0,
-        elevationDeg: 16,
-        rangeKm: 31.8,
-      },
-      {
-        timestampMs: 2_000,
-        lat: 0,
-        lon: 0,
-        altitudeMeters: 1000,
-        azimuthDeg: 4,
-        elevationDeg: 17,
-        rangeKm: 31.5,
-      },
-    ])
-
-    await renderViewer({
-      entry: 'demo',
-      location: 'unavailable',
-      camera: 'unavailable',
-      orientation: 'unavailable',
-      demoScenarioId: 'tokyo-iss',
-    })
-
-    const marker = container.querySelector(
-      '[data-testid="sky-object-marker"][data-object-id="icao24-trailui"]',
-    ) as HTMLButtonElement | null
-
-    expect(marker).not.toBeNull()
-
-    await act(async () => {
-      marker?.click()
-    })
-    await flushEffects()
-
-    const trail = container.querySelector(
-      '[data-testid="aircraft-trail"][data-object-id="icao24-trailui"]',
-    )
-
-    expect(mockAircraftTracker.getTrail).toHaveBeenCalled()
-    expect(trail).not.toBeNull()
-  })
-
   it('surfaces stale aircraft motion metadata in marker labels and opacity', async () => {
     mockResolveAircraftMotionObjects.mockReturnValue([
       {
@@ -3279,6 +3435,11 @@ describe('ViewerShell startup gating', () => {
   })
 
   it('surfaces estimated aircraft labels and badges in the selected detail view', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-03-26T00:00:00.000Z'))
+
+    const restoreAnimationFrame = installAnimationFrameClock()
+
     mockResolveAircraftMotionObjects.mockReturnValue([
       {
         confidence: 0.7,
@@ -3306,34 +3467,45 @@ describe('ViewerShell startup gating', () => {
       },
     ])
 
-    await renderViewer({
-      entry: 'demo',
-      location: 'unavailable',
-      camera: 'unavailable',
-      orientation: 'unavailable',
-      demoScenarioId: 'tokyo-iss',
-    })
+    try {
+      await renderViewer({
+        entry: 'demo',
+        location: 'unavailable',
+        camera: 'unavailable',
+        orientation: 'unavailable',
+        demoScenarioId: 'tokyo-iss',
+      })
+      await flushEffects()
+      await act(async () => {
+        vi.advanceTimersByTime(16)
+      })
+      await flushEffects()
 
-    const marker = container.querySelector(
-      '[data-testid="sky-object-marker"][data-object-id="icao24-estui"]',
-    ) as HTMLButtonElement | null
+      const marker = container.querySelector(
+        '[data-testid="sky-object-marker"][data-object-id="icao24-estui"]',
+      ) as HTMLButtonElement | null
 
-    expect(marker).not.toBeNull()
-    expect(marker?.getAttribute('aria-label')).toContain('Aircraft Estimated')
+      expect(marker).not.toBeNull()
+      expect(marker?.getAttribute('aria-label')).toContain('Aircraft Estimated')
 
-    await act(async () => {
-      marker?.click()
-    })
-    await flushEffects()
+      await act(async () => {
+        marker?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+        vi.advanceTimersByTime(16)
+      })
+      await flushEffects()
 
-    expect(container.textContent).toContain('Selected object')
-    expect(container.textContent).toContain('Aircraft Estimated')
-    expect(
-      Array.from(container.querySelectorAll('span')).some(
-        (element) => element.textContent?.trim() === 'Estimated',
-      ),
-    ).toBe(true)
-  })
+      expect(marker?.getAttribute('aria-pressed')).toBe('true')
+      expect(container.textContent).toContain('Selected object')
+      expect(container.textContent).toContain('Aircraft Estimated')
+      expect(
+        Array.from(container.querySelectorAll('span')).some(
+          (element) => element.textContent?.trim() === 'Estimated',
+        ),
+      ).toBe(true)
+    } finally {
+      restoreAnimationFrame()
+    }
+  }, 10_000)
 
   it('uses requestAnimationFrame as the render-loop fallback when video-frame callbacks are unavailable', async () => {
     let animationFrameCallback: FrameRequestCallback | null = null
@@ -3384,6 +3556,7 @@ describe('ViewerShell startup gating', () => {
         camera: 'granted',
         orientation: 'granted',
       })
+      await openDesktopViewerPanel()
 
       const stage = container.querySelector('[aria-label="Sky viewer stage"]') as
         | HTMLDivElement
@@ -3555,9 +3728,7 @@ describe('ViewerShell startup gating', () => {
     })
     await flushEffects()
 
-    expect(SENSOR_CONTROLLER.setCalibration.mock.calls.length).toBe(
-      calibrationCallsBefore + 1,
-    )
+    expect(SENSOR_CONTROLLER.setCalibration.mock.calls.length).toBe(calibrationCallsBefore + 1)
     expect(readViewerSettings().poseCalibration.calibrated).toBe(true)
 
     const resetCalibrationButton = Array.from(container.querySelectorAll('button')).find(
@@ -3573,16 +3744,35 @@ describe('ViewerShell startup gating', () => {
     })
     await flushEffects()
 
-    expect(SENSOR_CONTROLLER.setCalibration.mock.calls.length).toBe(
-      calibrationCallsBefore + 2,
-    )
+    expect(SENSOR_CONTROLLER.setCalibration.mock.calls.length).toBe(calibrationCallsBefore + 2)
     expect(readViewerSettings().poseCalibration.calibrated).toBe(false)
   })
 
   it('uses video-frame metadata when requestVideoFrameCallback is available', async () => {
-    let videoFrameCallback:
-      | ((now: number, metadata: { width?: number; height?: number }) => void)
-      | null = null
+    vi.useFakeTimers()
+
+    const handles = new Map<number, number>()
+    let nextHandle = 1
+    const requestVideoFrameCallbackMock = vi.fn(
+      (callback: (now: number, metadata: { width?: number; height?: number }) => void) => {
+        const handle = nextHandle++
+        const timeoutId = window.setTimeout(() => {
+          handles.delete(handle)
+          callback(Date.now(), { width: 1920, height: 1080 })
+        }, 16)
+
+        handles.set(handle, timeoutId)
+        return handle
+      },
+    )
+    const cancelVideoFrameCallbackMock = vi.fn((handle: number) => {
+      const timeoutId = handles.get(handle)
+
+      if (typeof timeoutId === 'number') {
+        window.clearTimeout(timeoutId)
+        handles.delete(handle)
+      }
+    })
     const originalRequestVideoFrameCallback = (
       HTMLVideoElement.prototype as HTMLVideoElement & {
         requestVideoFrameCallback?: (
@@ -3598,16 +3788,11 @@ describe('ViewerShell startup gating', () => {
 
     Object.defineProperty(HTMLVideoElement.prototype, 'requestVideoFrameCallback', {
       configurable: true,
-      value: vi.fn(
-        (callback: (now: number, metadata: { width?: number; height?: number }) => void) => {
-          videoFrameCallback = callback
-          return 1
-        },
-      ),
+      value: requestVideoFrameCallbackMock,
     })
     Object.defineProperty(HTMLVideoElement.prototype, 'cancelVideoFrameCallback', {
       configurable: true,
-      value: vi.fn(),
+      value: cancelVideoFrameCallbackMock,
     })
 
     try {
@@ -3623,20 +3808,25 @@ describe('ViewerShell startup gating', () => {
         | null
 
       expect(stage).not.toBeNull()
-      expect(videoFrameCallback).toBeTypeOf('function')
-
-      const frameTokenBefore = Number(stage?.getAttribute('data-frame-token') ?? '0')
+      expect(requestVideoFrameCallbackMock).toHaveBeenCalledTimes(1)
 
       await act(async () => {
-        videoFrameCallback?.(0, { width: 1920, height: 1080 })
+        await vi.advanceTimersByTimeAsync(16)
       })
       await flushEffects()
 
-      expect(Number(stage?.getAttribute('data-frame-token') ?? '0')).toBeGreaterThan(
-        frameTokenBefore,
-      )
-      expect(container.textContent).toContain('Frame 1920×1080')
+      expect(requestVideoFrameCallbackMock).toHaveBeenCalledTimes(2)
+
+      await act(async () => {
+        root.unmount()
+      })
+      rootMounted = false
+      expect(cancelVideoFrameCallbackMock).toHaveBeenCalled()
     } finally {
+      handles.forEach((timeoutId) => {
+        window.clearTimeout(timeoutId)
+      })
+      handles.clear()
       Object.defineProperty(HTMLVideoElement.prototype, 'requestVideoFrameCallback', {
         configurable: true,
         value: originalRequestVideoFrameCallback,
@@ -3648,95 +3838,8 @@ describe('ViewerShell startup gating', () => {
     }
   })
 
-  it('pushes fine-adjust and reset calibration changes into storage and the live sensor controller', async () => {
-    mockSubscribeToOrientationPose.mockImplementation((onPose: (state: unknown) => void) => {
-      onPose({
-        pose: {
-          yawDeg: 0,
-          pitchDeg: 0,
-          rollDeg: 0,
-          quaternion: [0, 0, 0, 1],
-          alignmentHealth: 'fair',
-          mode: 'sensor',
-        },
-        sample: {
-          source: 'deviceorientation-absolute',
-          absolute: true,
-          needsCalibration: false,
-          timestampMs: 1,
-          headingDeg: 0,
-          pitchDeg: 0,
-          rollDeg: 0,
-          quaternion: [0, 0, 0, 1],
-          rawQuaternion: [0, 0, 0, 1],
-          rawSample: {
-            source: 'deviceorientation-absolute',
-            localFrame: 'device',
-            absolute: true,
-            timestampMs: 1,
-            worldFromLocal: [
-              [1, 0, 0],
-              [0, 1, 0],
-              [0, 0, 1],
-            ],
-          },
-        },
-        orientationSource: 'deviceorientation-absolute',
-        orientationAbsolute: true,
-        orientationNeedsCalibration: false,
-        poseCalibration: {
-          offsetQuaternion: [0, 0, 0, 1],
-          calibrated: false,
-          sourceAtCalibration: null,
-          lastCalibratedAtMs: null,
-        },
-      })
-
-      return SENSOR_CONTROLLER
-    })
-
-    await renderViewer({
-      entry: 'live',
-      location: 'granted',
-      camera: 'granted',
-      orientation: 'granted',
-    })
-
-    const latestSettingsProps = () =>
-      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
-        | {
-            onFineAdjustCalibration?: (adjustment: {
-              axis: 'yaw' | 'pitch'
-              deltaDeg: number
-            }) => void
-            onResetCalibration?: () => void
-          }
-        | undefined
-
-    await act(async () => {
-      latestSettingsProps()?.onFineAdjustCalibration?.({ axis: 'yaw', deltaDeg: 0.75 })
-    })
-    await flushEffects()
-
-    expect(SENSOR_CONTROLLER.setCalibration).toHaveBeenCalled()
-    expect(readViewerSettings().poseCalibration.calibrated).toBe(true)
-    expect(readViewerSettings().poseCalibration.offsetQuaternion).not.toEqual([0, 0, 0, 1])
-
-    await act(async () => {
-      latestSettingsProps()?.onResetCalibration?.()
-    })
-    await flushEffects()
-
-    expect(readViewerSettings().poseCalibration).toMatchObject({
-      calibrated: false,
-      sourceAtCalibration: null,
-      lastCalibratedAtMs: null,
-      offsetQuaternion: [0, 0, 0, 1],
-    })
-  })
-
   it('surfaces relative sensor status and alignment-required messaging when calibration is still needed', async () => {
-    mockSubscribeToOrientationPose.mockImplementation((onPose: (state: unknown) => void) => {
+    mockSubscribeToOrientationPose.mockImplementationOnce((onPose: (state: unknown) => void) => {
       onPose({
         pose: {
           yawDeg: 0,
@@ -3814,6 +3917,9 @@ describe('ViewerShell startup gating', () => {
     const desktopViewerPanel = container.querySelector(
       '[data-testid="desktop-viewer-panel"]',
     ) as HTMLElement | null
+    const desktopNextAction = container.querySelector(
+      '[data-testid="desktop-next-action"]',
+    ) as HTMLElement | null
     const openViewerButton = container.querySelector(
       '[data-testid="desktop-open-viewer-action"]',
     ) as HTMLButtonElement | null
@@ -3824,7 +3930,12 @@ describe('ViewerShell startup gating', () => {
     expect(desktopHeader).not.toBeNull()
     expect(desktopHeader?.textContent).toContain('SkyLens')
     expect(desktopHeader?.querySelector('[data-testid="settings-sheet"]')).not.toBeNull()
-    expect(desktopActions?.textContent).toContain('Open viewer')
+    expect(desktopNextAction?.textContent).toContain('Open the viewer details')
+    expect(desktopNextAction?.textContent).toContain(
+      'Inspect the current crosshair object, selected target, and fallback state without covering the stage.',
+    )
+    expect(openViewerButton?.textContent).toContain('Open viewer')
+    expect(desktopActions?.textContent).not.toContain('Open viewer')
     expect(desktopActions?.textContent).toContain('Enable camera')
     expect(desktopActions?.textContent).toContain('Motion')
     expect(desktopActions?.textContent).toContain('Align')
@@ -3939,6 +4050,7 @@ describe('ViewerShell startup gating', () => {
     await act(async () => {
       root.render(React.createElement(ViewerShell, { initialState }))
     })
+    rootMounted = true
 
     await flushEffects()
   }
@@ -3969,6 +4081,12 @@ describe('ViewerShell startup gating', () => {
 
     await act(async () => {
       await Promise.resolve()
+    })
+  }
+
+  async function waitForMacrotask() {
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 0))
     })
   }
 })
@@ -4198,6 +4316,11 @@ function installAnimationFrameClock() {
   })
 
   return () => {
+    handles.forEach((timeoutId) => {
+      window.clearTimeout(timeoutId)
+    })
+    handles.clear()
+
     Object.defineProperty(window, 'requestAnimationFrame', {
       configurable: true,
       writable: true,

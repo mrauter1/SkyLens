@@ -106,3 +106,23 @@ test('compact alignment panel keeps lower controls reachable on a short viewport
 
   await expect(lowestNudgeControl).toBeInViewport()
 })
+
+test('alignment instructions close from the backdrop and restore focus to Align', async ({
+  page,
+}) => {
+  await page.goto('/view?entry=live&location=granted&camera=granted&orientation=granted')
+
+  const alignButton = page.getByTestId('mobile-align-action')
+
+  await expect(alignButton).toBeVisible()
+  await alignButton.click()
+
+  const alignmentShell = page.getByTestId('mobile-alignment-overlay-shell')
+
+  await expect(alignmentShell).toBeVisible()
+  await page.getByTestId('mobile-alignment-overlay-backdrop').click({
+    position: { x: 8, y: 8 },
+  })
+  await expect(alignmentShell).toHaveCount(0)
+  await expect(alignButton).toBeFocused()
+})

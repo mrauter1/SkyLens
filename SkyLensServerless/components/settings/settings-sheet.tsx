@@ -17,6 +17,7 @@ import { CompactMobilePanelShell } from '../ui/compact-mobile-panel-shell'
 type SettingsSheetProps = {
   onEnterDemoMode: () => void
   onOpenChange?: (open: boolean) => void
+  triggerSurfaceId?: string
   onDemoScenarioSelect?: (scenarioId: DemoScenarioId) => void
   onFixAlignment?: () => void
   onRecenter?: () => void
@@ -101,6 +102,7 @@ const MOTION_QUALITY_OPTIONS: Array<{
 export function SettingsSheet({
   onEnterDemoMode,
   onOpenChange,
+  triggerSurfaceId,
   onDemoScenarioSelect,
   onFixAlignment,
   onRecenter,
@@ -134,10 +136,10 @@ export function SettingsSheet({
 
   useEffect(() => {
     if (!isOpen) {
-      if (previousFocusRef.current) {
-        previousFocusRef.current.focus()
-        previousFocusRef.current = null
-      }
+      const restoreTarget = triggerRef.current ?? previousFocusRef.current
+
+      restoreTarget?.focus()
+      previousFocusRef.current = null
       return
     }
 
@@ -170,6 +172,7 @@ export function SettingsSheet({
   const handlePanelKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
     if (event.key === 'Escape') {
       event.preventDefault()
+      event.stopPropagation()
       closeSheet()
       return
     }
@@ -208,6 +211,7 @@ export function SettingsSheet({
         onClick={() => setIsOpen((current) => !current)}
         aria-expanded={isOpen}
         aria-controls={panelId}
+        data-focus-surface={triggerSurfaceId}
         className="min-h-11 rounded-full border border-sky-100/15 bg-slate-950/45 px-4 py-2 text-sm text-sky-50"
       >
         Settings
@@ -217,7 +221,15 @@ export function SettingsSheet({
           ref={panelRef}
           shellTestId="settings-sheet-shell"
           shellClassName="z-40"
-          shellChildren={<div aria-hidden="true" className="absolute inset-0 bg-slate-950/45" />}
+          shellChildren={
+            <button
+              type="button"
+              aria-label="Close settings"
+              data-testid="settings-sheet-backdrop"
+              onClick={closeSheet}
+              className="absolute inset-0 bg-slate-950/45"
+            />
+          }
           panelTestId="settings-sheet-panel"
           panelProps={{
             id: panelId,

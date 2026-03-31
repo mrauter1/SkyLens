@@ -1,0 +1,69 @@
+# Implementation Notes
+
+- Task ID: skylensserverless-ux-implementation
+- Pair: implement
+- Phase ID: finalize-ux-contract
+- Phase Directory Key: finalize-ux-contract
+- Phase Title: Finalize and verify the SkyLensServerless UX contract
+- Scope: phase-local producer artifact
+- Files changed:
+  - `SkyLensServerless/components/viewer/viewer-shell.tsx`
+  - `SkyLensServerless/tests/unit/viewer-shell-resolvers.test.ts`
+  - `SkyLensServerless/tests/unit/viewer-shell.test.ts`
+  - `.autoloop/tasks/skylensserverless-ux-implementation/implement/phases/finalize-ux-contract/implementation_notes.md`
+  - `.autoloop/tasks/skylensserverless-ux-implementation/decisions.txt`
+- Source files reviewed:
+  - `SkyLensServerless/components/viewer/viewer-shell.tsx`
+  - `SkyLensServerless/tests/unit/viewer-shell-resolvers.test.ts`
+  - `SkyLensServerless/tests/unit/viewer-shell.test.ts`
+  - `SkyLensServerless/tests/unit/settings-sheet.test.tsx`
+  - `SkyLensServerless/tests/unit/alignment-tutorial.test.ts`
+  - `SkyLensServerless/tests/e2e/demo.spec.ts`
+  - `SkyLensServerless/tests/e2e/permissions.spec.ts`
+  - `SkyLensServerless/tests/e2e/landing.spec.ts`
+- Symbols touched:
+  - `resolveViewerBannerFeed`
+  - `openAlignmentExperience`
+  - `fixAlignment`
+  - `getActiveFocusableElement`
+  - `isElementVisible`
+  - `isFocusableElement`
+  - `canRestoreFocusTarget`
+  - `getFocusableElements`
+  - `CompactPersistentNotice`
+- Checklist mapping:
+  - Overlay dismiss-policy matrix: preserved; outside-click and Escape contracts stayed unchanged.
+  - Focus restoration: tightened with one shared visibility/focusability predicate for trap and restore paths.
+  - Next-step and banner resolution: preserved one primary actionable banner while adding a compact persistent motion warning lane.
+  - Desktop hierarchy / short-viewport behavior: preserved; only compact warning rendering was added to the existing banner stack.
+  - AC-5 blocker isolation: resolved in the authoritative package context with updated unit coverage plus green package-local Chromium Playwright evidence.
+- Assumptions:
+  - Motion-loss and motion-pending warnings map to the existing `motion-recovery` and `awaiting-orientation` banner ids for this scoped review fix.
+- Preserved invariants:
+  - One primary actionable banner remains the default across desktop and mobile.
+  - Existing overlay/backdrop dismissal behavior and stable selectors were preserved.
+  - No route, storage, or config contracts changed.
+- Intended behavior changes:
+  - `resolveViewerBannerFeed(...)` now exposes a compact persistent notice for motion-loss / motion-pending warnings when another actionable banner is primary.
+  - Alignment opening no longer falls back to ambient `document.activeElement` when the caller already knows the surface; mobile quick-action flows pass explicit mobile context, while settings-trigger flows reuse the focused settings trigger when available.
+  - Focus restore and focus trapping both reject hidden, inert, `aria-hidden`, CSS-hidden, disabled, or otherwise non-focusable targets.
+  - New unit regressions cover compact motion warning selection, mobile-surface restore with stale desktop focus, hidden restore-target fallback, and hidden tab-stop filtering.
+- Known non-changes:
+  - Did not modify `SettingsSheet`, landing UI, routing, or viewer data pipelines.
+  - Did not reintroduce stacked primary banners or fullscreen mobile overlays.
+- Expected side effects:
+  - Desktop/mobile surfaces can keep a camera/location recovery banner primary while still surfacing a terse motion warning outside overflow.
+  - Mobile alignment close paths now restore to the correct surviving mobile control even when a desktop control still owns focus or the original opener becomes hidden.
+  - Package-local Playwright validation is now runnable in this workspace because Chromium assets and Linux shared-library deps were installed.
+- Validation performed:
+  - `pnpm install --frozen-lockfile` from `/workspace/SkyLens/SkyLensServerless` ✅
+  - `./node_modules/.bin/playwright install chromium` ✅
+  - `./node_modules/.bin/playwright install-deps chromium` ✅
+  - `./node_modules/.bin/vitest run tests/unit/viewer-shell-resolvers.test.ts` ✅ (`8` tests passed)
+  - `./node_modules/.bin/vitest run tests/unit/viewer-shell.test.ts --testNamePattern "mobile alignment restore|hidden mobile alignment restore|hidden focusable"` ✅ (`3` tests passed, scoped regression check)
+  - `./node_modules/.bin/vitest run tests/unit/settings-sheet.test.tsx tests/unit/alignment-tutorial.test.ts tests/unit/viewer-shell-resolvers.test.ts` ✅ (`20` tests passed)
+  - `./node_modules/.bin/vitest run tests/unit/viewer-shell.test.ts` ✅ (`70` tests passed)
+  - `./node_modules/.bin/playwright test tests/e2e/demo.spec.ts tests/e2e/permissions.spec.ts tests/e2e/landing.spec.ts --project=chromium` ✅ (`14` specs passed)
+- Deduplication / centralization decisions:
+  - Reused one shared DOM visibility/focusability rule for both dismissal restore and tab trapping instead of keeping divergent helper logic.
+  - Kept the compact-warning model inside `resolveViewerBannerFeed(...)` plus local `viewer-shell` rendering rather than adding a new banner subsystem.
