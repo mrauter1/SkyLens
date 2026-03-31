@@ -2926,7 +2926,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                 cameraPose,
                 poseCalibration: viewerSettings.poseCalibration,
                 calibrationTarget,
-                appliedCalibrationTarget: viewerSettings.appliedCalibrationTarget,
+                appliedCalibrationTarget: lastAppliedCalibrationTarget,
               })),
         rows: [
           {
@@ -2939,26 +2939,27 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
           },
         ],
       }
+  const sharedPrimaryBanner = sharedBannerFeed.primary
   const desktopPrimaryAction =
-    sharedBannerFeed.primary?.actionLabel && sharedBannerFeed.primary.actionId
+    sharedPrimaryBanner?.actionLabel && sharedPrimaryBanner.actionId
     ? {
-        kind: sharedBannerFeed.primary.actionId,
+        kind: sharedPrimaryBanner.actionId,
         eyebrow: 'Next action',
-        title: sharedBannerFeed.primary.title,
-        body: sharedBannerFeed.primary.body,
-        label: sharedBannerFeed.primary.actionLabel,
+        title: sharedPrimaryBanner.title,
+        body: sharedPrimaryBanner.body,
+        label: sharedPrimaryBanner.actionLabel,
         onClick:
-          sharedBannerFeed.primary.actionId === 'open-alignment'
+          sharedPrimaryBanner.actionId === 'open-alignment'
             ? ((event) =>
-                handleSharedBannerAction(sharedBannerFeed.primary.actionId, {
+                handleSharedBannerAction(sharedPrimaryBanner.actionId, {
                   opener: event.currentTarget,
                   surface: 'desktop',
                 })) satisfies MouseEventHandler<HTMLButtonElement>
-            : () => handleSharedBannerAction(sharedBannerFeed.primary?.actionId),
-        disabled: sharedBannerFeed.primary.actionDisabled,
-        tone: sharedBannerFeed.primary.critical
+            : () => handleSharedBannerAction(sharedPrimaryBanner.actionId),
+        disabled: sharedPrimaryBanner.actionDisabled,
+        tone: sharedPrimaryBanner.critical
           ? 'critical'
-          : sharedBannerFeed.primary.tone === 'info'
+          : sharedPrimaryBanner.tone === 'info'
             ? 'info'
             : 'default',
       }
@@ -3894,9 +3895,8 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                     actionLabel={sharedBannerFeed.primary.actionLabel}
                     onAction={
                       sharedBannerFeed.primary.actionId
-                        ? (event) =>
-                            handleSharedBannerAction(sharedBannerFeed.primary?.actionId, {
-                              opener: event.currentTarget,
+                        ? () =>
+                            handleSharedBannerAction(sharedBannerFeed.primary!.actionId, {
                               surface: 'mobile',
                             })
                         : undefined
@@ -4868,9 +4868,8 @@ function BannerOverflowDisclosure({
               actionLabel={banner.actionLabel}
               onAction={
                 banner.actionId
-                  ? (event) =>
+                  ? () =>
                       onAction(banner.actionId, {
-                        opener: event.currentTarget,
                         surface: 'mobile',
                       })
                   : undefined
