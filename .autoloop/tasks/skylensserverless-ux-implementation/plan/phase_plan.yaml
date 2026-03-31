@@ -1,18 +1,23 @@
 version: 1
 task_id: skylensserverless-ux-implementation
-request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/skylensserverless-ux-implementation/runs/run-20260330T183135Z-a086c089/request.md
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/skylensserverless-ux-implementation/runs/run-20260331T032150Z-4a2cbc14/request.md
 phases:
 - phase_id: finalize-ux-contract
   title: Finalize and verify the SkyLensServerless UX contract
-  objective: Close the remaining full-suite `viewer-shell` validation blocker while preserving
-    the already-passing overlay, guidance, banner, desktop-hierarchy, and Playwright
-    regression evidence.
+  objective: Close the remaining full-suite `viewer-shell` validation blocker while
+    preserving the intended overlay, guidance, banner, and desktop-hierarchy contract,
+    starting with authoritative package bootstrap so validation is reproducible in
+    the live workspace.
   status: in_progress
   in_scope:
+  - Bootstrap the authoritative `/workspace/SkyLens/SkyLensServerless` package so
+    local Vitest and Playwright binaries exist before interpreting test-runner failures
+    as product regressions.
   - Keep all implementation and validation work anchored to the authoritative `/workspace/SkyLens/SkyLensServerless`
     package tree rather than the duplicated root-level app files.
-  - Preserve the currently passing scoped resolver/settings unit suites and required
-    Chromium Playwright coverage while resolving the one remaining acceptance blocker.
+  - Re-establish reproducible package-local validation for the scoped resolver/settings
+    unit suites and required Chromium Playwright coverage before resolving the remaining
+    acceptance blocker.
   - Run the touched unit and e2e suites against the current implementation from the
     authoritative package context.
   - Fix any scoped regressions in outside-click and Escape dismissal behavior for
@@ -29,6 +34,8 @@ phases:
   - Route, storage, or config contract changes
   - New global modal or workflow abstractions
   - Unrelated visual redesign outside the named landing/viewer surfaces
+  - Switching scope to the duplicated root-level app tree or treating missing package-local
+    runners as product bugs
   dependencies: []
   acceptance_criteria:
   - id: AC-1
@@ -49,9 +56,12 @@ phases:
     text: The touched unit and e2e suites for settings, the full `tests/unit/viewer-shell.test.ts`
       suite, banner/tutorial resolvers, demo flow, permissions flow, and landing flow
       pass against the final implementation from the authoritative `SkyLensServerless`
-      package context, with the `viewer-shell` suite exiting normally and the required
-      Playwright Chromium specs still green after any relevant changes.
+      package context after dependency/bootstrap setup, with the `viewer-shell` suite
+      exiting normally and the required Playwright Chromium specs still green after
+      any relevant changes.
   deliverables:
+  - Bootstrapped authoritative package-local validation environment or explicit setup-blocker
+    evidence if bootstrap itself fails
   - Validation evidence recorded from the authoritative `SkyLensServerless` package
     context
   - Finalized scoped implementation in the existing overlay, resolver, and landing
@@ -66,6 +76,9 @@ phases:
   - Preserved stable selector contract for the current overlay and desktop-action
     surfaces unless a required UX fix forces an explicit rename
   risks:
+  - The authoritative nested package currently lacks installed local test binaries,
+    so validation can fail before exercising the scoped suites unless bootstrap happens
+    first.
   - The duplicated root-level app tree can still cause edits or validation to happen
     against the wrong package unless the scoped package boundary is enforced first.
   - Current code may still hide a dismissal or focus edge case that only appears under
@@ -78,6 +91,8 @@ phases:
   - Fixing the timeout by broad product refactoring instead of isolating the failing
     teardown path would create unnecessary scope and regression risk.
   rollback:
+  - Revert only package-bootstrap or blocker-fix changes that prove unnecessary after
+    reproducing the scoped acceptance runs.
   - Revert only the final gap-fix changes that introduce regressions while keeping
     the already-landed shared overlay/resolver structure intact.
   - Prefer restoring a prior local conditional or class change over reintroducing

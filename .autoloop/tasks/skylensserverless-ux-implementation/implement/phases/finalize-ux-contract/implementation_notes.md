@@ -9,6 +9,7 @@
 - Files changed:
   - `SkyLensServerless/tests/unit/viewer-shell.test.ts`
   - `.autoloop/tasks/skylensserverless-ux-implementation/implement/phases/finalize-ux-contract/implementation_notes.md`
+  - `.autoloop/tasks/skylensserverless-ux-implementation/decisions.txt`
 - Source files reviewed:
   - `SkyLensServerless/tests/unit/viewer-shell.test.ts`
   - `SkyLensServerless/components/viewer/viewer-shell.tsx`
@@ -20,16 +21,16 @@
   - `SkyLensServerless/tests/e2e/landing.spec.ts`
 - Symbols touched:
   - `ViewerShell startup gating` test harness teardown in `SkyLensServerless/tests/unit/viewer-shell.test.ts`
-  - `wires live-panel fine-adjust and reset controls into the existing calibration path`
+  - `surfaces estimated aircraft labels and badges in the selected detail view`
   - `uses video-frame metadata when requestVideoFrameCallback is available`
-  - `waitForMacrotask`
+  - `surfaces relative sensor status and alignment-required messaging when calibration is still needed`
   - `installAnimationFrameClock`
 - Checklist mapping:
   - Overlay dismiss-policy matrix: preserved; no product overlay logic changed this turn.
   - Focus restoration: preserved; only regression harness cleanup changed.
   - Next-step and banner resolution: preserved; no resolver or viewer production logic changed.
   - Desktop hierarchy / short-viewport behavior: preserved; no production layout changes this turn.
-  - AC-5 blocker isolation: narrowed from the calibration-panel block into the handoff between the late `requestVideoFrameCallback` regression and the following relative-sensor regression, but not fully resolved.
+  - AC-5 blocker isolation: resolved in the authoritative package context by removing the late test-harness render-loop leaks and recording clean package-local unit/e2e evidence.
 - Assumptions:
   - The remaining acceptance blocker is still a late test-harness lifecycle issue in `SkyLensServerless/tests/unit/viewer-shell.test.ts`, not a requested UX behavior change.
 - Preserved invariants:
@@ -39,24 +40,25 @@
 - Intended behavior changes:
   - None in product code.
   - Test-only cleanup changes:
-    - Track whether the React root is still mounted before shared teardown unmounts it.
-    - Keep `waitForMacrotask()` available for explicit test bodies that rely on it, but remove it from shared `afterEach`.
-    - Remove the unnecessary RAF override from the late calibration-panel test.
-    - Narrow the video-frame regression to asserting callback registration and explicitly unmount its root inside the test body.
+    - Shared teardown now clears pending fake timers after unmount/cleanup and the custom RAF helper clears any queued timeout-backed frame handles on restore.
+    - The `requestVideoFrameCallback` regression now uses a deterministic scheduled-frame mock plus explicit cancellation assertions instead of a never-fired stub.
+    - The relative-sensor regression uses a one-shot orientation subscription emission so it no longer creates an artificial resubscribe loop during render.
+    - The estimated-aircraft detail regression now reuses the existing fake-timer/RAF harness so the demo scene clock is controlled during selected-detail assertions instead of depending on real-time animation.
 - Known non-changes:
   - Did not alter viewer overlay behavior, focus policy, banner resolution, or landing hierarchy in production code.
-  - Did not clear the Playwright Linux shared-library dependency gap in this environment.
+  - Did not change Playwright config or app routing; Chromium dependency provisioning stayed environment-local.
 - Expected side effects:
-  - The late `viewer-shell` harness depends on fewer ad hoc RAF stubs than before.
-  - The calibration-panel regression no longer blocks the late-file progress boundary by itself.
-  - The full authoritative `viewer-shell` suite still lacks clean passing evidence from this turn.
+  - The late `viewer-shell` harness now uses deterministic frame/timer cleanup and no longer leaves teardown-dependent handles behind.
+  - Package-local validation is reproducible because the authoritative package now has local `vitest`/`playwright` binaries plus Chromium runtime assets/deps installed.
+  - The selected-aircraft detail regression no longer needs the suite to outrun a live demo animation loop to finish inside the full-file budget.
 - Validation performed:
+  - `pnpm install --frozen-lockfile` from `/workspace/SkyLens/SkyLensServerless` ✅
+  - `./node_modules/.bin/playwright install chromium` ✅
+  - `./node_modules/.bin/playwright install-deps chromium` ✅
   - `./node_modules/.bin/vitest run tests/unit/settings-sheet.test.tsx tests/unit/alignment-tutorial.test.ts tests/unit/viewer-shell-resolvers.test.ts` ✅
-  - `timeout 25s ./node_modules/.bin/vitest run tests/unit/viewer-shell.test.ts -t "wires live-panel fine-adjust and reset controls into the existing calibration path" --reporter=verbose` ✅
-  - `timeout 30s ./node_modules/.bin/vitest run tests/unit/viewer-shell.test.ts -t "wires live-panel fine-adjust and reset controls into the existing calibration path|uses video-frame metadata when requestVideoFrameCallback is available" --reporter=verbose` ✅
-  - `timeout 30s ./node_modules/.bin/vitest run tests/unit/viewer-shell.test.ts -t "uses video-frame metadata when requestVideoFrameCallback is available|surfaces relative sensor status and alignment-required messaging when calibration is still needed" --reporter=verbose` ⛔ still exits with code `124`
-  - `timeout 90s ./node_modules/.bin/vitest run tests/unit/viewer-shell.test.ts --reporter=verbose` ⛔ still does not produce a clean suite summary during this turn; progress reaches the late calibration/video-frame region but AC-5 passing evidence is still absent
-  - `./node_modules/.bin/playwright test tests/e2e/demo.spec.ts tests/e2e/permissions.spec.ts tests/e2e/landing.spec.ts --project=chromium` ⛔ still fails before app execution because `chrome-headless-shell` cannot load `libatk-1.0.so.0`
+  - `./node_modules/.bin/vitest run tests/unit/viewer-shell.test.ts` ✅ (`67` tests passed)
+  - `./node_modules/.bin/playwright test tests/e2e/demo.spec.ts tests/e2e/permissions.spec.ts tests/e2e/landing.spec.ts --project=chromium` ✅ (`14` specs passed)
 - Deduplication / centralization decisions:
-  - Reused the existing in-file `installAnimationFrameClock()` helper instead of adding another RAF mock variant.
-  - Kept cleanup ownership inside the existing `viewer-shell` test file rather than adding a new generic test helper.
+  - Reused the existing in-file `installAnimationFrameClock()` helper and extended its restore cleanup instead of introducing a second timer/RAF helper.
+  - Kept the fixes local to `SkyLensServerless/tests/unit/viewer-shell.test.ts`; no new shared test utility or production abstraction was added.
+  - Reused the same timer/RAF control pattern already present in the scene-cadence tests instead of inventing a second demo-clock stabilization path for the estimated-aircraft regression.

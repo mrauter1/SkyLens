@@ -294,8 +294,6 @@ describe('ViewerShell startup gating', () => {
   })
 
   afterEach(async () => {
-    vi.useRealTimers()
-
     if (rootMounted) {
       await act(async () => {
         root.unmount()
@@ -307,6 +305,9 @@ describe('ViewerShell startup gating', () => {
       await afterUnmountCleanup()
       afterUnmountCleanup = null
     }
+
+    vi.clearAllTimers()
+    vi.useRealTimers()
     container.remove()
     window.localStorage.clear()
   })
@@ -3298,6 +3299,11 @@ describe('ViewerShell startup gating', () => {
   })
 
   it('surfaces estimated aircraft labels and badges in the selected detail view', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-03-26T00:00:00.000Z'))
+
+    const restoreAnimationFrame = installAnimationFrameClock()
+
     mockResolveAircraftMotionObjects.mockReturnValue([
       {
         confidence: 0.7,
@@ -3325,34 +3331,45 @@ describe('ViewerShell startup gating', () => {
       },
     ])
 
-    await renderViewer({
-      entry: 'demo',
-      location: 'unavailable',
-      camera: 'unavailable',
-      orientation: 'unavailable',
-      demoScenarioId: 'tokyo-iss',
-    })
+    try {
+      await renderViewer({
+        entry: 'demo',
+        location: 'unavailable',
+        camera: 'unavailable',
+        orientation: 'unavailable',
+        demoScenarioId: 'tokyo-iss',
+      })
+      await flushEffects()
+      await act(async () => {
+        vi.advanceTimersByTime(16)
+      })
+      await flushEffects()
 
-    const marker = container.querySelector(
-      '[data-testid="sky-object-marker"][data-object-id="icao24-estui"]',
-    ) as HTMLButtonElement | null
+      const marker = container.querySelector(
+        '[data-testid="sky-object-marker"][data-object-id="icao24-estui"]',
+      ) as HTMLButtonElement | null
 
-    expect(marker).not.toBeNull()
-    expect(marker?.getAttribute('aria-label')).toContain('Aircraft Estimated')
+      expect(marker).not.toBeNull()
+      expect(marker?.getAttribute('aria-label')).toContain('Aircraft Estimated')
 
-    await act(async () => {
-      marker?.click()
-    })
-    await flushEffects()
+      await act(async () => {
+        marker?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+        vi.advanceTimersByTime(16)
+      })
+      await flushEffects()
 
-    expect(container.textContent).toContain('Selected object')
-    expect(container.textContent).toContain('Aircraft Estimated')
-    expect(
-      Array.from(container.querySelectorAll('span')).some(
-        (element) => element.textContent?.trim() === 'Estimated',
-      ),
-    ).toBe(true)
-  })
+      expect(marker?.getAttribute('aria-pressed')).toBe('true')
+      expect(container.textContent).toContain('Selected object')
+      expect(container.textContent).toContain('Aircraft Estimated')
+      expect(
+        Array.from(container.querySelectorAll('span')).some(
+          (element) => element.textContent?.trim() === 'Estimated',
+        ),
+      ).toBe(true)
+    } finally {
+      restoreAnimationFrame()
+    }
+  }, 10_000)
 
   it('uses requestAnimationFrame as the render-loop fallback when video-frame callbacks are unavailable', async () => {
     let animationFrameCallback: FrameRequestCallback | null = null
@@ -3596,15 +3613,30 @@ describe('ViewerShell startup gating', () => {
   })
 
   it('uses video-frame metadata when requestVideoFrameCallback is available', async () => {
-    let videoFrameCallback:
-      | ((now: number, metadata: { width?: number; height?: number }) => void)
-      | null = null
+    vi.useFakeTimers()
+
+    const handles = new Map<number, number>()
+    let nextHandle = 1
     const requestVideoFrameCallbackMock = vi.fn(
       (callback: (now: number, metadata: { width?: number; height?: number }) => void) => {
-        videoFrameCallback = callback
-        return 1
+        const handle = nextHandle++
+        const timeoutId = window.setTimeout(() => {
+          handles.delete(handle)
+          callback(Date.now(), { width: 1920, height: 1080 })
+        }, 16)
+
+        handles.set(handle, timeoutId)
+        return handle
       },
     )
+    const cancelVideoFrameCallbackMock = vi.fn((handle: number) => {
+      const timeoutId = handles.get(handle)
+
+      if (typeof timeoutId === 'number') {
+        window.clearTimeout(timeoutId)
+        handles.delete(handle)
+      }
+    })
     const originalRequestVideoFrameCallback = (
       HTMLVideoElement.prototype as HTMLVideoElement & {
         requestVideoFrameCallback?: (
@@ -3624,7 +3656,7 @@ describe('ViewerShell startup gating', () => {
     })
     Object.defineProperty(HTMLVideoElement.prototype, 'cancelVideoFrameCallback', {
       configurable: true,
-      value: vi.fn(),
+      value: cancelVideoFrameCallbackMock,
     })
 
     try {
@@ -3641,13 +3673,24 @@ describe('ViewerShell startup gating', () => {
 
       expect(stage).not.toBeNull()
       expect(requestVideoFrameCallbackMock).toHaveBeenCalledTimes(1)
-      expect(videoFrameCallback).toBeTypeOf('function')
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(16)
+      })
+      await flushEffects()
+
+      expect(requestVideoFrameCallbackMock).toHaveBeenCalledTimes(2)
 
       await act(async () => {
         root.unmount()
       })
       rootMounted = false
+      expect(cancelVideoFrameCallbackMock).toHaveBeenCalled()
     } finally {
+      handles.forEach((timeoutId) => {
+        window.clearTimeout(timeoutId)
+      })
+      handles.clear()
       Object.defineProperty(HTMLVideoElement.prototype, 'requestVideoFrameCallback', {
         configurable: true,
         value: originalRequestVideoFrameCallback,
@@ -3660,7 +3703,7 @@ describe('ViewerShell startup gating', () => {
   })
 
   it('surfaces relative sensor status and alignment-required messaging when calibration is still needed', async () => {
-    mockSubscribeToOrientationPose.mockImplementation((onPose: (state: unknown) => void) => {
+    mockSubscribeToOrientationPose.mockImplementationOnce((onPose: (state: unknown) => void) => {
       onPose({
         pose: {
           yawDeg: 0,
@@ -4137,6 +4180,11 @@ function installAnimationFrameClock() {
   })
 
   return () => {
+    handles.forEach((timeoutId) => {
+      window.clearTimeout(timeoutId)
+    })
+    handles.clear()
+
     Object.defineProperty(window, 'requestAnimationFrame', {
       configurable: true,
       writable: true,
