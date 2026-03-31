@@ -20,6 +20,9 @@ test('landing page shows shell copy and demo entry', async ({ page }) => {
       'Live satellite catalogs are fetched directly from CelesTrak.',
     ),
   ).toBeVisible()
+  await expect(page.getByText('Use the live viewer on your phone.')).toBeVisible()
+  await expect(page.getByText('Privacy and fallback notes')).toBeVisible()
+  await expect(page.getByText('Permission order')).toBeVisible()
   await expect(page.getByRole('link', { name: 'Open live viewer' })).toBeVisible()
 
   const demoLink = page.getByRole('link', { name: 'Try demo mode' })

@@ -53,6 +53,23 @@ test('settings persist layer toggles in demo mode', async ({ page }) => {
   await expect(page.getByRole('dialog', { name: 'Settings' }).getByRole('checkbox', { name: 'Planes' })).not.toBeChecked()
 })
 
+test('settings sheet closes from its backdrop and restores focus to Settings', async ({ page }) => {
+  await page.goto(SF_DEMO_ROUTE)
+
+  await ensureMobileViewerOverlayOpen(page)
+  const mobileOverlay = page.getByTestId('mobile-viewer-overlay')
+  const settingsTrigger = mobileOverlay.getByRole('button', { name: 'Settings' })
+
+  await settingsTrigger.click()
+
+  const settingsDialog = page.getByRole('dialog', { name: 'Settings' })
+
+  await expect(settingsDialog).toBeVisible()
+  await page.getByTestId('settings-sheet-backdrop').click({ position: { x: 8, y: 8 } })
+  await expect(settingsDialog).toHaveCount(0)
+  await expect(settingsTrigger).toBeFocused()
+})
+
 test('mobile overlay opens from the trigger and closes from the backdrop only', async ({
   page,
 }) => {
@@ -75,6 +92,7 @@ test('mobile overlay opens from the trigger and closes from the backdrop only', 
   })
   await expect(page.getByTestId('mobile-viewer-overlay')).toHaveCount(0)
   await expect(trigger).toBeVisible()
+  await expect(trigger).toBeFocused()
 })
 
 test('mobile overlay keeps lower sections reachable on a short viewport', async ({ page }) => {
@@ -105,11 +123,14 @@ test('desktop viewer keeps actions visible and opens the compact viewer panel on
   await page.goto(SF_DEMO_ROUTE)
 
   const desktopHeader = page.getByTestId('desktop-viewer-header')
+  const desktopNextAction = page.getByTestId('desktop-next-action')
   const openViewerAction = page.getByTestId('desktop-open-viewer-action')
   const desktopViewerPanel = page.getByTestId('desktop-viewer-panel')
 
   await expect(desktopHeader).toBeVisible()
-  await expect(page.getByTestId('desktop-viewer-actions')).toContainText('Open viewer')
+  await expect(desktopNextAction).toContainText('Open the viewer details')
+  await expect(desktopNextAction).toContainText('Open viewer')
+  await expect(page.getByTestId('desktop-viewer-actions')).not.toContainText('Open viewer')
   await expect(page.getByTestId('desktop-viewer-actions')).toContainText('Enable camera')
   await expect(page.getByTestId('desktop-viewer-actions')).toContainText('Motion')
   await expect(page.getByTestId('desktop-viewer-actions')).toContainText('Align')

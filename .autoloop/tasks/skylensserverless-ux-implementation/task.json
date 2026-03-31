@@ -1,0 +1,91 @@
+{
+  "task_id": "skylensserverless-ux-implementation",
+  "created_at": "2026-03-29T23:11:01.202870+00:00",
+  "request_text": "# SkyLensServerless UX Implementation Task (Autoloop)\n\n## Context\nThe previous PR only added documentation (`SKYLENSSERVERLESS_UX_10X_PLAN.md`) and was unsatisfactory.\nImplement the actual product/UI changes in **SkyLensServerless**.\n\n## Goal\nDeliver the UX improvements described in the plan with production-quality code and tests.\n\n## Required outcomes\n1. Overlays are **full-height sheets** (use full vertical space), but **not full-screen takeovers**.\n2. Settings and relevant overlays close on clicking outside (policy-based exceptions allowed for critical steps).\n3. Instructions show only the **single next step** with one primary CTA per state.\n4. Banner clutter is reduced via prioritization/collapse (single primary actionable banner by default).\n5. Desktop landing/banner hierarchy is reduced in visual dominance and clutter.\n6. Mobile behavior must remain stable and not regress.\n\n## Implementation scope\n- `SkyLensServerless/components/ui/compact-mobile-panel-shell.tsx`\n- `SkyLensServerless/components/settings/settings-sheet.tsx`\n- `SkyLensServerless/components/viewer/viewer-shell.tsx`\n- `SkyLensServerless/lib/viewer/alignment-tutorial.ts`\n- `SkyLensServerless/components/landing/landing-screen.tsx`\n- Relevant unit and e2e tests under `SkyLensServerless/tests/`\n\n## Quality bar\n- Keep accessibility and focus management correct.\n- Preserve/adjust test IDs as needed and update tests accordingly.\n- Ensure deterministic behavior for banner/next-step resolution.\n\n## Test expectations\nRun and pass relevant unit and e2e checks for touched behavior. Include regression coverage for:\n- Outside click close and escape close behavior\n- Focus restoration\n- Next-step resolver output\n- Banner prioritization\n- Mobile overlay flows\n\n## Process constraints\n- Use **pairs: plan,implement,test**.\n- Do not set max iterations.\n- Run in full auto answers mode.\n- Implement directly in codebase (no docs-only outcome).\n\n## Run Intent (2026-03-30T11:16:27.251624+00:00)\n# Resume SkyLensServerless UX Implementation (Autoloop)\n\nResume and complete the existing task `skylensserverless-ux-implementation`.\n\n## Objective\nImplement actual production code and tests (not docs-only) for SkyLensServerless UX improvements:\n1. Full-height sheet overlays (not full-screen takeovers).\n2. Outside-click close behavior for settings/relevant overlays with policy-based exceptions.\n3. Single next-step primary guidance/CTA model.\n4. Prioritized single primary actionable banner by default.\n5. Reduced desktop banner/hero dominance and cleaner hierarchy.\n6. Preserve mobile behavior and accessibility.\n\n## Required process\n- Run with pairs: plan,implement,test.\n- Use full-auto answers.\n- Do not set max_iterations.\n- Complete the run to finished state.\n\n## Required deliverables\n- Code changes in SkyLensServerless components/lib as needed.\n- Updated/added unit and e2e tests for modified behavior.\n- Commit(s) produced by the autoloop flow.\n\n## Run Intent (2026-03-30T11:16:42.606012+00:00)\n# Resume SkyLensServerless UX Implementation (Autoloop)\n\nResume and complete the existing task `skylensserverless-ux-implementation`.\n\n## Objective\nImplement actual production code and tests (not docs-only) for SkyLensServerless UX improvements:\n1. Full-height sheet overlays (not full-screen takeovers).\n2. Outside-click close behavior for settings/relevant overlays with policy-based exceptions.\n3. Single next-step primary guidance/CTA model.\n4. Prioritized single primary actionable banner by default.\n5. Reduced desktop banner/hero dominance and cleaner hierarchy.\n6. Preserve mobile behavior and accessibility.\n\n## Required process\n- Run with pairs: plan,implement,test.\n- Use full-auto answers.\n- Do not set max_iterations.\n- Complete the run to finished state.\n\n## Required deliverables\n- Code changes in SkyLensServerless components/lib as needed.\n- Updated/added unit and e2e tests for modified behavior.\n- Commit(s) produced by the autoloop flow.\n\n## Run Intent (2026-03-30T11:43:04.798107+00:00)\n# SkyLensServerless UX - Execute Implementation Now\n\nUse autoloop to complete actual implementation and tests for the planned SkyLensServerless UX work.\n\n## Must deliver code (not planning-only)\n- Implement overlay full-height sheet behavior (not full-screen takeover).\n- Implement outside-click close behavior with policy exceptions.\n- Implement per-surface focus restoration.\n- Implement single next-step guidance/CTA resolver behavior.\n- Implement prioritized single primary banner behavior.\n- Reduce desktop landing/banner visual dominance.\n- Preserve mobile behavior and accessibility.\n\n## Must deliver tests\n- Unit/e2e coverage for dismissal, focus restoration, next-step resolver, banner prioritization, and mobile overlay regressions.\n\n## Process requirements\n- full auto answers mode\n- pairs: plan,implement,test\n- do not set max_iterations\n- continue until run reaches completed state\n\n## Run Intent (2026-03-30T11:43:15.408106+00:00)\n# SkyLensServerless UX - Execute Implementation Now\n\nUse autoloop to complete actual implementation and tests for the planned SkyLensServerless UX work.\n\n## Must deliver code (not planning-only)\n- Implement overlay full-height sheet behavior (not full-screen takeover).\n- Implement outside-click close behavior with policy exceptions.\n- Implement per-surface focus restoration.\n- Implement single next-step guidance/CTA resolver behavior.\n- Implement prioritized single primary banner behavior.\n- Reduce desktop landing/banner visual dominance.\n- Preserve mobile behavior and accessibility.\n\n## Must deliver tests\n- Unit/e2e coverage for dismissal, focus restoration, next-step resolver, banner prioritization, and mobile overlay regressions.\n\n## Process requirements\n- full auto answers mode\n- pairs: plan,implement,test\n- do not set max_iterations\n- continue until run reaches completed state\n\n## Run Intent (2026-03-30T15:16:30.328474+00:00)\n# Resume SkyLensServerless UX task and finalize completion\n\nContinue the existing `skylensserverless-ux-implementation` task and resolve remaining blocked/in-progress work.\n\n## Required completion criteria\n- Move `finalize-ux-contract` from in_progress to completed.\n- Address any inline feedback from prior diffs.\n- Keep scope to SkyLensServerless UX changes and associated tests.\n- Ensure plan, implement, and test pairs run in sequence.\n\n## Process constraints\n- full auto answers enabled\n- pairs: plan,implement,test\n- do not set max_iterations\n- do not stop early while run is active\n\n## Run Intent (2026-03-30T16:24:04.033432+00:00)\n# Resume SkyLensServerless UX implementation to completion\n\nContinue task `skylensserverless-ux-implementation` and finish all remaining work without stopping early.\n\n## Required behavior\n- Keep scope in SkyLensServerless UX implementation and its tests.\n- Address unresolved inline feedback/blockers from prior run artifacts.\n- Complete the active phase `finalize-ux-contract`.\n\n## Required validation\n- Run full unit validation required by the phase (including full viewer-shell suite, not only filtered subsets).\n- Run required Playwright e2e specs in a Chromium-capable environment and record pass evidence.\n- Ensure plan, implement, and test pairs execute in sequence.\n\n## Process requirements\n- full auto answers enabled.\n- pairs: plan,implement,test.\n- do not set max_iterations.\n- do not stop while run is active.\n\n## Run Intent (2026-03-30T16:24:17.050565+00:00)\n# Resume SkyLensServerless UX implementation to completion\n\nContinue task `skylensserverless-ux-implementation` and finish all remaining work without stopping early.\n\n## Required behavior\n- Keep scope in SkyLensServerless UX implementation and its tests.\n- Address unresolved inline feedback/blockers from prior run artifacts.\n- Complete the active phase `finalize-ux-contract`.\n\n## Required validation\n- Run full unit validation required by the phase (including full viewer-shell suite, not only filtered subsets).\n- Run required Playwright e2e specs in a Chromium-capable environment and record pass evidence.\n- Ensure plan, implement, and test pairs execute in sequence.\n\n## Process requirements\n- full auto answers enabled.\n- pairs: plan,implement,test.\n- do not set max_iterations.\n- do not stop while run is active.\n\n## Run Intent (2026-03-30T18:31:21.580665+00:00)\n# Resume and complete SkyLensServerless UX autoloop run\n\nContinue task `skylensserverless-ux-implementation` to terminal completion.\n\n## Required process\n- Use full auto answers mode.\n- Use pairs: plan,implement,test.\n- Do not set max iterations.\n- Do not stop while active.\n\n## Required completion\n- Resolve remaining review feedback in `finalize-ux-contract`.\n- Reach a terminal autoloop run status (success/blocked/failed) with artifacts recorded.\n- Preserve task scope to SkyLensServerless UX and related tests.\n\n## Run Intent (2026-03-30T18:31:35.045964+00:00)\n# Resume and complete SkyLensServerless UX autoloop run\n\nContinue task `skylensserverless-ux-implementation` to terminal completion.\n\n## Required process\n- Use full auto answers mode.\n- Use pairs: plan,implement,test.\n- Do not set max iterations.\n- Do not stop while active.\n\n## Required completion\n- Resolve remaining review feedback in `finalize-ux-contract`.\n- Reach a terminal autoloop run status (success/blocked/failed) with artifacts recorded.\n- Preserve task scope to SkyLensServerless UX and related tests.\n\n## Run Intent (2026-03-30T21:21:45.581049+00:00)\n# Resume SkyLensServerless UX with test-only pair\n\nRun only the `test` pair for task `skylensserverless-ux-implementation`.\n\n## Requirements\n- full auto answers mode\n- pairs: test only\n- no max_iterations override\n- continue until terminal run completion and record artifacts\n\n## Run Intent (2026-03-30T21:21:55.837655+00:00)\n# Resume SkyLensServerless UX with test-only pair\n\nRun only the `test` pair for task `skylensserverless-ux-implementation`.\n\n## Requirements\n- full auto answers mode\n- pairs: test only\n- no max_iterations override\n- continue until terminal run completion and record artifacts\n\n## Run Intent (2026-03-31T03:21:50.307180+00:00)\n# Re-run SkyLensServerless UX task after autoloop update\n\nRun the existing task `skylensserverless-ux-implementation` again after updating autoloop.\n\n## Goals\n- Continue implementation/test completion for remaining blockers in finalize-ux-contract.\n- Preserve scope to SkyLensServerless UX and related tests only.\n\n## Required process\n- full auto answers enabled\n- pairs: plan,implement,test\n- do not set max_iterations\n- run until terminal completion\n\n## Run Intent (2026-03-31T13:10:11.055077+00:00)\n# SkyLensServerless review validation and fixes via autoloop\n\nAnalyze the provided review comments for correctness and applicability, then apply only the correct fixes in scope.\n\n## Mandatory UX requirement\n- \"No motion\" or similar warnings must always remain visible in a very compact way.\n\n## Review items to evaluate and fix if correct\n1. Banner primary-selection logic may demote critical non-actionable warnings.\n2. Redundant nullish coalescing in desktop primary action kind.\n3. Focusable-elements helper missing some focusable types and CSS visibility filtering.\n4. Alignment opener surface inference may rely on `document.activeElement` and misclassify mobile taps.\n5. Focus-restore predicate may accept non-focusable/hidden targets.\n\n## Scope\n- SkyLensServerless/components/viewer/viewer-shell.tsx\n- Related tests under SkyLensServerless/tests/unit and e2e as needed\n\n## Process requirements\n- full auto answers\n- pairs: plan,implement,test\n- do not set max_iterations\n- complete to terminal run state",
+  "request_updated_at": "2026-03-31T13:10:11.055150+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/skylensserverless-ux-implementation/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260331T131011Z-f6d94fa4",
+    "mode": "single",
+    "phase_ids": [
+      "finalize-ux-contract"
+    ],
+    "explicit": true,
+    "current_phase_index": 1,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "overlay-foundation": "completed",
+    "guidance-and-banner-resolution": "completed",
+    "desktop-hierarchy-and-regression": "blocked",
+    "finalize-ux-contract": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "overlay-foundation",
+      "run_id": "run-20260329T231101Z-4fd26a7b",
+      "status": "in_progress",
+      "ts": "2026-03-29T23:16:37.107639+00:00"
+    },
+    {
+      "phase_id": "overlay-foundation",
+      "run_id": "run-20260330T114315Z-364b5d58",
+      "status": "completed",
+      "ts": "2026-03-30T12:11:28.299134+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "guidance-and-banner-resolution",
+      "run_id": "run-20260330T114315Z-364b5d58",
+      "status": "in_progress",
+      "ts": "2026-03-30T12:11:28.300407+00:00"
+    },
+    {
+      "phase_id": "guidance-and-banner-resolution",
+      "run_id": "run-20260330T114315Z-364b5d58",
+      "status": "completed",
+      "ts": "2026-03-30T12:33:49.315535+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "desktop-hierarchy-and-regression",
+      "run_id": "run-20260330T114315Z-364b5d58",
+      "status": "in_progress",
+      "ts": "2026-03-30T12:33:49.316940+00:00"
+    },
+    {
+      "phase_id": "desktop-hierarchy-and-regression",
+      "run_id": "run-20260330T114315Z-364b5d58",
+      "status": "blocked",
+      "ts": "2026-03-30T12:48:00.577060+00:00",
+      "pair": "implement"
+    },
+    {
+      "phase_id": "finalize-ux-contract",
+      "run_id": "run-20260330T124815Z-e50f7f42",
+      "status": "in_progress",
+      "ts": "2026-03-30T12:52:08.302678+00:00"
+    },
+    {
+      "phase_id": "finalize-ux-contract",
+      "run_id": "run-20260331T032150Z-4a2cbc14",
+      "status": "completed",
+      "ts": "2026-03-31T03:50:52.351751+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "finalize-ux-contract",
+      "run_id": "run-20260331T131011Z-f6d94fa4",
+      "status": "in_progress",
+      "ts": "2026-03-31T13:14:20.473568+00:00"
+    },
+    {
+      "phase_id": "finalize-ux-contract",
+      "run_id": "run-20260331T131011Z-f6d94fa4",
+      "status": "completed",
+      "ts": "2026-03-31T13:33:34.538028+00:00",
+      "pair": "test"
+    }
+  ]
+}

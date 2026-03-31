@@ -4291,7 +4291,7 @@ function getDetailRows(object: SkyObject) {
           value: `${Math.round(aircraftDetail?.altitudeFeet ?? 0).toLocaleString()} ft / ${Math.round(aircraftDetail?.altitudeMeters ?? 0).toLocaleString()} m`,
         },
         ...(aircraftDetail?.trackCardinal
-          ? [{ label: 'Track', value: aircraftDetail.trackCardinal }]
+          ? [{ label: 'Heading', value: aircraftDetail.trackCardinal }]
           : []),
         ...(typeof aircraftDetail?.speedKph === 'number'
           ? [{ label: 'Speed', value: `${Math.round(aircraftDetail.speedKph)} km/h` }]
