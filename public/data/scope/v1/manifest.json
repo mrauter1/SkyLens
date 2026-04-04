@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "kind": "dev",
+  "sourceCatalog": "dev-synthetic-from-stars-200",
+  "epoch": "J2000",
+  "rowFormat": "scope-star-v2-le",
+  "namesPath": "names.json",
+  "bands": [
+    {
+      "bandDir": "mag6p5",
+      "maxMagnitude": 6.5,
+      "raStepDeg": 90,
+      "decStepDeg": 45,
+      "indexPath": "mag6p5/index.json",
+      "totalRows": 200,
+      "namedRows": 0
+    },
+    {
+      "bandDir": "mag8p0",
+      "maxMagnitude": 8,
+      "raStepDeg": 45,
+      "decStepDeg": 30,
+      "indexPath": "mag8p0/index.json",
+      "totalRows": 400,
+      "namedRows": 0
+    },
+    {
+      "bandDir": "mag9p5",
+      "maxMagnitude": 9.5,
+      "raStepDeg": 22.5,
+      "decStepDeg": 22.5,
+      "indexPath": "mag9p5/index.json",
+      "totalRows": 800,
+      "namedRows": 0
+    },
+    {
+      "bandDir": "mag10p5",
+      "maxMagnitude": 10.5,
+      "raStepDeg": 11.25,
+      "decStepDeg": 11.25,
+      "indexPath": "mag10p5/index.json",
+      "totalRows": 1200,
+      "namedRows": 200
+    }
+  ]
+}
