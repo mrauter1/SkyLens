@@ -1,10 +1,21 @@
-import { describe, expect, it } from 'vitest'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+
+import { afterEach, describe, expect, it } from 'vitest'
 
 import {
   deriveTycho2Photometry,
   extractTycho2MainFields,
   normalizeTycho2MainRecord,
+  parseTycho2ExpandedCatalog,
 } from '../../lib/scope-data/tycho2.mjs'
+
+const tempRoots: string[] = []
+
+afterEach(async () => {
+  await Promise.all(tempRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
+})
 
 function createTycho2Line(overrides: Record<string, string | number | null> = {}) {
   const buffer = Array.from({ length: 206 }, () => ' ')
@@ -137,5 +148,23 @@ describe('scope-data tycho2 parser', () => {
     expect(
       normalizeTycho2MainRecord(createTycho2Line({ decDeg: 'not-a-number' }))
     ).toEqual({ dropReason: 'missingDec' })
+  })
+
+  it('continues parsing when a line has invalid length and records the drop', async () => {
+    const expandedRoot = await mkdtemp(path.join(os.tmpdir(), 'scope-tycho2-'))
+    tempRoots.push(expandedRoot)
+    const validLine = createTycho2Line()
+    const invalidLine = validLine.slice(0, 205)
+
+    for (let index = 0; index < 20; index += 1) {
+      const fileName = `tyc2.dat.${String(index).padStart(2, '0')}`
+      const lines = index === 0 ? `${invalidLine}\n${validLine}\n` : `${validLine}\n`
+      await writeFile(path.join(expandedRoot, fileName), lines, 'utf8')
+    }
+
+    const result = await parseTycho2ExpandedCatalog(expandedRoot)
+
+    expect(result.droppedRows.invalidLength).toBe(1)
+    expect(result.rows.length).toBe(20)
   })
 })
