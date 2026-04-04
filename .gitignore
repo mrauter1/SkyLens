@@ -3,3 +3,8 @@ node_modules
 coverage
 playwright-report
 test-results
+.cache/scope-source/
+.cache/scope-build/
+
+# Generated scope dataset tiles (rebuild via scope:data:build*)
+public/data/scope/v1/**/*.bin

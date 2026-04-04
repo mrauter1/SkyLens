@@ -1,0 +1,81 @@
+{
+  "task_id": "autoloop-task-complete-skylensserverless-prd-adr-1091a0c1",
+  "created_at": "2026-04-04T01:04:03.966313+00:00",
+  "request_text": "# Autoloop Task: Complete SkyLensServerless PRD/ADR Implementation\n\nImplement **all requirements** defined in:\n`SkyLensServerless/SkyLensServerless_Scope_Dataset_PRD_and_ADR_v1_2_final.md`\n\n## Goal\nDeliver a complete, production-ready implementation of the SkyLensServerless scope exactly as specified by the PRD/ADR document, including code, tests, and supporting documentation updates required by the spec.\n\n## Mandatory execution behavior\n- Use iterative Plan \u2192 Implement \u2192 Test cycles.\n- Do not stop at partial completion.\n- Continue until every requirement in the PRD/ADR is implemented and validated.\n- If ambiguities exist, resolve them conservatively in favor of the PRD/ADR requirements and internal consistency.\n\n## Acceptance criteria\n- All functional requirements from the PRD/ADR are implemented.\n- Non-functional/architectural constraints from the ADR are respected.\n- Unit/integration/e2e tests are added or updated where appropriate.\n- Existing relevant tests pass.\n- Any required migrations/config/schema/data changes are included.\n- Documentation/readme notes are updated for operator/developer clarity when needed.\n\n## Scope guardrails\n- Focus only on implementing the PRD/ADR scope for SkyLensServerless.\n- Avoid unrelated refactors unless necessary to satisfy the requirements.\n- Keep changes coherent, reviewable, and production-quality.",
+  "request_updated_at": "2026-04-04T01:04:03.966457+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/autoloop-task-complete-skylensserverless-prd-adr-1091a0c1/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260404T010403Z-37ca1abb",
+    "mode": "single",
+    "phase_ids": [
+      "repository-wiring-and-core-contracts",
+      "downloader",
+      "builder",
+      "verifier-docs-and-dev-artifacts"
+    ],
+    "explicit": true,
+    "current_phase_index": 4,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "repository-wiring-and-core-contracts": "completed",
+    "downloader": "completed",
+    "builder": "completed",
+    "verifier-docs-and-dev-artifacts": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "repository-wiring-and-core-contracts",
+      "run_id": "run-20260404T010403Z-37ca1abb",
+      "status": "in_progress",
+      "ts": "2026-04-04T01:09:58.258810+00:00"
+    },
+    {
+      "phase_id": "repository-wiring-and-core-contracts",
+      "run_id": "run-20260404T010403Z-37ca1abb",
+      "status": "completed",
+      "ts": "2026-04-04T01:19:26.793741+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "downloader",
+      "run_id": "run-20260404T010403Z-37ca1abb",
+      "status": "in_progress",
+      "ts": "2026-04-04T01:19:26.795116+00:00"
+    },
+    {
+      "phase_id": "downloader",
+      "run_id": "run-20260404T010403Z-37ca1abb",
+      "status": "completed",
+      "ts": "2026-04-04T01:25:40.847351+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "builder",
+      "run_id": "run-20260404T010403Z-37ca1abb",
+      "status": "in_progress",
+      "ts": "2026-04-04T01:25:40.848782+00:00"
+    },
+    {
+      "phase_id": "builder",
+      "run_id": "run-20260404T010403Z-37ca1abb",
+      "status": "completed",
+      "ts": "2026-04-04T01:39:26.251852+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "verifier-docs-and-dev-artifacts",
+      "run_id": "run-20260404T010403Z-37ca1abb",
+      "status": "in_progress",
+      "ts": "2026-04-04T01:39:26.253232+00:00"
+    },
+    {
+      "phase_id": "verifier-docs-and-dev-artifacts",
+      "run_id": "run-20260404T010403Z-37ca1abb",
+      "status": "completed",
+      "ts": "2026-04-04T01:44:34.884047+00:00",
+      "pair": "test"
+    }
+  ]
+}

@@ -12,7 +12,11 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "scope:data:download": "node scripts/download-scope-source.mjs",
+    "scope:data:build": "node scripts/build-scope-dataset.mjs --mode prod",
+    "scope:data:build:dev": "node scripts/build-scope-dataset.mjs --mode dev",
+    "scope:data:verify": "node scripts/verify-scope-dataset.mjs --dataset-root public/data/scope/v1"
   },
   "dependencies": {
     "astronomy-engine": "^2.1.19",

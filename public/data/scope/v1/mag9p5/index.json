@@ -1,0 +1,542 @@
+{
+  "bandDir": "mag9p5",
+  "maxMagnitude": 9.5,
+  "raStepDeg": 22.5,
+  "decStepDeg": 22.5,
+  "tiles": [
+    {
+      "raIndex": 0,
+      "decIndex": 0,
+      "file": "r0_d0.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 6,
+      "decIndex": 0,
+      "file": "r6_d0.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 8,
+      "decIndex": 0,
+      "file": "r8_d0.bin",
+      "count": 8
+    },
+    {
+      "raIndex": 10,
+      "decIndex": 0,
+      "file": "r10_d0.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 11,
+      "decIndex": 0,
+      "file": "r11_d0.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 1,
+      "decIndex": 1,
+      "file": "r1_d1.bin",
+      "count": 8
+    },
+    {
+      "raIndex": 4,
+      "decIndex": 1,
+      "file": "r4_d1.bin",
+      "count": 8
+    },
+    {
+      "raIndex": 5,
+      "decIndex": 1,
+      "file": "r5_d1.bin",
+      "count": 12
+    },
+    {
+      "raIndex": 6,
+      "decIndex": 1,
+      "file": "r6_d1.bin",
+      "count": 12
+    },
+    {
+      "raIndex": 7,
+      "decIndex": 1,
+      "file": "r7_d1.bin",
+      "count": 12
+    },
+    {
+      "raIndex": 8,
+      "decIndex": 1,
+      "file": "r8_d1.bin",
+      "count": 24
+    },
+    {
+      "raIndex": 9,
+      "decIndex": 1,
+      "file": "r9_d1.bin",
+      "count": 24
+    },
+    {
+      "raIndex": 10,
+      "decIndex": 1,
+      "file": "r10_d1.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 11,
+      "decIndex": 1,
+      "file": "r11_d1.bin",
+      "count": 12
+    },
+    {
+      "raIndex": 13,
+      "decIndex": 1,
+      "file": "r13_d1.bin",
+      "count": 8
+    },
+    {
+      "raIndex": 14,
+      "decIndex": 1,
+      "file": "r14_d1.bin",
+      "count": 8
+    },
+    {
+      "raIndex": 15,
+      "decIndex": 1,
+      "file": "r15_d1.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 0,
+      "decIndex": 2,
+      "file": "r0_d2.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 1,
+      "decIndex": 2,
+      "file": "r1_d2.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 3,
+      "decIndex": 2,
+      "file": "r3_d2.bin",
+      "count": 8
+    },
+    {
+      "raIndex": 4,
+      "decIndex": 2,
+      "file": "r4_d2.bin",
+      "count": 24
+    },
+    {
+      "raIndex": 5,
+      "decIndex": 2,
+      "file": "r5_d2.bin",
+      "count": 8
+    },
+    {
+      "raIndex": 6,
+      "decIndex": 2,
+      "file": "r6_d2.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 8,
+      "decIndex": 2,
+      "file": "r8_d2.bin",
+      "count": 16
+    },
+    {
+      "raIndex": 9,
+      "decIndex": 2,
+      "file": "r9_d2.bin",
+      "count": 16
+    },
+    {
+      "raIndex": 10,
+      "decIndex": 2,
+      "file": "r10_d2.bin",
+      "count": 20
+    },
+    {
+      "raIndex": 11,
+      "decIndex": 2,
+      "file": "r11_d2.bin",
+      "count": 32
+    },
+    {
+      "raIndex": 12,
+      "decIndex": 2,
+      "file": "r12_d2.bin",
+      "count": 28
+    },
+    {
+      "raIndex": 14,
+      "decIndex": 2,
+      "file": "r14_d2.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 15,
+      "decIndex": 2,
+      "file": "r15_d2.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 0,
+      "decIndex": 3,
+      "file": "r0_d3.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 2,
+      "decIndex": 3,
+      "file": "r2_d3.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 3,
+      "decIndex": 3,
+      "file": "r3_d3.bin",
+      "count": 36
+    },
+    {
+      "raIndex": 4,
+      "decIndex": 3,
+      "file": "r4_d3.bin",
+      "count": 8
+    },
+    {
+      "raIndex": 6,
+      "decIndex": 3,
+      "file": "r6_d3.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 7,
+      "decIndex": 3,
+      "file": "r7_d3.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 8,
+      "decIndex": 3,
+      "file": "r8_d3.bin",
+      "count": 16
+    },
+    {
+      "raIndex": 9,
+      "decIndex": 3,
+      "file": "r9_d3.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 10,
+      "decIndex": 3,
+      "file": "r10_d3.bin",
+      "count": 12
+    },
+    {
+      "raIndex": 11,
+      "decIndex": 3,
+      "file": "r11_d3.bin",
+      "count": 8
+    },
+    {
+      "raIndex": 12,
+      "decIndex": 3,
+      "file": "r12_d3.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 13,
+      "decIndex": 3,
+      "file": "r13_d3.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 14,
+      "decIndex": 3,
+      "file": "r14_d3.bin",
+      "count": 12
+    },
+    {
+      "raIndex": 0,
+      "decIndex": 4,
+      "file": "r0_d4.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 1,
+      "decIndex": 4,
+      "file": "r1_d4.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 2,
+      "decIndex": 4,
+      "file": "r2_d4.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 3,
+      "decIndex": 4,
+      "file": "r3_d4.bin",
+      "count": 16
+    },
+    {
+      "raIndex": 4,
+      "decIndex": 4,
+      "file": "r4_d4.bin",
+      "count": 10
+    },
+    {
+      "raIndex": 5,
+      "decIndex": 4,
+      "file": "r5_d4.bin",
+      "count": 8
+    },
+    {
+      "raIndex": 6,
+      "decIndex": 4,
+      "file": "r6_d4.bin",
+      "count": 8
+    },
+    {
+      "raIndex": 7,
+      "decIndex": 4,
+      "file": "r7_d4.bin",
+      "count": 8
+    },
+    {
+      "raIndex": 8,
+      "decIndex": 4,
+      "file": "r8_d4.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 9,
+      "decIndex": 4,
+      "file": "r9_d4.bin",
+      "count": 8
+    },
+    {
+      "raIndex": 10,
+      "decIndex": 4,
+      "file": "r10_d4.bin",
+      "count": 5
+    },
+    {
+      "raIndex": 11,
+      "decIndex": 4,
+      "file": "r11_d4.bin",
+      "count": 15
+    },
+    {
+      "raIndex": 12,
+      "decIndex": 4,
+      "file": "r12_d4.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 13,
+      "decIndex": 4,
+      "file": "r13_d4.bin",
+      "count": 8
+    },
+    {
+      "raIndex": 14,
+      "decIndex": 4,
+      "file": "r14_d4.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 15,
+      "decIndex": 4,
+      "file": "r15_d4.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 0,
+      "decIndex": 5,
+      "file": "r0_d5.bin",
+      "count": 8
+    },
+    {
+      "raIndex": 1,
+      "decIndex": 5,
+      "file": "r1_d5.bin",
+      "count": 12
+    },
+    {
+      "raIndex": 2,
+      "decIndex": 5,
+      "file": "r2_d5.bin",
+      "count": 16
+    },
+    {
+      "raIndex": 3,
+      "decIndex": 5,
+      "file": "r3_d5.bin",
+      "count": 19
+    },
+    {
+      "raIndex": 4,
+      "decIndex": 5,
+      "file": "r4_d5.bin",
+      "count": 7
+    },
+    {
+      "raIndex": 5,
+      "decIndex": 5,
+      "file": "r5_d5.bin",
+      "count": 8
+    },
+    {
+      "raIndex": 6,
+      "decIndex": 5,
+      "file": "r6_d5.bin",
+      "count": 12
+    },
+    {
+      "raIndex": 7,
+      "decIndex": 5,
+      "file": "r7_d5.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 8,
+      "decIndex": 5,
+      "file": "r8_d5.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 9,
+      "decIndex": 5,
+      "file": "r9_d5.bin",
+      "count": 8
+    },
+    {
+      "raIndex": 10,
+      "decIndex": 5,
+      "file": "r10_d5.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 11,
+      "decIndex": 5,
+      "file": "r11_d5.bin",
+      "count": 8
+    },
+    {
+      "raIndex": 12,
+      "decIndex": 5,
+      "file": "r12_d5.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 13,
+      "decIndex": 5,
+      "file": "r13_d5.bin",
+      "count": 12
+    },
+    {
+      "raIndex": 15,
+      "decIndex": 5,
+      "file": "r15_d5.bin",
+      "count": 8
+    },
+    {
+      "raIndex": 0,
+      "decIndex": 6,
+      "file": "r0_d6.bin",
+      "count": 16
+    },
+    {
+      "raIndex": 2,
+      "decIndex": 6,
+      "file": "r2_d6.bin",
+      "count": 12
+    },
+    {
+      "raIndex": 3,
+      "decIndex": 6,
+      "file": "r3_d6.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 5,
+      "decIndex": 6,
+      "file": "r5_d6.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 7,
+      "decIndex": 6,
+      "file": "r7_d6.bin",
+      "count": 12
+    },
+    {
+      "raIndex": 8,
+      "decIndex": 6,
+      "file": "r8_d6.bin",
+      "count": 8
+    },
+    {
+      "raIndex": 9,
+      "decIndex": 6,
+      "file": "r9_d6.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 10,
+      "decIndex": 6,
+      "file": "r10_d6.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 11,
+      "decIndex": 6,
+      "file": "r11_d6.bin",
+      "count": 8
+    },
+    {
+      "raIndex": 13,
+      "decIndex": 6,
+      "file": "r13_d6.bin",
+      "count": 8
+    },
+    {
+      "raIndex": 14,
+      "decIndex": 6,
+      "file": "r14_d6.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 1,
+      "decIndex": 7,
+      "file": "r1_d7.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 9,
+      "decIndex": 7,
+      "file": "r9_d7.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 10,
+      "decIndex": 7,
+      "file": "r10_d7.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 12,
+      "decIndex": 7,
+      "file": "r12_d7.bin",
+      "count": 4
+    }
+  ]
+}

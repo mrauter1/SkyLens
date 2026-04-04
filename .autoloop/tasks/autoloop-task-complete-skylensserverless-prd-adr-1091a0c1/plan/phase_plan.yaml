@@ -1,0 +1,131 @@
+version: 1
+task_id: autoloop-task-complete-skylensserverless-prd-adr-1091a0c1
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/autoloop-task-complete-skylensserverless-prd-adr-1091a0c1/runs/run-20260404T010403Z-37ca1abb/request.md
+phases:
+  - phase_id: repository-wiring-and-core-contracts
+    title: Repository Wiring and Shared Core
+    objective: Establish the repository root as the implementation boundary and add the shared deterministic scope-data core used by the root scripts and tests.
+    status: planned
+    in_scope:
+      - Update root package scripts and ignore rules for scope-data pipeline paths.
+      - Add root shared scope-data constants, schema contracts, serialization helpers, and path helpers.
+      - Create the root scripts surface and define deterministic band, manifest, names, tile, and report contract helpers used by build and verify flows.
+    out_of_scope:
+      - Runtime scope UI or loader integration.
+      - Direct implementation inside the nested SkyLensServerless tree.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: The root package.json exposes the four required scope:data:* npm scripts.
+      - id: AC-2
+        text: Root ignore rules exclude .cache/scope-source and .cache/scope-build but do not ignore public/data/scope/v1.
+      - id: AC-3
+        text: Root shared scope-data helpers encode the exact PRD/ADR contracts needed by downloader, builder, verifier, and tests without duplicating constants.
+    deliverables:
+      - Updated root package.json
+      - Updated root .gitignore
+      - Root scripts/ entrypoint directory
+      - Root lib/scope-data contract/helpers module set
+    risks:
+      - Over-abstracting the shared layer could add technical debt.
+      - Confusing the nested copy for the active implementation root could misplace cache or public outputs.
+    rollback:
+      - Remove the new scope-data helper modules and package wiring changes.
+      - Restore the previous root package.json and .gitignore entries.
+  - phase_id: downloader
+    title: Production Source Downloader
+    objective: Implement the restartable Tycho-2 acquisition command with exact URL precedence, cache layout, validation, and optional expansion behavior.
+    status: planned
+    in_scope:
+      - Implement scripts/download-scope-source.mjs with the required CLI options and failure semantics.
+      - Cache raw and expanded Tycho-2 files under root .cache/scope-source/tycho2.
+      - Add root downloader unit coverage for ordering, skip-valid, force, expansion, and exhausted candidates.
+    out_of_scope:
+      - Final dataset build or verify logic.
+      - Live-network dependent tests in CI.
+    dependencies:
+      - repository-wiring-and-core-contracts
+    acceptance_criteria:
+      - id: AC-1
+        text: The downloader acquires ReadMe and tyc2.dat.00.gz through tyc2.dat.19.gz, skipping already valid files unless forced.
+      - id: AC-2
+        text: CLI and environment base URL overrides replace the built-in URL list and preserve caller order.
+      - id: AC-3
+        text: The command exits non-zero when any required file remains missing after all candidates are exhausted.
+    deliverables:
+      - scripts/download-scope-source.mjs
+      - tests/unit/scope-data-download.test.ts
+    risks:
+      - False-positive validity checks could leave corrupt cached files in place.
+      - URL fallback behavior can drift from the normative ordering if implemented in multiple places.
+    rollback:
+      - Remove the downloader script and its tests.
+      - Delete any newly created cache-only downloader outputs.
+  - phase_id: builder
+    title: Dataset Builder
+    objective: Implement production Tycho-2 parsing and deterministic dev fallback generation, then emit the exact runtime artifact set and build report atomically.
+    status: planned
+    in_scope:
+      - Production parse path, photometry derivation, drop rules, and normalized records.
+      - Manual override and bright-star naming joins with deterministic nameId assignment.
+      - Dev fallback synthetic rows from root public/data/stars_200.json with exact offsets, magnitudes, and naming behavior.
+      - Banding, tiling, binary row encoding, deterministic JSON emission, staging, and atomic dataset replacement.
+    out_of_scope:
+      - Runtime tile loading behavior.
+      - Tycho-2 supplement ingestion.
+    dependencies:
+      - repository-wiring-and-core-contracts
+      - downloader
+    acceptance_criteria:
+      - id: AC-1
+        text: Build scripts emit manifest.json, names.json, per-band index.json files, and only non-empty tile binaries under root public/data/scope/v1.
+      - id: AC-2
+        text: Dev mode builds offline from root public/data/stars_200.json and satisfies the ADR synthetic-row recipe and named deep-row invariant.
+      - id: AC-3
+        text: Production mode enforces the exact Tycho-2 parser contract, naming precedence, magnitude bands, grids, row sort order, and 20-byte LE row format.
+    deliverables:
+      - scripts/build-scope-dataset.mjs
+      - Scope-data parser, naming, fallback, tiling, and encoding modules
+      - tests/unit/scope-data-parse.test.ts
+      - tests/unit/scope-data-names.test.ts
+      - tests/unit/scope-data-tiling.test.ts
+      - tests/unit/scope-data-dev-fallback.test.ts
+    risks:
+      - Parser or serializer defects could create schema-correct but scientifically wrong data.
+      - Non-deterministic ordering could make committed dev artifacts unstable across builds.
+    rollback:
+      - Revert builder code and generated runtime artifacts together.
+      - Restore the previously committed dataset tree if the new build output is rejected.
+  - phase_id: verifier-docs-and-dev-artifacts
+    title: Verifier, Docs, and Committed Dev Dataset
+    objective: Validate emitted datasets offline, commit the deterministic development output, document the root workflow, and prove repeatable builds with integration coverage.
+    status: planned
+    in_scope:
+      - Implement scripts/verify-scope-dataset.mjs with auto/dev/prod validation modes.
+      - Add root verifier unit tests and a dev-build integration test with byte-for-byte repeatability checks.
+      - Commit the generated development dataset under root public/data/scope/v1.
+      - Update the root developer/operator workflow note for the new scope:data commands.
+    out_of_scope:
+      - Production dataset commit requirement.
+      - Runtime consumption of the new dataset.
+    dependencies:
+      - builder
+    acceptance_criteria:
+      - id: AC-1
+        text: The verifier catches manifest, names, tile-count, unresolved-nameId, orphan-name, and development-invariant failures.
+      - id: AC-2
+        text: Repeated identical dev builds produce identical root runtime artifact bytes and a valid report under root .cache/scope-build/report.json.
+      - id: AC-3
+        text: The committed root dev dataset is valid, offline-buildable, documented for developers, and ready for later runtime integration under the exact v1 schema.
+    deliverables:
+      - scripts/verify-scope-dataset.mjs
+      - tests/unit/scope-data-verify.test.ts
+      - tests/unit/scope-data-build.integration.test.ts
+      - Updated AUTOLOOP_SERVERLESS_TASK.md or an equivalent existing repo-root workflow note
+      - Committed root public/data/scope/v1 dataset artifacts
+    risks:
+      - Committing unstable generated artifacts would create noisy future diffs.
+      - Verifier gaps could allow invalid artifacts to become the active dataset.
+    rollback:
+      - Revert verifier code and tests if needed.
+      - Restore the last known-good committed dev dataset tree.
