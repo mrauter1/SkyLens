@@ -4,6 +4,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 
 import { ViewerShell } from '../../components/viewer/viewer-shell'
 import { getDemoScenario } from '../../lib/demo/scenarios'
+import { resetScopeCatalogSessionCacheForTests } from '../../lib/scope/catalog'
 import { convertScopeHorizontalToEquatorial } from '../../lib/scope/coordinates'
 import {
   VIEWER_SETTINGS_STORAGE_KEY,
@@ -125,10 +126,19 @@ describe('ViewerShell scope runtime', () => {
   let container: HTMLDivElement
   let root: Root
   let originalFetch: typeof global.fetch | undefined
+  let originalGetBoundingClientRect: PropertyDescriptor | undefined
+  let stageBounds = {
+    width: 390,
+    height: 844,
+  }
 
   beforeAll(() => {
     ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
       .IS_REACT_ACT_ENVIRONMENT = true
+    originalGetBoundingClientRect = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      'getBoundingClientRect',
+    )
   })
 
   beforeEach(() => {
@@ -186,7 +196,26 @@ describe('ViewerShell scope runtime', () => {
     mockResolveSatelliteMotionObjects.mockReturnValue([])
 
     window.localStorage.clear()
+    resetScopeCatalogSessionCacheForTests()
     stubCanvasContext()
+    stageBounds = {
+      width: 390,
+      height: 844,
+    }
+    Object.defineProperty(HTMLElement.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        width: stageBounds.width,
+        height: stageBounds.height,
+        top: 0,
+        left: 0,
+        right: stageBounds.width,
+        bottom: stageBounds.height,
+        x: 0,
+        y: 0,
+        toJSON: () => null,
+      }),
+    })
   })
 
   afterEach(async () => {
@@ -200,6 +229,11 @@ describe('ViewerShell scope runtime', () => {
 
     container.remove()
     window.localStorage.clear()
+    resetScopeCatalogSessionCacheForTests()
+
+    if (originalGetBoundingClientRect) {
+      Object.defineProperty(HTMLElement.prototype, 'getBoundingClientRect', originalGetBoundingClientRect)
+    }
   })
 
   it('surfaces a named deep scope star through center-lock while keeping it canvas-only', async () => {
@@ -261,6 +295,27 @@ describe('ViewerShell scope runtime', () => {
 
     expect(container.querySelector('[data-testid="scope-lens-overlay"]')).toBeNull()
     expect(container.textContent).not.toContain('Scope Vega')
+  })
+
+  it('fetches portrait edge tiles using the square scope lens viewport', async () => {
+    const dataset = createPortraitScopeSelectionDataset()
+    global.fetch = vi.fn().mockImplementation(dataset.fetcher) as typeof fetch
+
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        ...readViewerSettings(),
+        scope: {
+          enabled: true,
+          verticalFovDeg: 10,
+        },
+        labelDisplayMode: 'center_only',
+      }),
+    )
+
+    await renderViewer()
+
+    expect(dataset.requestedUrls.some((url) => url.endsWith(dataset.edgeTileFile))).toBe(true)
   })
 
   async function renderViewer() {
@@ -399,6 +454,124 @@ function createScopeDataset(name: string, deferredTile?: ReturnType<typeof creat
         }
 
         return binaryResponse(tileBytes)
+      }
+
+      return jsonResponse({
+        bandDir: 'mag6p5',
+        maxMagnitude: 6.5,
+        raStepDeg: 90,
+        decStepDeg: 45,
+        tiles: [],
+      })
+    },
+  }
+}
+
+function createPortraitScopeSelectionDataset() {
+  const scenario = getDemoScenario('tokyo-iss')
+  const centeredEquatorial = convertScopeHorizontalToEquatorial(
+    {
+      azimuthDeg: 0,
+      elevationDeg: scenario.initialPitchDeg,
+    },
+    scenario.observer,
+    scenario.observer.timestampMs,
+  )
+  const centerDecIndex = Math.floor(centeredEquatorial.decDeg + 90)
+  const edgeTileFile = `r0_d${centerDecIndex + 8}.bin`
+  const requestedUrls: string[] = []
+  const manifest = {
+    version: 1,
+    kind: 'dev',
+    sourceCatalog: 'dev-synthetic-from-stars-200',
+    epoch: 'J2000',
+    rowFormat: 'scope-star-v2-le',
+    namesPath: 'names.json',
+    bands: [
+      {
+        bandDir: 'mag6p5',
+        maxMagnitude: 6.5,
+        raStepDeg: 90,
+        decStepDeg: 45,
+        indexPath: 'mag6p5/index.json',
+        totalRows: 0,
+        namedRows: 0,
+      },
+      {
+        bandDir: 'mag8p0',
+        maxMagnitude: 8,
+        raStepDeg: 45,
+        decStepDeg: 30,
+        indexPath: 'mag8p0/index.json',
+        totalRows: 0,
+        namedRows: 0,
+      },
+      {
+        bandDir: 'mag9p5',
+        maxMagnitude: 9.5,
+        raStepDeg: 360,
+        decStepDeg: 1,
+        indexPath: 'mag9p5/index.json',
+        totalRows: 2,
+        namedRows: 0,
+      },
+      {
+        bandDir: 'mag10p5',
+        maxMagnitude: 10.5,
+        raStepDeg: 11.25,
+        decStepDeg: 11.25,
+        indexPath: 'mag10p5/index.json',
+        totalRows: 0,
+        namedRows: 0,
+      },
+    ],
+  }
+  const index = {
+    bandDir: 'mag9p5',
+    maxMagnitude: 9.5,
+    raStepDeg: 360,
+    decStepDeg: 1,
+    tiles: [
+      {
+        raIndex: 0,
+        decIndex: centerDecIndex,
+        file: `r0_d${centerDecIndex}.bin`,
+        count: 1,
+      },
+      {
+        raIndex: 0,
+        decIndex: centerDecIndex + 8,
+        file: edgeTileFile,
+        count: 1,
+      },
+    ],
+  }
+  const emptyTileBytes = new Uint8Array(0)
+
+  return {
+    edgeTileFile,
+    requestedUrls,
+    fetcher: async (input: string | URL | Request) => {
+      const url = String(input)
+      requestedUrls.push(url)
+
+      if (url.endsWith('/manifest.json')) {
+        return jsonResponse(manifest)
+      }
+
+      if (url.endsWith('/names.json')) {
+        return jsonResponse({})
+      }
+
+      if (url.endsWith('/mag9p5/index.json')) {
+        return jsonResponse(index)
+      }
+
+      if (
+        url.endsWith(`/${index.tiles[0]?.file}`) ||
+        url.endsWith(`/${index.tiles[1]?.file}`)
+      ) {
+        return binaryResponse(emptyTileBytes)
       }
 
       return jsonResponse({

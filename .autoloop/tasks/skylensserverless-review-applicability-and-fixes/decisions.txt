@@ -1,0 +1,7 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260405T223424Z-07d10c04" ts="2026-04-05T22:34:24.997928+00:00" />
+Reject the `scopeProjectionProfile` memoization review item unless later profiling or code changes introduce an identity-sensitive consumer; the current value is a cheap render-local calculation with no observable stability contract.
+Scope deep-star tile selection must use the square lens viewport (`scopeLensDiameterPx` by `scopeLensDiameterPx`) because scope projection and in-lens visibility are computed in lens coordinates rather than full-stage coordinates.
+<autoloop-decisions-header version="1" block_seq="2" owner="planner" phase_id="task-global" pair="plan" turn_seq="2" run_id="run-20260405T223424Z-07d10c04" ts="2026-04-05T22:37:52.669118+00:00" />
+Treat the rejected `scopeProjectionProfile` memoization review as an artifact-only decision; do not add brittle implementation-detail tests or instrumentation for object identity that has no current observable contract.
+<autoloop-decisions-header version="1" block_seq="3" owner="implementer" phase_id="review-applicability-and-scope-radius-fix" pair="implement" turn_seq="1" run_id="run-20260405T223424Z-07d10c04" ts="2026-04-05T22:38:59.775561+00:00" />
+Reset the scope catalog session cache in dataset-driven runtime tests so fixture-specific manifests, indexes, and tile fetch expectations do not leak across cases and produce false negatives.

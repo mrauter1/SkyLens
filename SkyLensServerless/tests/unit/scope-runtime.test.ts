@@ -17,7 +17,10 @@ import {
   areScopeDeepStarsDaylightSuppressed,
   selectScopeBand,
 } from '../../lib/scope/depth'
-import { selectScopeTilesForPointing } from '../../lib/scope/position-tiles'
+import {
+  getScopeTileSelectionRadiusDeg,
+  selectScopeTilesForPointing,
+} from '../../lib/scope/position-tiles'
 
 describe('scope runtime modules', () => {
   afterEach(() => {
@@ -156,6 +159,102 @@ describe('scope runtime modules', () => {
       'r16_d15.bin',
       'r24_d15.bin',
     ])
+  })
+
+  it('keeps portrait scope selection aligned to the square lens viewport', () => {
+    const portraitStageRadiusDeg = getScopeTileSelectionRadiusDeg({
+      verticalFovDeg: 10,
+      viewportWidth: 390,
+      viewportHeight: 844,
+    })
+    const squareLensRadiusDeg = getScopeTileSelectionRadiusDeg({
+      verticalFovDeg: 10,
+      viewportWidth: 226.2,
+      viewportHeight: 226.2,
+    })
+
+    const portraitTiles = selectScopeTilesForPointing({
+      index: {
+        bandDir: 'mag9p5',
+        maxMagnitude: 9.5,
+        raStepDeg: 360,
+        decStepDeg: 1,
+        tiles: [
+          { raIndex: 0, decIndex: 90, file: 'center.bin', count: 1 },
+          { raIndex: 0, decIndex: 98, file: 'lens-edge.bin', count: 1 },
+        ],
+      },
+      centerRaDeg: 120,
+      centerDecDeg: 0.4,
+      selectionRadiusDeg: portraitStageRadiusDeg,
+    })
+    const squareLensTiles = selectScopeTilesForPointing({
+      index: {
+        bandDir: 'mag9p5',
+        maxMagnitude: 9.5,
+        raStepDeg: 360,
+        decStepDeg: 1,
+        tiles: [
+          { raIndex: 0, decIndex: 90, file: 'center.bin', count: 1 },
+          { raIndex: 0, decIndex: 98, file: 'lens-edge.bin', count: 1 },
+        ],
+      },
+      centerRaDeg: 120,
+      centerDecDeg: 0.4,
+      selectionRadiusDeg: squareLensRadiusDeg,
+    })
+
+    expect(portraitStageRadiusDeg).toBeLessThan(squareLensRadiusDeg)
+    expect(portraitTiles.map((tile) => tile.file)).toEqual(['center.bin'])
+    expect(squareLensTiles.map((tile) => tile.file)).toEqual(['center.bin', 'lens-edge.bin'])
+  })
+
+  it('avoids wide-stage overfetch by ignoring the full-stage aspect ratio', () => {
+    const squareLensRadiusDeg = getScopeTileSelectionRadiusDeg({
+      verticalFovDeg: 10,
+      viewportWidth: 226.2,
+      viewportHeight: 226.2,
+    })
+    const wideStageRadiusDeg = getScopeTileSelectionRadiusDeg({
+      verticalFovDeg: 10,
+      viewportWidth: 844,
+      viewportHeight: 390,
+    })
+
+    const squareLensTiles = selectScopeTilesForPointing({
+      index: {
+        bandDir: 'mag9p5',
+        maxMagnitude: 9.5,
+        raStepDeg: 360,
+        decStepDeg: 1,
+        tiles: [
+          { raIndex: 0, decIndex: 90, file: 'center.bin', count: 1 },
+          { raIndex: 0, decIndex: 101, file: 'wide-only.bin', count: 1 },
+        ],
+      },
+      centerRaDeg: 120,
+      centerDecDeg: 0.4,
+      selectionRadiusDeg: squareLensRadiusDeg,
+    })
+    const wideStageTiles = selectScopeTilesForPointing({
+      index: {
+        bandDir: 'mag9p5',
+        maxMagnitude: 9.5,
+        raStepDeg: 360,
+        decStepDeg: 1,
+        tiles: [
+          { raIndex: 0, decIndex: 90, file: 'center.bin', count: 1 },
+          { raIndex: 0, decIndex: 101, file: 'wide-only.bin', count: 1 },
+        ],
+      },
+      centerRaDeg: 120,
+      centerDecDeg: 0.4,
+      selectionRadiusDeg: wideStageRadiusDeg,
+    })
+
+    expect(wideStageRadiusDeg).toBeGreaterThan(squareLensRadiusDeg)
+    expect(squareLensTiles.map((tile) => tile.file)).toEqual(['center.bin'])
+    expect(wideStageTiles.map((tile) => tile.file)).toEqual(['center.bin', 'wide-only.bin'])
   })
 
   it('applies proper motion and round-trips horizontal/equatorial coordinates', () => {

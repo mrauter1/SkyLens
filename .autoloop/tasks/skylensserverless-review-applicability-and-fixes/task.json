@@ -1,0 +1,36 @@
+{
+  "task_id": "skylensserverless-review-applicability-and-fixes",
+  "created_at": "2026-04-05T22:34:24.822658+00:00",
+  "request_text": "# Autoloop Task: Analyze Review Applicability/Correctness and Apply Correct Suggestions\n\nScope: `SkyLensServerless`\n\n## Objective\nAnalyze the review feedback below for applicability and technical correctness, then apply only the correct suggestions and validate with tests.\n\n## Review items to evaluate and act on\n1. **Memoize `scopeProjectionProfile` in `ViewerShell`**\n   - Current pattern:\n     ```ts\n     const scopeProjectionProfile = createProjectionProfile({\n       verticalFovDeg: viewerSettings.scope.verticalFovDeg,\n     })\n     ```\n   - Suggested change: use `useMemo` keyed on `viewerSettings.scope.verticalFovDeg`.\n\n2. **Use lens viewport dimensions for scope tile selection radius**\n   - Reported issue: `getScopeTileSelectionRadiusDeg` currently uses full stage viewport (`viewport.width/height`) instead of lens viewport (`scopeLensDiameterPx \u00d7 scopeLensDiameterPx`), causing underfetch on portrait and overfetch on wide screens.\n   - Suggested correction: compute tile selection radius from lens dimensions / 1:1 aspect that matches scope rendering.\n\n## Requirements\n- First determine if each review is correct/applicable in current code.\n- Apply only correct suggestions.\n- Keep behavior parity and avoid regressions.\n- Update/add focused tests to cover both decisions and outcomes.\n- If a suggestion is not applicable, document why in task artifacts.\n\n## Execution constraints\n- Use autoloop with **plan, implement, test** pairs.\n- Use **full-auto answers**.\n- Do **not** set max iterations.\n- Do **not** kill or stop the process even if it appears stalled.\n- Do **not** implement manually outside autoloop.\n\n## Done criteria\n- Review suggestions have been evaluated for correctness and applicability.\n- Correct changes are applied in code.\n- Relevant tests pass and guard against regressions.\n- Task artifacts clearly record decisions.",
+  "request_updated_at": "2026-04-05T22:34:24.822749+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/skylensserverless-review-applicability-and-fixes/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260405T223424Z-07d10c04",
+    "mode": "single",
+    "phase_ids": [
+      "review-applicability-and-scope-radius-fix"
+    ],
+    "explicit": true,
+    "current_phase_index": 1,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "review-applicability-and-scope-radius-fix": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "review-applicability-and-scope-radius-fix",
+      "run_id": "run-20260405T223424Z-07d10c04",
+      "status": "in_progress",
+      "ts": "2026-04-05T22:38:59.686905+00:00"
+    },
+    {
+      "phase_id": "review-applicability-and-scope-radius-fix",
+      "run_id": "run-20260405T223424Z-07d10c04",
+      "status": "completed",
+      "ts": "2026-04-05T22:45:42.871340+00:00",
+      "pair": "test"
+    }
+  ]
+}

@@ -820,8 +820,8 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     scopeDeepStarsEnabled && scopeEquatorialCenter
       ? getScopeTileSelectionRadiusDeg({
           verticalFovDeg: viewerSettings.scope.verticalFovDeg,
-          viewportWidth: viewport.width,
-          viewportHeight: viewport.height,
+          viewportWidth: scopeLensDiameterPx,
+          viewportHeight: scopeLensDiameterPx,
         })
       : null
   const scopeSelectedTiles =
