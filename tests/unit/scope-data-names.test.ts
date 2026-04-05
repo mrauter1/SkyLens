@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 
 import {
   buildBrightStarHipNameMap,
+  buildHygProperNameMap,
   buildScopeNameTable,
+  parseHygProperNamesCsv,
   parseScopeNameOverridesCsv,
   resolveScopeDisplayName,
 } from '../../lib/scope-data/names.mjs'
@@ -50,6 +52,28 @@ HIP,32349,Dog Star
 `),
       })
     ).toBe('Dog Star')
+  })
+
+  it('applies HYG proper-name precedence before bright-star HIP names', () => {
+    const brightStarHipNameMap = buildBrightStarHipNameMap([
+      { id: 'hip-32349', name: 'Sirius' },
+    ])
+    const hygProperNameMap = buildHygProperNameMap(
+      parseHygProperNamesCsv(`hip,name
+32349,Alpha Canis Majoris
+`)
+    )
+
+    expect(
+      resolveScopeDisplayName({
+        row: {
+          sourceId: 'TYC:1-13-1',
+          hipId: 32349,
+        },
+        brightStarHipNameMap,
+        hygProperNameMap,
+      })
+    ).toBe('Alpha Canis Majoris')
   })
 
   it('lets a blank override suppress a bright-star joined name', () => {
@@ -101,5 +125,20 @@ TYC,1-13-1,Sirius
       '1': 'Canopus',
       '2': 'Sirius',
     })
+  })
+
+  it('parses HYG proper-name CSV deterministically', () => {
+    const rows = parseHygProperNamesCsv(`hip,name
+32349,Sirius
+30438,Canopus
+`)
+    const map = buildHygProperNameMap(rows)
+
+    expect(rows).toEqual([
+      { hipId: 32349, name: 'Sirius', lineNumber: 2 },
+      { hipId: 30438, name: 'Canopus', lineNumber: 3 },
+    ])
+    expect(map.get(32349)).toBe('Sirius')
+    expect(map.get(30438)).toBe('Canopus')
   })
 })
