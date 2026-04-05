@@ -6,6 +6,8 @@ describe('getPublicConfig', () => {
   afterEach(() => {
     delete process.env.SKYLENS_BUILD_VERSION
     delete process.env.NEXT_PUBLIC_SKYLENS_BUILD_VERSION
+    delete process.env.NEXT_PUBLIC_SKYLENS_SCOPE_REMOTE_ENABLED
+    delete process.env.NEXT_PUBLIC_SKYLENS_SCOPE_REMOTE_BASE_URL
   })
 
   it('returns the locked bootstrap contract in-process', () => {
@@ -31,6 +33,11 @@ describe('getPublicConfig', () => {
         { id: 'stations', label: 'Space Stations' },
         { id: 'brightest', label: '100 Brightest' },
       ],
+      scopeData: {
+        remoteEnabled: false,
+        remoteBaseUrl: null,
+        localBasePath: '/data/scope/v1',
+      },
     })
   })
 
@@ -39,6 +46,29 @@ describe('getPublicConfig', () => {
     process.env.NEXT_PUBLIC_SKYLENS_BUILD_VERSION = 'public-build'
 
     expect(getPublicConfig().buildVersion).toBe('public-build')
+  })
+
+  it('enables remote scope data only when the public flag and base URL are both valid', () => {
+    process.env.NEXT_PUBLIC_SKYLENS_SCOPE_REMOTE_ENABLED = 'true'
+    process.env.NEXT_PUBLIC_SKYLENS_SCOPE_REMOTE_BASE_URL =
+      'https://pub-566fb74233f3432ba4d47900577e552e.r2.dev/scope/v1/'
+
+    expect(getPublicConfig().scopeData).toEqual({
+      remoteEnabled: true,
+      remoteBaseUrl: 'https://pub-566fb74233f3432ba4d47900577e552e.r2.dev/scope/v1',
+      localBasePath: '/data/scope/v1',
+    })
+  })
+
+  it('keeps scope data local-only when the enable flag is blank or the base URL is invalid', () => {
+    process.env.NEXT_PUBLIC_SKYLENS_SCOPE_REMOTE_ENABLED = ' , '
+    process.env.NEXT_PUBLIC_SKYLENS_SCOPE_REMOTE_BASE_URL = 'not-a-url'
+
+    expect(getPublicConfig().scopeData).toEqual({
+      remoteEnabled: false,
+      remoteBaseUrl: null,
+      localBasePath: '/data/scope/v1',
+    })
   })
 
   it('keeps the privacy reassurance copy aligned with the serverless data path', async () => {

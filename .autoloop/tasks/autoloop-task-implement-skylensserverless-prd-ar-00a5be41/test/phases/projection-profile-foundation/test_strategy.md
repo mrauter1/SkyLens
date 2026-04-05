@@ -1,0 +1,29 @@
+# Test Strategy
+
+- Task ID: autoloop-task-implement-skylensserverless-prd-ar-00a5be41
+- Pair: test
+- Phase ID: projection-profile-foundation
+- Phase Directory Key: projection-profile-foundation
+- Phase Title: Projection Profile Foundation
+- Scope: phase-local producer artifact
+- Behaviors covered:
+  - `createWideProjectionProfile` preserves the existing wide-view effective FOV range and horizontal FOV math
+  - `createProjectionProfile` supports independent explicit scope-style vertical FOV values
+  - projection helper entry points re-clamp raw `ProjectionProfile` objects even if a later caller bypasses the factory helpers
+  - `projectWorldPointToImagePlaneWithProfile` and `projectWorldPointToScreenWithProfile` preserve parity with legacy wide wrappers
+  - narrower scope profiles project off-axis points farther from center than the wide profile
+- Preserved invariants checked:
+  - existing wide wrapper signatures remain usable through `getEffectiveVerticalFovDeg`, `projectWorldPointToImagePlane`, and `projectWorldPointToScreen`
+  - wide calibration still clamps to `20..100` degrees
+  - cover-crop and overscan mapping behavior remain unchanged
+- Edge cases:
+  - explicit profile clamping at generic bounds `1..179`
+  - raw profile objects with out-of-range FOV values still normalize through `getProjectionVerticalFovDeg` and downstream helper entry points
+  - reversed explicit min/max bounds normalize before clamping
+- Failure paths:
+  - off-axis points under narrow scope profiles can leave overscan/visibility while wide profiles remain visible
+  - behind-camera projection behavior remains hidden
+- Flake risks / stabilization:
+  - tests are deterministic unit tests over pure math helpers only; no timers, network, browser permissions, or environment-dependent ordering
+- Known gaps:
+  - no viewer-shell integration assertions in this phase; scope consumers do not exist yet and are out of scope for projection-profile foundation

@@ -1,0 +1,38 @@
+version: 1
+task_id: skylensserverless-review-applicability-and-fixes
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/skylensserverless-review-applicability-and-fixes/runs/run-20260405T223424Z-07d10c04/request.md
+phases:
+  - phase_id: review-applicability-and-scope-radius-fix
+    title: Evaluate Review Items And Correct Scope Radius Selection
+    objective: Confirm which review suggestions are technically correct, implement only the valid scope tile radius correction, and lock the decisions with focused tests and artifacts.
+    status: planned
+    in_scope:
+      - "Verify whether memoizing `scopeProjectionProfile` is useful or required in the current `ViewerShell` implementation."
+      - Correct scope tile selection radius inputs so deep-star tile loading matches the square scope lens viewport.
+      - Add focused automated tests for the corrected lens-based selection behavior and record the rejected memoization decision in task artifacts.
+      - Record the applicability decisions in the shared task artifacts.
+    out_of_scope:
+      - "Broader `ViewerShell` performance refactors not required by the current review."
+      - Changing scope lens sizing, rendering design, or public interfaces.
+      - "Unrelated repository cleanup outside `SkyLensServerless`."
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: "The plan and follow-on implementation clearly document that `scopeProjectionProfile` memoization was reviewed and not applied because no current identity-sensitive consumer or meaningful recomputation problem exists."
+      - id: AC-2
+        text: "`ViewerShell` computes scope tile selection using the square lens viewport dimensions so tile loading matches scope rendering on portrait and wide layouts."
+      - id: AC-3
+        text: Focused automated tests cover the corrected lens-based selection behavior and guard against regressions caused by non-square stage aspect ratios.
+      - id: AC-4
+        text: Relevant tests pass without introducing unrelated behavior changes.
+    deliverables:
+      - "Updated `ViewerShell` scope tile selection logic."
+      - "Focused scope runtime and/or `ViewerShell` runtime tests for lens-based radius selection."
+      - Updated task artifacts documenting which review items were accepted or rejected and why, including why the rejected memoization review is not an automated test target.
+    risks:
+      - A test that only exercises square/default viewports could miss the aspect-ratio bug and fail to guard the regression.
+      - Replacing the existing padding math instead of only correcting viewport inputs could change deep-star fetch breadth more than intended.
+    rollback:
+      - "Revert the lens-based radius input change in `ViewerShell`."
+      - Revert only the new focused tests if they depend on the reverted behavior.
+      - Preserve the recorded review applicability decisions unless a later turn produces contradictory evidence.

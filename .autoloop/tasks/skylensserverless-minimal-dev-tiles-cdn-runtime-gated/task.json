@@ -1,0 +1,36 @@
+{
+  "task_id": "skylensserverless-minimal-dev-tiles-cdn-runtime-gated",
+  "created_at": "2026-04-05T20:17:47.894994+00:00",
+  "request_text": "# Autoloop Task: Minimal Dev Tiles in Git + CDN/R2 Runtime Fetch with Env Gate and Offline Fallback\n\nProject scope: `SkyLensServerless`.\n\nImplement a new task to adjust scope data delivery strategy:\n\n## Goal\n- Keep only a minimal deterministic dev scope tile set in git.\n- Fetch full scope tiles from CDN/R2 at runtime.\n- Gate CDN/runtime fetch behavior behind env/config.\n- Preserve offline fallback behavior.\n\n## Required behavior\n1. Keep committed in-repo dataset minimal but valid for local development and deterministic tests.\n2. Add runtime config/env switches for remote tile base URL (CDN/R2) and enable/disable remote fetch mode.\n3. Runtime should prefer remote full tiles when enabled/configured.\n4. Runtime must fallback to local/offline dev data path when remote is disabled, unavailable, or fetch fails.\n5. Keep existing PRD/ARD safety constraints where applicable (determinism in dev path, robust contracts, graceful degradation).\n6. Update relevant docs/config references and tests.\n7. Ensure CI/local tests cover:\n   - remote-enabled path\n   - remote-disabled fallback\n   - error fallback when remote fetch fails.\n\n## Data source context\nR2/CDN source to reference:\n- https://pub-566fb74233f3432ba4d47900577e552e.r2.dev/scope/v1/names.json\n\n## Execution requirements\n- Use autoloop with `plan,implement,test` pairs.\n- Use full-auto answers.\n- Do NOT set max iterations.\n- Do NOT stop/kill process even if it appears halted.\n- Do NOT manually implement outside autoloop.\n\n## Definition of done\n- Code/test/docs changes implement this delivery model.\n- Minimal in-git dev tiles are retained and validated.\n- Remote fetch + gated config + offline fallback are working and tested.",
+  "request_updated_at": "2026-04-05T20:17:47.895056+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/skylensserverless-minimal-dev-tiles-cdn-runtime-gated/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260405T201747Z-d46708da",
+    "mode": "single",
+    "phase_ids": [
+      "runtime-gated-remote-scope-tiles"
+    ],
+    "explicit": true,
+    "current_phase_index": 1,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "runtime-gated-remote-scope-tiles": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "runtime-gated-remote-scope-tiles",
+      "run_id": "run-20260405T201747Z-d46708da",
+      "status": "in_progress",
+      "ts": "2026-04-05T20:24:45.274595+00:00"
+    },
+    {
+      "phase_id": "runtime-gated-remote-scope-tiles",
+      "run_id": "run-20260405T201747Z-d46708da",
+      "status": "completed",
+      "ts": "2026-04-05T20:34:57.558003+00:00",
+      "pair": "test"
+    }
+  ]
+}

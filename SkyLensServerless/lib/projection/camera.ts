@@ -88,10 +88,22 @@ export interface CenterLockCandidate {
   angularDistanceDeg: number
 }
 
+export interface ProjectionProfile {
+  verticalFovDeg: number
+}
+
+export interface ProjectionProfileOptions {
+  verticalFovDeg: number
+  minVerticalFovDeg?: number
+  maxVerticalFovDeg?: number
+}
+
 const DEFAULT_VERTICAL_FOV_DEG = 50
 const MIN_VERTICAL_FOV_DEG = 20
 const MAX_VERTICAL_FOV_DEG = 100
 const DEFAULT_OVERSCAN_RATIO = 0.1
+const MIN_PROFILE_VERTICAL_FOV_DEG = 1
+const MAX_PROFILE_VERTICAL_FOV_DEG = 179
 
 export function getRearCameraConstraintCandidates(
   preferredDeviceId?: string | null,
@@ -216,10 +228,8 @@ export function stopMediaStream(stream: MediaStream | null | undefined) {
 }
 
 export function getEffectiveVerticalFovDeg(verticalFovAdjustmentDeg = 0) {
-  return clamp(
-    DEFAULT_VERTICAL_FOV_DEG + verticalFovAdjustmentDeg,
-    MIN_VERTICAL_FOV_DEG,
-    MAX_VERTICAL_FOV_DEG,
+  return getProjectionVerticalFovDeg(
+    createWideProjectionProfile(verticalFovAdjustmentDeg),
   )
 }
 
@@ -233,6 +243,42 @@ export function getHorizontalFovDeg(
         Math.tan(degreesToRadians(verticalFovDeg) / 2) * Math.max(aspectRatio, 0.0001),
       ),
   )
+}
+
+export function createProjectionProfile({
+  verticalFovDeg,
+  minVerticalFovDeg = MIN_PROFILE_VERTICAL_FOV_DEG,
+  maxVerticalFovDeg = MAX_PROFILE_VERTICAL_FOV_DEG,
+}: ProjectionProfileOptions): ProjectionProfile {
+  const minVerticalFov = Math.min(minVerticalFovDeg, maxVerticalFovDeg)
+  const maxVerticalFov = Math.max(minVerticalFovDeg, maxVerticalFovDeg)
+
+  return {
+    verticalFovDeg: clamp(verticalFovDeg, minVerticalFov, maxVerticalFov),
+  }
+}
+
+export function createWideProjectionProfile(verticalFovAdjustmentDeg = 0) {
+  return createProjectionProfile({
+    verticalFovDeg: DEFAULT_VERTICAL_FOV_DEG + verticalFovAdjustmentDeg,
+    minVerticalFovDeg: MIN_VERTICAL_FOV_DEG,
+    maxVerticalFovDeg: MAX_VERTICAL_FOV_DEG,
+  })
+}
+
+export function getProjectionVerticalFovDeg(profile: ProjectionProfile) {
+  return clamp(
+    profile.verticalFovDeg,
+    MIN_PROFILE_VERTICAL_FOV_DEG,
+    MAX_PROFILE_VERTICAL_FOV_DEG,
+  )
+}
+
+export function getProjectionHorizontalFovDeg(
+  profile: ProjectionProfile,
+  aspectRatio: number,
+) {
+  return getHorizontalFovDeg(getProjectionVerticalFovDeg(profile), aspectRatio)
 }
 
 export function normalizeQuaternion(quaternion: Quaternion): Quaternion {
@@ -440,6 +486,20 @@ export function projectWorldPointToImagePlane(
   frame: Pick<CameraFrameLayout, 'sourceWidth' | 'sourceHeight'>,
   verticalFovAdjustmentDeg = 0,
 ): ProjectedImagePlanePoint {
+  return projectWorldPointToImagePlaneWithProfile(
+    pose,
+    worldPoint,
+    frame,
+    createWideProjectionProfile(verticalFovAdjustmentDeg),
+  )
+}
+
+export function projectWorldPointToImagePlaneWithProfile(
+  pose: Pick<CameraPose, 'quaternion'>,
+  worldPoint: ProjectWorldPointInput,
+  frame: Pick<CameraFrameLayout, 'sourceWidth' | 'sourceHeight'>,
+  profile: ProjectionProfile,
+): ProjectedImagePlanePoint {
   const worldVector = horizontalToWorldVector(
     worldPoint.azimuthDeg,
     worldPoint.elevationDeg,
@@ -463,9 +523,9 @@ export function projectWorldPointToImagePlane(
 
   const sourceWidth = Math.max(frame.sourceWidth, 1)
   const sourceHeight = Math.max(frame.sourceHeight, 1)
-  const verticalFovDeg = getEffectiveVerticalFovDeg(verticalFovAdjustmentDeg)
+  const verticalFovDeg = getProjectionVerticalFovDeg(profile)
   const aspectRatio = sourceWidth / sourceHeight
-  const horizontalFovDeg = getHorizontalFovDeg(verticalFovDeg, aspectRatio)
+  const horizontalFovDeg = getProjectionHorizontalFovDeg(profile, aspectRatio)
   const normalizedX =
     cameraVector[0] /
     (cameraVector[2] * Math.tan(degreesToRadians(horizontalFovDeg) / 2))
@@ -526,12 +586,26 @@ export function projectWorldPointToScreen(
   viewport: ProjectViewport,
   verticalFovAdjustmentDeg = 0,
 ): ProjectedWorldPoint {
+  return projectWorldPointToScreenWithProfile(
+    pose,
+    worldPoint,
+    viewport,
+    createWideProjectionProfile(verticalFovAdjustmentDeg),
+  )
+}
+
+export function projectWorldPointToScreenWithProfile(
+  pose: Pick<CameraPose, 'quaternion'>,
+  worldPoint: ProjectWorldPointInput,
+  viewport: ProjectViewport,
+  profile: ProjectionProfile,
+): ProjectedWorldPoint {
   const layout = createCameraFrameLayout(viewport)
-  const imageProjection = projectWorldPointToImagePlane(
+  const imageProjection = projectWorldPointToImagePlaneWithProfile(
     pose,
     worldPoint,
     layout,
-    verticalFovAdjustmentDeg,
+    profile,
   )
   const viewportProjection = mapImagePointToViewport(
     imageProjection,

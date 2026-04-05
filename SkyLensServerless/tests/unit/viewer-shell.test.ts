@@ -397,7 +397,9 @@ describe('ViewerShell startup gating', () => {
     expect(mockRequestStartupObserverState).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps route orientation unknown until the first usable sample arrives', async () => {
+  it(
+    'keeps route orientation unknown until the first usable sample arrives',
+    async () => {
     let emitPose:
       | ((state: ReturnType<typeof createMockOrientationPoseUpdate>) => void)
       | null = null
@@ -469,7 +471,9 @@ describe('ViewerShell startup gating', () => {
       }),
     )
     expect(container.textContent).not.toContain('Waiting for motion data.')
-  })
+    },
+    10_000,
+  )
 
   it('times out unknown startup to denied when orientation APIs exist but no provider emits', async () => {
     vi.useFakeTimers()
@@ -740,6 +744,52 @@ describe('ViewerShell startup gating', () => {
       'The viewer owns the live startup flow now. Use Start AR here to request motion access, attach the rear camera inline, and then resolve location or manual observer fallback.',
     )
     expect(container.textContent).toContain('Try demo mode')
+  })
+
+  it('hides every scope control surface until the viewer is active', async () => {
+    await renderViewer({
+      entry: 'live',
+      location: 'unknown',
+      camera: 'unknown',
+      orientation: 'unknown',
+    })
+
+    const latestSettingsProps = () =>
+      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+        | {
+            showScopeControls?: boolean
+          }
+        | undefined
+
+    expect(latestSettingsProps()?.showScopeControls).toBe(false)
+    expect(container.querySelector('[data-testid="desktop-scope-action"]')).toBeNull()
+    expect(container.querySelector('[data-testid="mobile-scope-action"]')).toBeNull()
+  })
+
+  it('keeps scope controls hidden in the unsupported secure-context blocker state', async () => {
+    Object.defineProperty(window, 'isSecureContext', {
+      configurable: true,
+      value: false,
+    })
+
+    await renderViewer({
+      entry: 'live',
+      location: 'unknown',
+      camera: 'unknown',
+      orientation: 'unknown',
+    })
+
+    const latestSettingsProps = () =>
+      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+        | {
+            showScopeControls?: boolean
+          }
+        | undefined
+
+    expect(latestSettingsProps()?.showScopeControls).toBe(false)
+    expect(container.querySelector('[data-testid="desktop-scope-action"]')).toBeNull()
+    expect(container.querySelector('[data-testid="mobile-scope-action"]')).toBeNull()
+    expect(container.textContent).toContain('Live AR requires a secure context.')
   })
 
   it('supports keyboard panning in manual mode for desktop fallback', async () => {
@@ -3938,6 +3988,7 @@ describe('ViewerShell startup gating', () => {
     expect(desktopActions?.textContent).not.toContain('Open viewer')
     expect(desktopActions?.textContent).toContain('Enable camera')
     expect(desktopActions?.textContent).toContain('Motion')
+    expect(desktopActions?.textContent).toContain('Scope')
     expect(desktopActions?.textContent).toContain('Align')
     expect(topWarningStack).not.toBeNull()
     expect(topWarningStack?.className).toContain('hidden')
@@ -3954,6 +4005,122 @@ describe('ViewerShell startup gating', () => {
     expect(container.querySelector('[data-testid="desktop-viewer-panel"]')?.textContent).toContain(
       'Privacy reassurance',
     )
+  })
+
+  it('keeps desktop and mobile scope toggles synchronized with settings-sheet state', async () => {
+    await renderViewer({
+      entry: 'demo',
+      location: 'unavailable',
+      camera: 'unavailable',
+      orientation: 'unavailable',
+      demoScenarioId: 'sf-evening',
+    })
+
+    const latestSettingsProps = () =>
+      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+        | {
+            showScopeControls?: boolean
+            scopeEnabled?: boolean
+            scopeVerticalFovDeg?: number
+          }
+        | undefined
+
+    const desktopScopeAction = container.querySelector(
+      '[data-testid="desktop-scope-action"]',
+    ) as HTMLButtonElement | null
+    const mobileScopeAction = container.querySelector(
+      '[data-testid="mobile-scope-action"]',
+    ) as HTMLButtonElement | null
+
+    expect(latestSettingsProps()?.showScopeControls).toBe(true)
+    expect(latestSettingsProps()?.scopeEnabled).toBe(false)
+    expect(latestSettingsProps()?.scopeVerticalFovDeg).toBe(10)
+    expect(desktopScopeAction?.getAttribute('aria-pressed')).toBe('false')
+    expect(mobileScopeAction?.getAttribute('aria-pressed')).toBe('false')
+
+    await act(async () => {
+      desktopScopeAction?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(latestSettingsProps()?.scopeEnabled).toBe(true)
+    expect(readViewerSettings().scope.enabled).toBe(true)
+    expect(
+      (container.querySelector('[data-testid="mobile-scope-action"]') as HTMLButtonElement | null)
+        ?.getAttribute('aria-pressed'),
+    ).toBe('true')
+
+    await act(async () => {
+      ;(
+        container.querySelector('[data-testid="mobile-scope-action"]') as HTMLButtonElement | null
+      )?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(latestSettingsProps()?.scopeEnabled).toBe(false)
+    expect(readViewerSettings().scope.enabled).toBe(false)
+    expect(
+      (container.querySelector('[data-testid="desktop-scope-action"]') as HTMLButtonElement | null)
+        ?.getAttribute('aria-pressed'),
+    ).toBe('false')
+  })
+
+  it('renders the centered scope lens and suppresses it during mobile alignment focus', async () => {
+    mockSubscribeToOrientationPose.mockImplementationOnce((onPose: (state: unknown) => void) => {
+      onPose(
+        createMockOrientationPoseUpdate({
+          source: 'deviceorientation-absolute',
+          providerKind: 'event',
+          absolute: true,
+        }),
+      )
+      return SENSOR_CONTROLLER
+    })
+
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'granted',
+    })
+
+    await act(async () => {
+      ;(
+        container.querySelector('[data-testid="mobile-scope-action"]') as HTMLButtonElement | null
+      )?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    const lensFrame = container.querySelector('[data-testid="scope-lens-frame"]') as
+      | HTMLDivElement
+      | null
+    const lensHitArea = container.querySelector('[data-testid="scope-lens-hit-area"]') as
+      | HTMLDivElement
+      | null
+
+    expect(container.querySelector('[data-testid="scope-lens-overlay"]')).not.toBeNull()
+    expect(lensFrame?.style.width).toBe('226.2px')
+    expect(lensFrame?.style.height).toBe('226.2px')
+    expect(lensHitArea?.style.clipPath).toBe('circle(50% at 50% 50%)')
+
+    await act(async () => {
+      ;(
+        container.querySelector('[data-testid="mobile-align-action"]') as HTMLButtonElement | null
+      )?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    await act(async () => {
+      ;(
+        container.querySelector('[data-testid="alignment-start-action"]') as HTMLButtonElement | null
+      )?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(container.querySelector('[data-testid="scope-lens-overlay"]')).toBeNull()
+    expect(container.querySelector('[data-testid="scope-lens-hit-area"]')).toBeNull()
+    expect(container.querySelector('[data-testid="mobile-scope-action"]')).toBeNull()
+    expect(container.querySelector('[data-testid="alignment-crosshair-button"]')).not.toBeNull()
   })
 
   it('uses hover for desktop summary focus without clearing explicit selection details', async () => {

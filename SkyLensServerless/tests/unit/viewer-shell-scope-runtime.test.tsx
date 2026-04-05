@@ -1,0 +1,661 @@
+import React, { act } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { ViewerShell } from '../../components/viewer/viewer-shell'
+import { getDemoScenario } from '../../lib/demo/scenarios'
+import { resetScopeCatalogSessionCacheForTests } from '../../lib/scope/catalog'
+import { convertScopeHorizontalToEquatorial } from '../../lib/scope/coordinates'
+import {
+  VIEWER_SETTINGS_STORAGE_KEY,
+  readViewerSettings,
+} from '../../lib/viewer/settings'
+
+const {
+  mockRouterReplace,
+  mockSettingsSheetProps,
+  mockRequestStartupObserverState,
+  mockStartObserverTracking,
+  mockSubscribeToOrientationPose,
+  mockNormalizeCelestialObjects,
+  mockNormalizeVisibleStars,
+  mockBuildVisibleConstellations,
+  mockFetchAircraftSnapshot,
+  mockGetAircraftAvailabilityMessage,
+  mockFetchSatelliteCatalog,
+  mockResolveAircraftMotionObjects,
+  mockResolveSatelliteMotionObjects,
+} = vi.hoisted(() => ({
+  mockRouterReplace: vi.fn(),
+  mockSettingsSheetProps: vi.fn(),
+  mockRequestStartupObserverState: vi.fn(),
+  mockStartObserverTracking: vi.fn(),
+  mockSubscribeToOrientationPose: vi.fn(),
+  mockNormalizeCelestialObjects: vi.fn(),
+  mockNormalizeVisibleStars: vi.fn(),
+  mockBuildVisibleConstellations: vi.fn(),
+  mockFetchAircraftSnapshot: vi.fn(),
+  mockGetAircraftAvailabilityMessage: vi.fn(),
+  mockFetchSatelliteCatalog: vi.fn(),
+  mockResolveAircraftMotionObjects: vi.fn(),
+  mockResolveSatelliteMotionObjects: vi.fn(),
+}))
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({
+    replace: mockRouterReplace,
+  }),
+}))
+
+vi.mock('../../components/settings/settings-sheet', () => ({
+  SettingsSheet: (props: unknown) => {
+    mockSettingsSheetProps(props)
+    return React.createElement('div', { 'data-testid': 'settings-sheet' })
+  },
+}))
+
+vi.mock('../../lib/sensors/location', async () => {
+  const actual = await vi.importActual<typeof import('../../lib/sensors/location')>(
+    '../../lib/sensors/location',
+  )
+
+  return {
+    ...actual,
+    requestStartupObserverState: mockRequestStartupObserverState,
+    startObserverTracking: mockStartObserverTracking,
+  }
+})
+
+vi.mock('../../lib/sensors/orientation', async () => {
+  const actual = await vi.importActual<typeof import('../../lib/sensors/orientation')>(
+    '../../lib/sensors/orientation',
+  )
+
+  return {
+    ...actual,
+    subscribeToOrientationPose: mockSubscribeToOrientationPose,
+  }
+})
+
+vi.mock('../../lib/astronomy/celestial', () => ({
+  isCelestialDaylightLabelSuppressed: (object: { metadata?: Record<string, unknown> }) =>
+    object.metadata?.daylightLabelSuppressed === true,
+  normalizeCelestialObjects: mockNormalizeCelestialObjects,
+}))
+
+vi.mock('../../lib/astronomy/stars', () => ({
+  loadStarCatalog: () => [],
+  normalizeVisibleStars: mockNormalizeVisibleStars,
+}))
+
+vi.mock('../../lib/astronomy/constellations', () => ({
+  buildVisibleConstellations: mockBuildVisibleConstellations,
+}))
+
+vi.mock('../../lib/aircraft/client', () => ({
+  fetchAircraftSnapshot: mockFetchAircraftSnapshot,
+  getAircraftAvailabilityMessage: mockGetAircraftAvailabilityMessage,
+}))
+
+vi.mock('../../lib/satellites/client', () => ({
+  fetchSatelliteCatalog: mockFetchSatelliteCatalog,
+}))
+
+vi.mock('../../lib/viewer/motion', async () => {
+  const actual = await vi.importActual<typeof import('../../lib/viewer/motion')>(
+    '../../lib/viewer/motion',
+  )
+
+  return {
+    ...actual,
+    resolveAircraftMotionObjects: mockResolveAircraftMotionObjects,
+    resolveSatelliteMotionObjects: mockResolveSatelliteMotionObjects,
+  }
+})
+
+const SENSOR_CONTROLLER = {
+  stop: vi.fn(),
+  recenter: vi.fn(),
+}
+
+const TRACKER = {
+  stop: vi.fn(),
+}
+
+describe('ViewerShell scope runtime', () => {
+  let container: HTMLDivElement
+  let root: Root
+  let originalFetch: typeof global.fetch | undefined
+  let originalGetBoundingClientRect: PropertyDescriptor | undefined
+  let stageBounds = {
+    width: 390,
+    height: 844,
+  }
+
+  beforeAll(() => {
+    ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
+      .IS_REACT_ACT_ENVIRONMENT = true
+    originalGetBoundingClientRect = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      'getBoundingClientRect',
+    )
+  })
+
+  beforeEach(() => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+    originalFetch = global.fetch
+
+    mockRouterReplace.mockReset()
+    mockSettingsSheetProps.mockReset()
+    mockRequestStartupObserverState.mockReset()
+    mockStartObserverTracking.mockReset()
+    mockSubscribeToOrientationPose.mockReset()
+    mockNormalizeCelestialObjects.mockReset()
+    mockNormalizeVisibleStars.mockReset()
+    mockBuildVisibleConstellations.mockReset()
+    mockFetchAircraftSnapshot.mockReset()
+    mockGetAircraftAvailabilityMessage.mockReset()
+    mockFetchSatelliteCatalog.mockReset()
+    mockResolveAircraftMotionObjects.mockReset()
+    mockResolveSatelliteMotionObjects.mockReset()
+    SENSOR_CONTROLLER.stop.mockReset()
+    SENSOR_CONTROLLER.recenter.mockReset()
+    TRACKER.stop.mockReset()
+
+    mockRequestStartupObserverState.mockResolvedValue(null)
+    mockStartObserverTracking.mockReturnValue(TRACKER)
+    mockSubscribeToOrientationPose.mockReturnValue(SENSOR_CONTROLLER)
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -18,
+      objects: [],
+    })
+    mockNormalizeVisibleStars.mockReturnValue([])
+    mockBuildVisibleConstellations.mockReturnValue({
+      objects: [],
+      lineSegments: [],
+    })
+    mockFetchAircraftSnapshot.mockResolvedValue({
+      fetchedAt: '2026-04-05T00:00:00.000Z',
+      observer: {
+        lat: 0,
+        lon: 0,
+        altMeters: 0,
+      },
+      availability: 'available',
+      aircraft: [],
+    })
+    mockGetAircraftAvailabilityMessage.mockReturnValue(null)
+    mockFetchSatelliteCatalog.mockResolvedValue({
+      fetchedAt: '2026-04-05T00:00:00.000Z',
+      expiresAt: '2026-04-05T06:00:00.000Z',
+      satellites: [],
+    })
+    mockResolveAircraftMotionObjects.mockReturnValue([])
+    mockResolveSatelliteMotionObjects.mockReturnValue([])
+
+    window.localStorage.clear()
+    resetScopeCatalogSessionCacheForTests()
+    stubCanvasContext()
+    stageBounds = {
+      width: 390,
+      height: 844,
+    }
+    Object.defineProperty(HTMLElement.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        width: stageBounds.width,
+        height: stageBounds.height,
+        top: 0,
+        left: 0,
+        right: stageBounds.width,
+        bottom: stageBounds.height,
+        x: 0,
+        y: 0,
+        toJSON: () => null,
+      }),
+    })
+  })
+
+  afterEach(async () => {
+    if (originalFetch) {
+      global.fetch = originalFetch
+    }
+
+    await act(async () => {
+      root.unmount()
+    })
+
+    container.remove()
+    window.localStorage.clear()
+    resetScopeCatalogSessionCacheForTests()
+
+    if (originalGetBoundingClientRect) {
+      Object.defineProperty(HTMLElement.prototype, 'getBoundingClientRect', originalGetBoundingClientRect)
+    }
+  })
+
+  it('surfaces a named deep scope star through center-lock while keeping it canvas-only', async () => {
+    const dataset = createScopeDataset('Scope Rigel')
+    global.fetch = vi.fn().mockImplementation(dataset.fetcher) as typeof fetch
+
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        ...readViewerSettings(),
+        scope: {
+          enabled: true,
+          verticalFovDeg: 10,
+        },
+        labelDisplayMode: 'center_only',
+      }),
+    )
+
+    await renderViewer()
+
+    expect(container.querySelector('[data-testid="scope-star-canvas"]')).not.toBeNull()
+    const centerLockChip = container.querySelector('[data-testid="center-lock-chip"]') as
+      | HTMLElement
+      | null
+
+    expect(centerLockChip).not.toBeNull()
+    expect(centerLockChip?.textContent ?? '').toContain('Scope Rigel')
+    expect(container.querySelectorAll('[data-testid="scope-bright-object-marker"]')).toHaveLength(0)
+    expect(container.querySelector('[data-testid="sky-object-marker"]')).toBeNull()
+  })
+
+  it('ignores stale tile responses after scope is disabled', async () => {
+    const deferredTile = createDeferred<Response>()
+    const dataset = createScopeDataset('Scope Vega', deferredTile)
+    global.fetch = vi.fn().mockImplementation(dataset.fetcher) as typeof fetch
+
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        ...readViewerSettings(),
+        scope: {
+          enabled: true,
+          verticalFovDeg: 10,
+        },
+        labelDisplayMode: 'center_only',
+      }),
+    )
+
+    await renderViewer()
+
+    await act(async () => {
+      ;(
+        container.querySelector('[data-testid="desktop-scope-action"]') as HTMLButtonElement | null
+      )?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    deferredTile.resolve(binaryResponse(dataset.tileBytes))
+    await flushEffects()
+
+    expect(container.querySelector('[data-testid="scope-lens-overlay"]')).toBeNull()
+    expect(container.textContent).not.toContain('Scope Vega')
+  })
+
+  it('fetches portrait edge tiles using the square scope lens viewport', async () => {
+    const dataset = createPortraitScopeSelectionDataset()
+    global.fetch = vi.fn().mockImplementation(dataset.fetcher) as typeof fetch
+
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        ...readViewerSettings(),
+        scope: {
+          enabled: true,
+          verticalFovDeg: 10,
+        },
+        labelDisplayMode: 'center_only',
+      }),
+    )
+
+    await renderViewer()
+
+    expect(dataset.requestedUrls.some((url) => url.endsWith(dataset.edgeTileFile))).toBe(true)
+  })
+
+  async function renderViewer() {
+    await act(async () => {
+      root.render(
+        React.createElement(ViewerShell, {
+          initialState: {
+            entry: 'demo',
+            location: 'granted',
+            camera: 'denied',
+            orientation: 'denied',
+            demoScenarioId: 'tokyo-iss',
+          },
+        }),
+      )
+    })
+
+    await flushEffects()
+    await flushEffects()
+    await flushEffects()
+  }
+
+  async function flushEffects() {
+    await act(async () => {
+      await Promise.resolve()
+    })
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 0))
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+  }
+})
+
+function createScopeDataset(name: string, deferredTile?: ReturnType<typeof createDeferred<Response>>) {
+  const scenario = getDemoScenario('tokyo-iss')
+  const centeredEquatorial = convertScopeHorizontalToEquatorial(
+    {
+      azimuthDeg: 0,
+      elevationDeg: scenario.initialPitchDeg,
+    },
+    scenario.observer,
+    scenario.observer.timestampMs,
+  )
+  const manifest = {
+    version: 1,
+    kind: 'dev',
+    sourceCatalog: 'dev-synthetic-from-stars-200',
+    epoch: 'J2000',
+    rowFormat: 'scope-star-v2-le',
+    namesPath: 'names.json',
+    bands: [
+      {
+        bandDir: 'mag6p5',
+        maxMagnitude: 6.5,
+        raStepDeg: 90,
+        decStepDeg: 45,
+        indexPath: 'mag6p5/index.json',
+        totalRows: 0,
+        namedRows: 0,
+      },
+      {
+        bandDir: 'mag8p0',
+        maxMagnitude: 8,
+        raStepDeg: 45,
+        decStepDeg: 30,
+        indexPath: 'mag8p0/index.json',
+        totalRows: 0,
+        namedRows: 0,
+      },
+      {
+        bandDir: 'mag9p5',
+        maxMagnitude: 9.5,
+        raStepDeg: 22.5,
+        decStepDeg: 22.5,
+        indexPath: 'mag9p5/index.json',
+        totalRows: 1,
+        namedRows: 1,
+      },
+      {
+        bandDir: 'mag10p5',
+        maxMagnitude: 10.5,
+        raStepDeg: 11.25,
+        decStepDeg: 11.25,
+        indexPath: 'mag10p5/index.json',
+        totalRows: 0,
+        namedRows: 0,
+      },
+    ],
+  }
+  const index = {
+    bandDir: 'mag9p5',
+    maxMagnitude: 9.5,
+    raStepDeg: 22.5,
+    decStepDeg: 22.5,
+    tiles: [
+      {
+        raIndex: Math.floor(centeredEquatorial.raDeg / 22.5),
+        decIndex: Math.floor((centeredEquatorial.decDeg + 90) / 22.5),
+        file: `r${Math.floor(centeredEquatorial.raDeg / 22.5)}_d${Math.floor((centeredEquatorial.decDeg + 90) / 22.5)}.bin`,
+        count: 1,
+      },
+    ],
+  }
+  const tileBytes = encodeScopeRow({
+    raMicroDeg: Math.round(centeredEquatorial.raDeg * 1_000_000),
+    decMicroDeg: Math.round(centeredEquatorial.decDeg * 1_000_000),
+    pmRaMasPerYear: 0,
+    pmDecMasPerYear: 0,
+    vMagMilli: 7800,
+    bMinusVMilli: 200,
+    nameId: 1,
+  })
+
+  return {
+    tileBytes,
+    fetcher: async (input: string | URL | Request) => {
+      const url = String(input)
+
+      if (url.endsWith('/manifest.json')) {
+        return jsonResponse(manifest)
+      }
+
+      if (url.endsWith('/names.json')) {
+        return jsonResponse({ 1: name })
+      }
+
+      if (url.endsWith('/mag9p5/index.json')) {
+        return jsonResponse(index)
+      }
+
+      if (url.endsWith(`/mag9p5/${index.tiles[0]?.file}`)) {
+        if (deferredTile) {
+          return deferredTile.promise
+        }
+
+        return binaryResponse(tileBytes)
+      }
+
+      return jsonResponse({
+        bandDir: 'mag6p5',
+        maxMagnitude: 6.5,
+        raStepDeg: 90,
+        decStepDeg: 45,
+        tiles: [],
+      })
+    },
+  }
+}
+
+function createPortraitScopeSelectionDataset() {
+  const scenario = getDemoScenario('tokyo-iss')
+  const centeredEquatorial = convertScopeHorizontalToEquatorial(
+    {
+      azimuthDeg: 0,
+      elevationDeg: scenario.initialPitchDeg,
+    },
+    scenario.observer,
+    scenario.observer.timestampMs,
+  )
+  const centerDecIndex = Math.floor(centeredEquatorial.decDeg + 90)
+  const edgeTileFile = `r0_d${centerDecIndex + 8}.bin`
+  const requestedUrls: string[] = []
+  const manifest = {
+    version: 1,
+    kind: 'dev',
+    sourceCatalog: 'dev-synthetic-from-stars-200',
+    epoch: 'J2000',
+    rowFormat: 'scope-star-v2-le',
+    namesPath: 'names.json',
+    bands: [
+      {
+        bandDir: 'mag6p5',
+        maxMagnitude: 6.5,
+        raStepDeg: 90,
+        decStepDeg: 45,
+        indexPath: 'mag6p5/index.json',
+        totalRows: 0,
+        namedRows: 0,
+      },
+      {
+        bandDir: 'mag8p0',
+        maxMagnitude: 8,
+        raStepDeg: 45,
+        decStepDeg: 30,
+        indexPath: 'mag8p0/index.json',
+        totalRows: 0,
+        namedRows: 0,
+      },
+      {
+        bandDir: 'mag9p5',
+        maxMagnitude: 9.5,
+        raStepDeg: 360,
+        decStepDeg: 1,
+        indexPath: 'mag9p5/index.json',
+        totalRows: 2,
+        namedRows: 0,
+      },
+      {
+        bandDir: 'mag10p5',
+        maxMagnitude: 10.5,
+        raStepDeg: 11.25,
+        decStepDeg: 11.25,
+        indexPath: 'mag10p5/index.json',
+        totalRows: 0,
+        namedRows: 0,
+      },
+    ],
+  }
+  const index = {
+    bandDir: 'mag9p5',
+    maxMagnitude: 9.5,
+    raStepDeg: 360,
+    decStepDeg: 1,
+    tiles: [
+      {
+        raIndex: 0,
+        decIndex: centerDecIndex,
+        file: `r0_d${centerDecIndex}.bin`,
+        count: 1,
+      },
+      {
+        raIndex: 0,
+        decIndex: centerDecIndex + 8,
+        file: edgeTileFile,
+        count: 1,
+      },
+    ],
+  }
+  const emptyTileBytes = new Uint8Array(0)
+
+  return {
+    edgeTileFile,
+    requestedUrls,
+    fetcher: async (input: string | URL | Request) => {
+      const url = String(input)
+      requestedUrls.push(url)
+
+      if (url.endsWith('/manifest.json')) {
+        return jsonResponse(manifest)
+      }
+
+      if (url.endsWith('/names.json')) {
+        return jsonResponse({})
+      }
+
+      if (url.endsWith('/mag9p5/index.json')) {
+        return jsonResponse(index)
+      }
+
+      if (
+        url.endsWith(`/${index.tiles[0]?.file}`) ||
+        url.endsWith(`/${index.tiles[1]?.file}`)
+      ) {
+        return binaryResponse(emptyTileBytes)
+      }
+
+      return jsonResponse({
+        bandDir: 'mag6p5',
+        maxMagnitude: 6.5,
+        raStepDeg: 90,
+        decStepDeg: 45,
+        tiles: [],
+      })
+    },
+  }
+}
+
+function encodeScopeRow({
+  raMicroDeg,
+  decMicroDeg,
+  pmRaMasPerYear,
+  pmDecMasPerYear,
+  vMagMilli,
+  bMinusVMilli,
+  nameId,
+}: {
+  raMicroDeg: number
+  decMicroDeg: number
+  pmRaMasPerYear: number
+  pmDecMasPerYear: number
+  vMagMilli: number
+  bMinusVMilli: number
+  nameId: number
+}) {
+  const bytes = new Uint8Array(20)
+  const view = new DataView(bytes.buffer)
+
+  view.setUint32(0, raMicroDeg, true)
+  view.setInt32(4, decMicroDeg, true)
+  view.setInt16(8, pmRaMasPerYear, true)
+  view.setInt16(10, pmDecMasPerYear, true)
+  view.setInt16(12, vMagMilli, true)
+  view.setInt16(14, bMinusVMilli, true)
+  view.setUint32(16, nameId, true)
+
+  return bytes
+}
+
+function jsonResponse(payload: unknown) {
+  return {
+    ok: true,
+    json: async () => payload,
+  } satisfies Partial<Response> as Response
+}
+
+function binaryResponse(payload: Uint8Array) {
+  return {
+    ok: true,
+    arrayBuffer: async () => payload.buffer.slice(0),
+  } satisfies Partial<Response> as Response
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (error?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+
+  return {
+    promise,
+    resolve,
+    reject,
+  }
+}
+
+function stubCanvasContext() {
+  Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+    configurable: true,
+    value: () => ({
+      clearRect: vi.fn(),
+      beginPath: vi.fn(),
+      arc: vi.fn(),
+      fill: vi.fn(),
+      setTransform: vi.fn(),
+      globalAlpha: 1,
+      fillStyle: '',
+    }),
+  })
+}

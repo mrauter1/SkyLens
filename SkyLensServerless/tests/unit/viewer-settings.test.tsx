@@ -99,6 +99,7 @@ describe('ViewerShell settings integration', () => {
         onboardingCompleted: false,
       }),
     )
+    stubCanvasContext()
   })
 
   afterEach(async () => {
@@ -124,6 +125,10 @@ describe('ViewerShell settings integration', () => {
       markerScale: 1,
       alignmentTargetPreference: null,
       verticalFovAdjustmentDeg: 6,
+      scope: {
+        enabled: false,
+        verticalFovDeg: 10,
+      },
       onboardingCompleted: false,
     })
   })
@@ -197,6 +202,119 @@ describe('ViewerShell settings integration', () => {
     expect(readViewerSettings().markerScale).toBe(1)
   })
 
+  it('defaults and clamps persisted scope settings without breaking older payloads', () => {
+    expect(readViewerSettings().scope).toEqual({
+      enabled: false,
+      verticalFovDeg: 10,
+    })
+
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabledLayers: {
+          aircraft: false,
+          satellites: true,
+          planets: true,
+          stars: true,
+          constellations: true,
+        },
+        likelyVisibleOnly: false,
+        labelDisplayMode: 'on_objects',
+        motionQuality: 'balanced',
+        verticalFovAdjustmentDeg: 6,
+        scope: {
+          enabled: true,
+          verticalFovDeg: 1.5,
+        },
+        onboardingCompleted: false,
+      }),
+    )
+
+    expect(readViewerSettings().scope).toEqual({
+      enabled: true,
+      verticalFovDeg: 3,
+    })
+
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabledLayers: {
+          aircraft: false,
+          satellites: true,
+          planets: true,
+          stars: true,
+          constellations: true,
+        },
+        likelyVisibleOnly: false,
+        labelDisplayMode: 'on_objects',
+        motionQuality: 'balanced',
+        verticalFovAdjustmentDeg: 6,
+        scope: {
+          enabled: true,
+          verticalFovDeg: 22,
+        },
+        onboardingCompleted: false,
+      }),
+    )
+
+    expect(readViewerSettings().scope).toEqual({
+      enabled: true,
+      verticalFovDeg: 20,
+    })
+
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabledLayers: {
+          aircraft: false,
+          satellites: true,
+          planets: true,
+          stars: true,
+          constellations: true,
+        },
+        likelyVisibleOnly: false,
+        labelDisplayMode: 'on_objects',
+        motionQuality: 'balanced',
+        verticalFovAdjustmentDeg: 6,
+        scope: {
+          enabled: true,
+        },
+        onboardingCompleted: false,
+      }),
+    )
+
+    expect(readViewerSettings().scope).toEqual({
+      enabled: true,
+      verticalFovDeg: 10,
+    })
+
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabledLayers: {
+          aircraft: false,
+          satellites: true,
+          planets: true,
+          stars: true,
+          constellations: true,
+        },
+        likelyVisibleOnly: false,
+        labelDisplayMode: 'on_objects',
+        motionQuality: 'balanced',
+        verticalFovAdjustmentDeg: 6,
+        scope: {
+          verticalFovDeg: 12.5,
+        },
+        onboardingCompleted: false,
+      }),
+    )
+
+    expect(readViewerSettings().scope).toEqual({
+      enabled: false,
+      verticalFovDeg: 12.5,
+    })
+  })
+
   it('loads persisted settings, preserves offsets on recenter, and routes demo mode from the sheet', async () => {
     await act(async () => {
       root.render(
@@ -211,6 +329,7 @@ describe('ViewerShell settings integration', () => {
       )
     })
 
+    await openDesktopViewerPanel()
     expect(container.textContent).toContain('FOV 56° vertical')
 
     const settingsButton = Array.from(container.querySelectorAll('button')).find((button) =>
@@ -376,6 +495,7 @@ describe('ViewerShell settings integration', () => {
       )
     })
 
+    await openDesktopViewerPanel()
     expect(container.textContent).toContain('FOV 46° vertical')
 
     const reloadedSettingsButton = Array.from(container.querySelectorAll('button')).find(
@@ -416,6 +536,75 @@ describe('ViewerShell settings integration', () => {
     ).toBe(true)
   })
 
+  it('keeps desktop scope quick actions synchronized with persisted settings sheet controls', async () => {
+    await act(async () => {
+      root.render(
+        React.createElement(ViewerShell, {
+          initialState: {
+            entry: 'demo',
+            location: 'unavailable',
+            camera: 'unavailable',
+            orientation: 'unavailable',
+          },
+        }),
+      )
+    })
+
+    const desktopScopeAction = container.querySelector(
+      '[data-testid="desktop-scope-action"]',
+    ) as HTMLButtonElement | null
+
+    expect(desktopScopeAction).not.toBeNull()
+    expect(desktopScopeAction?.getAttribute('aria-pressed')).toBe('false')
+
+    await act(async () => {
+      desktopScopeAction?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(readViewerSettings().scope).toEqual({
+      enabled: true,
+      verticalFovDeg: 10,
+    })
+
+    const settingsButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Settings'),
+    )
+
+    expect(settingsButton).toBeDefined()
+
+    await act(async () => {
+      settingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const scopeToggle = container.querySelector(
+      'input[aria-label="Scope mode"]',
+    ) as HTMLInputElement | null
+    const scopeFovSlider = container.querySelector(
+      'input[aria-label="Scope field of view"]',
+    ) as HTMLInputElement | null
+
+    expect(scopeToggle?.checked).toBe(true)
+    expect(scopeFovSlider?.value).toBe('10')
+
+    await act(async () => {
+      scopeToggle?.click()
+      setInputValue(scopeFovSlider!, '12.5')
+    })
+
+    expect(readViewerSettings().scope).toEqual({
+      enabled: false,
+      verticalFovDeg: 12.5,
+    })
+
+    expect(
+      (container.querySelector('[data-testid="desktop-scope-action"]') as HTMLButtonElement | null)
+        ?.getAttribute('aria-pressed'),
+    ).toBe('false')
+    expect(container.querySelector('[data-testid="desktop-scope-action"]')?.textContent).toContain(
+      '12.5° lens',
+    )
+  })
+
   it.each([
     ['stale', 'Using stale satellite cache'],
     ['expired', 'Satellite cache expired'],
@@ -454,6 +643,21 @@ describe('ViewerShell settings integration', () => {
   )
 })
 
+function stubCanvasContext() {
+  Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+    configurable: true,
+    value: () => ({
+      clearRect: vi.fn(),
+      beginPath: vi.fn(),
+      arc: vi.fn(),
+      fill: vi.fn(),
+      setTransform: vi.fn(),
+      globalAlpha: 1,
+      fillStyle: '',
+    }),
+  })
+}
+
 async function flushEffects() {
   await act(async () => {
     await Promise.resolve()
@@ -462,6 +666,17 @@ async function flushEffects() {
   await act(async () => {
     await Promise.resolve()
   })
+}
+
+async function openDesktopViewerPanel() {
+  const openViewerButton = document.querySelector(
+    '[data-testid="desktop-open-viewer-action"]',
+  ) as HTMLButtonElement | null
+
+  await act(async () => {
+    openViewerButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  })
+  await flushEffects()
 }
 
 function setInputValue(input: HTMLInputElement, value: string) {

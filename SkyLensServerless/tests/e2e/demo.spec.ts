@@ -51,6 +51,42 @@ test('settings persist layer toggles in demo mode', async ({ page }) => {
   await page.getByTestId('mobile-viewer-overlay').getByRole('button', { name: 'Settings' }).click()
 
   await expect(page.getByRole('dialog', { name: 'Settings' }).getByRole('checkbox', { name: 'Planes' })).not.toBeChecked()
+
+  await page.evaluate(() => {
+    window.localStorage.clear()
+  })
+})
+
+test('scope mode enables and persists across reload in demo mode', async ({ page }) => {
+  await page.goto(SF_DEMO_ROUTE)
+  await ensureMobileViewerOverlayOpen(page)
+
+  const mobileOverlay = page.getByTestId('mobile-viewer-overlay')
+
+  await mobileOverlay.getByRole('button', { name: 'Settings' }).click()
+
+  const settingsDialog = page.getByRole('dialog', { name: 'Settings' })
+  const scopeToggle = settingsDialog.getByRole('checkbox', { name: 'Scope mode' })
+
+  await expect(scopeToggle).toBeVisible()
+  await expect(scopeToggle).not.toBeChecked()
+  await expect(page.getByTestId('scope-lens-overlay')).toHaveCount(0)
+
+  await scopeToggle.click()
+
+  await expect(scopeToggle).toBeChecked()
+  await expect(page.getByTestId('scope-lens-overlay')).toBeVisible()
+
+  await page.reload()
+  await ensureMobileViewerOverlayOpen(page)
+  await page.getByTestId('mobile-viewer-overlay').getByRole('button', { name: 'Settings' }).click()
+
+  await expect(page.getByRole('dialog', { name: 'Settings' }).getByRole('checkbox', { name: 'Scope mode' })).toBeChecked()
+  await expect(page.getByTestId('scope-lens-overlay')).toBeVisible()
+
+  await page.evaluate(() => {
+    window.localStorage.clear()
+  })
 })
 
 test('settings sheet closes from its backdrop and restores focus to Settings', async ({ page }) => {

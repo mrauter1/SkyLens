@@ -105,7 +105,7 @@ interface AbsoluteOrientationSensorConstructor {
   }): AbsoluteOrientationSensorLike
 }
 
-interface RelativeOrientationSensorLike extends AbsoluteOrientationSensorLike {}
+type RelativeOrientationSensorLike = AbsoluteOrientationSensorLike
 
 interface RelativeOrientationSensorConstructor {
   new (options?: {
@@ -203,7 +203,6 @@ const DEFAULT_SMOOTHING = 0.2
 const DEFAULT_MANUAL_YAW_PER_PIXEL = 0.12
 const DEFAULT_MANUAL_PITCH_PER_PIXEL = 0.12
 
-const ORIENTATION_PERMISSION_PROBE_TIMEOUT_MS = 750
 const ORIENTATION_PERMISSION_HINT_STARTUP_TIMEOUT_MS = 50
 const ORIENTATION_PROVIDER_SELECTION_TIMEOUT_MS = 500
 const ORIENTATION_ABSOLUTE_UPGRADE_WINDOW_MS = 5_000
