@@ -1,0 +1,74 @@
+{
+  "bandDir": "mag9p5",
+  "maxMagnitude": 9.5,
+  "raStepDeg": 22.5,
+  "decStepDeg": 22.5,
+  "tiles": [
+    {
+      "raIndex": 1,
+      "decIndex": 1,
+      "file": "r1_d1.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 4,
+      "decIndex": 1,
+      "file": "r4_d1.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 9,
+      "decIndex": 1,
+      "file": "r9_d1.bin",
+      "count": 8
+    },
+    {
+      "raIndex": 3,
+      "decIndex": 3,
+      "file": "r3_d3.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 4,
+      "decIndex": 3,
+      "file": "r4_d3.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 9,
+      "decIndex": 4,
+      "file": "r9_d4.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 13,
+      "decIndex": 4,
+      "file": "r13_d4.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 12,
+      "decIndex": 5,
+      "file": "r12_d5.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 3,
+      "decIndex": 6,
+      "file": "r3_d6.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 1,
+      "decIndex": 7,
+      "file": "r1_d7.bin",
+      "count": 4
+    },
+    {
+      "raIndex": 9,
+      "decIndex": 7,
+      "file": "r9_d7.bin",
+      "count": 4
+    }
+  ]
+}

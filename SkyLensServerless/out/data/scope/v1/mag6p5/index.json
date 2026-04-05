@@ -1,0 +1,62 @@
+{
+  "bandDir": "mag6p5",
+  "maxMagnitude": 6.5,
+  "raStepDeg": 90,
+  "decStepDeg": 45,
+  "tiles": [
+    {
+      "raIndex": 0,
+      "decIndex": 0,
+      "file": "r0_d0.bin",
+      "count": 1
+    },
+    {
+      "raIndex": 1,
+      "decIndex": 0,
+      "file": "r1_d0.bin",
+      "count": 1
+    },
+    {
+      "raIndex": 2,
+      "decIndex": 0,
+      "file": "r2_d0.bin",
+      "count": 2
+    },
+    {
+      "raIndex": 0,
+      "decIndex": 1,
+      "file": "r0_d1.bin",
+      "count": 1
+    },
+    {
+      "raIndex": 1,
+      "decIndex": 1,
+      "file": "r1_d1.bin",
+      "count": 1
+    },
+    {
+      "raIndex": 2,
+      "decIndex": 2,
+      "file": "r2_d2.bin",
+      "count": 1
+    },
+    {
+      "raIndex": 3,
+      "decIndex": 2,
+      "file": "r3_d2.bin",
+      "count": 2
+    },
+    {
+      "raIndex": 0,
+      "decIndex": 3,
+      "file": "r0_d3.bin",
+      "count": 2
+    },
+    {
+      "raIndex": 2,
+      "decIndex": 3,
+      "file": "r2_d3.bin",
+      "count": 1
+    }
+  ]
+}

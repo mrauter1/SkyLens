@@ -1,0 +1,14 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260405T201747Z-d46708da" ts="2026-04-05T20:17:48.088740+00:00" />
+Remote scope delivery should be dark by default and only activate when both an explicit public enable flag and a valid remote base URL are present; local `/data/scope/v1` remains the default and fallback path.
+Remote and local scope assets must continue to share the same `/scope/v1/...` manifest/index/names/tile contract so runtime selection is source ordering, not schema branching.
+Scope catalog caches and in-flight promises must be partitioned by source root so remote responses cannot poison local fallback behavior.
+The committed in-repo scope dataset should be kept minimal through deterministic build inputs/tests, not by a one-off manual prune that later turns could accidentally re-expand.
+<autoloop-decisions-header version="1" block_seq="2" owner="planner" phase_id="task-global" pair="plan" turn_seq="2" run_id="run-20260405T201747Z-d46708da" ts="2026-04-05T20:22:31.737558+00:00" />
+The slim committed dev fallback should be implemented as a fixed 12-seed named allowlist from `public/data/stars_200.json`, with enough spread to cover all RA quadrants, both hemispheres, and at least one named deep-star path near the `tokyo-iss` demo sky.
+The dev fallback contract should be regression-tested with exact manifest totals of `mag6p5=12`, `mag8p0=24`, `mag9p5=48`, and `mag10p5=72`, plus a fixed upper bound on emitted `.bin` tile files so the git footprint cannot silently regrow.
+`SkyLensServerless/out/data/scope/v1` is currently a tracked export mirror and should be regenerated in the same implementation slice as `SkyLensServerless/public/data/scope/v1`, not treated as optional.
+<autoloop-decisions-header version="1" block_seq="3" owner="implementer" phase_id="runtime-gated-remote-scope-tiles" pair="implement" turn_seq="1" run_id="run-20260405T201747Z-d46708da" ts="2026-04-05T20:24:45.367862+00:00" />
+The fixed 12-seed dev fallback allowlist includes Polaris and Kochab so the committed local dataset preserves a deterministic named deep-star path near the default north-facing `tokyo-iss` demo sky while still capping the emitted fallback footprint at 45 `.bin` tile files.
+Default scope dataset builds now mirror the rebuilt `public/data/scope/v1` output into the tracked `out/data/scope/v1` export root automatically; custom non-public dataset roots do not emit that mirror unless explicitly requested.
+<autoloop-decisions-header version="1" block_seq="4" owner="test_author" phase_id="runtime-gated-remote-scope-tiles" pair="test" turn_seq="1" run_id="run-20260405T201747Z-d46708da" ts="2026-04-05T20:32:26.591510+00:00" />
+Runtime coverage now includes an explicit mode-switch regression test proving that cached local scope assets do not satisfy later remote-enabled loads for the same manifest/names/index/tile surfaces.

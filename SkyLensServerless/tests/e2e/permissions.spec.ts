@@ -30,6 +30,8 @@ test('bare /view stays blocked until a verified permission state exists', async 
   ).toBeVisible()
   await expect(mobileOverlay.getByText('Location: Pending')).toBeVisible()
   await expect(mobileOverlay.getByRole('button', { name: 'Start AR' })).toBeVisible()
+  await expect(page.getByTestId('mobile-scope-action')).toHaveCount(0)
+  await expect(page.getByTestId('desktop-scope-action')).toHaveCount(0)
 })
 
 test('partial live state still blocks until the full payload is present', async ({
@@ -71,6 +73,33 @@ test('orientation denial enters the manual-pan fallback shell', async ({ page })
   await expect(mobileOverlay.getByText('Camera: Ready')).toBeVisible()
   await expect(mobileOverlay.getByText('Motion: Manual pan')).toBeVisible()
   await expect(mobileOverlay.getByRole('button', { name: 'Enable motion' })).toBeVisible()
+})
+
+test('manual-pan fallback still enables scope mode from mobile quick actions', async ({
+  page,
+}) => {
+  await page.goto('/view?entry=live&location=granted&camera=granted&orientation=denied')
+  await ensureMobileViewerOverlayOpen(page)
+
+  const mobileOverlay = page.getByTestId('mobile-viewer-overlay')
+
+  await mobileOverlay.getByRole('button', { name: 'Settings' }).click()
+
+  const settingsDialog = page.getByRole('dialog', { name: 'Settings' })
+  const scopeToggle = settingsDialog.getByRole('checkbox', { name: 'Scope mode' })
+
+  await expect(scopeToggle).toBeVisible()
+  await expect(scopeToggle).not.toBeChecked()
+  await expect(page.getByTestId('scope-lens-overlay')).toHaveCount(0)
+
+  await scopeToggle.click()
+
+  await expect(scopeToggle).toBeChecked()
+  await expect(page.getByTestId('scope-lens-overlay')).toBeVisible()
+
+  await page.evaluate(() => {
+    window.localStorage.clear()
+  })
 })
 
 test('compact alignment panel keeps lower controls reachable on a short viewport', async ({

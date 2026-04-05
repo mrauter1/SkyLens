@@ -1,0 +1,92 @@
+{
+  "bandDir": "mag10p5",
+  "maxMagnitude": 10.5,
+  "raStepDeg": 11.25,
+  "decStepDeg": 11.25,
+  "tiles": [
+    {
+      "raIndex": 2,
+      "decIndex": 2,
+      "file": "r2_d2.bin",
+      "count": 6
+    },
+    {
+      "raIndex": 18,
+      "decIndex": 2,
+      "file": "r18_d2.bin",
+      "count": 6
+    },
+    {
+      "raIndex": 19,
+      "decIndex": 2,
+      "file": "r19_d2.bin",
+      "count": 6
+    },
+    {
+      "raIndex": 8,
+      "decIndex": 3,
+      "file": "r8_d3.bin",
+      "count": 6
+    },
+    {
+      "raIndex": 8,
+      "decIndex": 6,
+      "file": "r8_d6.bin",
+      "count": 3
+    },
+    {
+      "raIndex": 9,
+      "decIndex": 6,
+      "file": "r9_d6.bin",
+      "count": 3
+    },
+    {
+      "raIndex": 6,
+      "decIndex": 7,
+      "file": "r6_d7.bin",
+      "count": 5
+    },
+    {
+      "raIndex": 7,
+      "decIndex": 7,
+      "file": "r7_d7.bin",
+      "count": 1
+    },
+    {
+      "raIndex": 26,
+      "decIndex": 8,
+      "file": "r26_d8.bin",
+      "count": 6
+    },
+    {
+      "raIndex": 19,
+      "decIndex": 9,
+      "file": "r19_d9.bin",
+      "count": 6
+    },
+    {
+      "raIndex": 24,
+      "decIndex": 11,
+      "file": "r24_d11.bin",
+      "count": 6
+    },
+    {
+      "raIndex": 7,
+      "decIndex": 12,
+      "file": "r7_d12.bin",
+      "count": 6
+    },
+    {
+      "raIndex": 19,
+      "decIndex": 14,
+      "file": "r19_d14.bin",
+      "count": 6
+    },
+    {
+      "raIndex": 3,
+      "decIndex": 15,
+      "file": "r3_d15.bin",
+      "count": 6
+    }
+  ]
+}

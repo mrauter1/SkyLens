@@ -1,0 +1,176 @@
+version: 1
+task_id: autoloop-task-implement-skylensserverless-prd-ar-00a5be41
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/autoloop-task-implement-skylensserverless-prd-ar-00a5be41/runs/run-20260405T113744Z-0aa71afd/request.md
+phases:
+  - phase_id: projection-profile-foundation
+    title: Projection Profile Foundation
+    objective: Introduce independent base and scope projection profiles without changing current wide-view behavior.
+    status: planned
+    in_scope:
+      - Add profile-based projection helpers for independent vertical FOVs.
+      - Preserve existing wide-view projection callers through compatibility wrappers.
+      - Add projection-focused unit coverage for FOV and parity behavior.
+    out_of_scope:
+      - Scope UI controls
+      - Dataset pipeline
+      - Dense deep-star rendering
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: Wide-view callers can continue using stable wrappers while scope code can request an independent scope profile.
+      - id: AC-2
+        text: Unit tests prove wide projection parity and correct profile-driven FOV math.
+    deliverables:
+      - Profile-aware projection API in `lib/projection/camera.ts`
+      - Projection regression tests
+    risks:
+      - Wide marker placement or center-lock could drift if wrappers are incomplete.
+    rollback:
+      - Keep existing wrapper signatures as the source of truth for wide behavior until all scope tests pass.
+  - phase_id: scope-settings-controls
+    title: Scope Settings And Controls
+    objective: Add persisted scope settings and synchronized control surfaces across mobile, desktop, and settings sheet entry points.
+    status: planned
+    in_scope:
+      - Extend viewer settings schema and normalization with scope defaults and clamping.
+      - Add scope enable and scope FOV controls to the settings sheet.
+      - Add synchronized mobile and desktop scope toggles in `ViewerShell`.
+      - Gate every scope control surface on viewer-active and non-blocked availability.
+      - Extend persistence and UI tests for backward compatibility and synchronization.
+    out_of_scope:
+      - Deep dataset loading
+      - Canvas rendering
+    dependencies:
+      - projection-profile-foundation
+    acceptance_criteria:
+      - id: AC-1
+        text: Persisted settings remain backward-compatible and missing scope fields normalize to disabled and 10-degree scope FOV.
+      - id: AC-2
+        text: Settings-sheet, mobile quick actions, and desktop actions stay synchronized on the same scope state.
+      - id: AC-3
+        text: Scope controls are shown only when the viewer is active and not in blocked startup or unsupported secure-context states.
+    deliverables:
+      - Updated `lib/viewer/settings.ts`
+      - Updated scope-related settings and viewer integration tests
+    risks:
+      - New settings props can break existing focus/overlay tests if control wiring bypasses current patterns.
+    rollback:
+      - Keep scope business logic in `ViewerShell` and revert any UI-only prop changes that break current sheet semantics.
+  - phase_id: lens-shell-bright-objects
+    title: Lens Shell And Bright Scope Pass
+    objective: Ship the fixed centered telescope lens, clipped occlusion stack, and bright-object scope projection pass before dense deep-star tiles.
+    status: planned
+    in_scope:
+      - Lens geometry, chrome, vignette, and center clipping.
+      - Lens-local click shielding and non-focusable overlay behavior.
+      - Magnified video/background layer derived from base-vs-scope FOV ratio.
+      - Scope projection pass for Sun, Moon, planets, and existing bright/named stars.
+      - Alignment-focus suppression and scope-on center-lock switching for bright objects.
+    out_of_scope:
+      - Deep scope tile loading
+      - Dense star canvas
+    dependencies:
+      - scope-settings-controls
+    acceptance_criteria:
+      - id: AC-1
+        text: The lens is centered, circular, clipped, and hidden during explicit mobile alignment focus.
+      - id: AC-2
+        text: Wide markers, labels, and constellations are visually occluded and pointer-shielded inside the lens while remaining unchanged outside it.
+      - id: AC-3
+        text: Bright scope objects use a second scope projection pass and drive scope center-lock precedence over the wide center-lock path.
+    deliverables:
+      - Scope lens overlay component and `ViewerShell` integration
+      - Bright-object scope projection/readout behavior
+    risks:
+      - Lens occlusion and overlay layering can accidentally block or visually disturb non-scope UI.
+    rollback:
+      - Keep lens behavior isolated to a dedicated overlay component so the base stage can be restored without undoing settings work.
+  - phase_id: scope-dataset-pipeline
+    title: Scope Dataset Pipeline
+    objective: Build the manifest-driven static scope dataset system, including download/build/verify scripts and a committed deterministic dev dataset.
+    status: planned
+    in_scope:
+      - Implement manifest, names-table, band-index, and binary tile schemas exactly as specified.
+      - Add downloader, builder, and verifier scripts plus npm script entry points.
+      - Keep production raw source in ignored `.cache/scope-source/`.
+      - Commit deterministic dev dataset artifacts under `public/data/scope/v1/`.
+      - Integrate the provided R2 names input as a production-only optional names-table input without changing local name-augmentation precedence or offline dev/verify behavior.
+    out_of_scope:
+      - Dense runtime rendering
+      - Scope lens UI polish
+    dependencies:
+      - lens-shell-bright-objects
+    acceptance_criteria:
+      - id: AC-1
+        text: "`scope:data:download`, `scope:data:build`, `scope:data:build:dev`, and `scope:data:verify` exist and follow the specified contracts."
+      - id: AC-2
+        text: The shipped dev dataset under `public/data/scope/v1/` matches the manifest, names, band-index, and tile schemas and is deeper than the wide bright-star layer.
+      - id: AC-3
+        text: Verify logic catches unresolved or orphaned name ids and dataset contract violations offline.
+      - id: AC-4
+        text: The provided R2 names input is confined to production-only optional name-data handling and cannot change emitted-name determinism, emitted-row-only names tables, or offline `scope:data:build:dev` and `scope:data:verify` behavior.
+    deliverables:
+      - Scope dataset scripts and shared schema/decoder modules
+      - Committed `public/data/scope/v1/` dev dataset
+      - Dataset unit tests
+    risks:
+      - Build/runtime schema drift can make emitted tiles unreadable or non-deterministic.
+    rollback:
+      - Centralize manifest and row-format constants so runtime and pipeline can revert together if the schema changes are wrong.
+  - phase_id: dense-scope-canvas-runtime
+    title: Dense Scope Canvas Runtime
+    objective: Load only the needed scope tiles at runtime, render deep stars via Canvas 2D, and integrate named deep-star center-lock behavior.
+    status: planned
+    in_scope:
+      - Manifest and names lazy-load with session caching and stale-response ignoring.
+      - Tile selection from scope pointing and FOV, including RA wraparound handling.
+      - Adaptive depth-band selection and daylight gating.
+      - Canvas 2D rendering for deep stars only.
+      - Named deep-star `nameId` resolution and scope center-lock/detail precedence integration.
+    out_of_scope:
+      - Direct pointer interaction inside the lens
+      - Non-star deep-sky catalogs
+    dependencies:
+      - scope-dataset-pipeline
+    acceptance_criteria:
+      - id: AC-1
+        text: Runtime loads only active-band tiles needed for the current lens pointing and ignores stale tile responses after scope state changes.
+      - id: AC-2
+        text: Deep stars remain canvas-rendered and pointer-inert while named deep stars can surface through centered readout/detail only.
+      - id: AC-3
+        text: Adaptive depth selection, daylight gating, and proper-motion adjustment follow the PRD rules exactly.
+    deliverables:
+      - Scope catalog/depth/coordinate runtime modules
+      - Scope star canvas component and `ViewerShell` integration
+      - Scope runtime unit tests
+    risks:
+      - Tile churn or redraw frequency can hurt responsiveness if cache and selection diffing are weak.
+    rollback:
+      - Preserve bright-object-only lens rendering as a functional fallback while dense-star runtime is stabilized.
+  - phase_id: validation-and-hardening
+    title: Validation And Hardening
+    objective: Prove full PRD/ARD compliance with automated coverage and final regression checks across live, demo, and fallback viewer modes.
+    status: planned
+    in_scope:
+      - Extend viewer, settings, and celestial tests for scope scenarios.
+      - Add scope-specific Vitest suites and Playwright coverage.
+      - Run lint, unit tests, dataset build/verify, and production build/export checks.
+      - Confirm no hardware zoom or WebGL/WebGPU paths were introduced.
+    out_of_scope:
+      - New product features beyond the locked scope PRD/ARD
+    dependencies:
+      - dense-scope-canvas-runtime
+    acceptance_criteria:
+      - id: AC-1
+        text: Relevant automated checks pass for scope persistence, lens behavior, dense-star runtime, and fallback-mode behavior.
+      - id: AC-2
+        text: Static build/export still succeeds and the scope feature remains compatible with the existing deployment model.
+      - id: AC-3
+        text: Final verification confirms wide-view behavior outside the lens remains unchanged and no forbidden implementation paths were added.
+    deliverables:
+      - Updated unit and e2e test coverage
+      - Verification results for lint, test, dataset build/verify, and build
+    risks:
+      - Late-found regression clusters can span viewer shell, dataset runtime, and tests simultaneously.
+    rollback:
+      - Use phase boundaries to isolate failures and revert the newest scope-only layer before touching stable wide-view behavior.

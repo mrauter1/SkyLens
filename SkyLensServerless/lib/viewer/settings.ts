@@ -9,6 +9,9 @@ import {
 } from '../sensors/orientation'
 
 export const VIEWER_SETTINGS_STORAGE_KEY = 'skylens-serverless.viewer-settings.v1'
+export const SCOPE_VERTICAL_FOV_MIN_DEG = 3
+export const SCOPE_VERTICAL_FOV_MAX_DEG = 20
+export const SCOPE_VERTICAL_FOV_DEFAULT_DEG = 10
 
 export type LabelDisplayMode = 'center_only' | 'on_objects' | 'top_list'
 export type MotionQuality = 'low' | 'balanced' | 'high'
@@ -17,6 +20,11 @@ export interface ManualObserverSettings {
   lat: number
   lon: number
   altMeters: number
+}
+
+export interface ScopeSettings {
+  enabled: boolean
+  verticalFovDeg: number
 }
 
 export interface ViewerSettings {
@@ -28,6 +36,7 @@ export interface ViewerSettings {
   poseCalibration: PoseCalibration
   alignmentTargetPreference: AlignmentTargetPreference | null
   verticalFovAdjustmentDeg: number
+  scope: ScopeSettings
   selectedCameraDeviceId: string | null
   manualObserver: ManualObserverSettings | null
   onboardingCompleted: boolean
@@ -70,6 +79,12 @@ const SettingsSchema = z.object({
     })
     .optional(),
   verticalFovAdjustmentDeg: z.number(),
+  scope: z
+    .object({
+      enabled: z.boolean().optional(),
+      verticalFovDeg: z.number().optional(),
+    })
+    .optional(),
   selectedCameraDeviceId: z.string().nullable(),
   manualObserver: z
     .object({
@@ -99,6 +114,10 @@ export function getDefaultViewerSettings(): ViewerSettings {
     poseCalibration: createIdentityPoseCalibration(),
     alignmentTargetPreference: null,
     verticalFovAdjustmentDeg: 0,
+    scope: {
+      enabled: false,
+      verticalFovDeg: SCOPE_VERTICAL_FOV_DEFAULT_DEG,
+    },
     selectedCameraDeviceId: null,
     manualObserver: null,
     onboardingCompleted: false,
@@ -127,6 +146,10 @@ export function readViewerSettings(storage = getBrowserStorage()): ViewerSetting
       enabledLayers: {
         ...defaults.enabledLayers,
         ...parsed.enabledLayers,
+      },
+      scope: {
+        ...defaults.scope,
+        ...parsed.scope,
       },
     })
   } catch {
@@ -182,6 +205,7 @@ export function normalizeViewerSettings(settings: ViewerSettings): ViewerSetting
       settings.alignmentTargetPreference,
     ),
     verticalFovAdjustmentDeg: clamp(settings.verticalFovAdjustmentDeg, -30, 30),
+    scope: normalizeScopeSettings(settings.scope),
     selectedCameraDeviceId:
       typeof settings.selectedCameraDeviceId === 'string' &&
       settings.selectedCameraDeviceId.length > 0
@@ -204,6 +228,23 @@ function normalizeManualObserver(
     lon: clamp(manualObserver.lon, -180, 180),
     altMeters: clamp(manualObserver.altMeters, -500, 10_000),
   }
+}
+
+function normalizeScopeSettings(
+  scopeSettings: ScopeSettings | null | undefined,
+): ScopeSettings {
+  return {
+    enabled: scopeSettings?.enabled === true,
+    verticalFovDeg: normalizeScopeVerticalFovDeg(scopeSettings?.verticalFovDeg),
+  }
+}
+
+export function normalizeScopeVerticalFovDeg(value: number | null | undefined) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return SCOPE_VERTICAL_FOV_DEFAULT_DEG
+  }
+
+  return clamp(value, SCOPE_VERTICAL_FOV_MIN_DEG, SCOPE_VERTICAL_FOV_MAX_DEG)
 }
 
 function normalizeMotionQuality(

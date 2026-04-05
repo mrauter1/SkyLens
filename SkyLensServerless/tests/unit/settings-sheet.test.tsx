@@ -200,6 +200,110 @@ describe('SettingsSheet', () => {
     expect(onOpenChange).toHaveBeenLastCalledWith(false)
   })
 
+  it('shows scope controls only when the viewer marks them available', async () => {
+    await act(async () => {
+      root.render(
+        React.createElement(SettingsSheet, {
+          onEnterDemoMode: vi.fn(),
+          layers: {
+            aircraft: true,
+            satellites: true,
+            planets: true,
+            stars: true,
+            constellations: true,
+          },
+          likelyVisibleOnly: true,
+          labelDisplayMode: 'center_only',
+          motionQuality: 'balanced',
+          onLayerToggle: vi.fn(),
+          onLikelyVisibleOnlyChange: vi.fn(),
+          onLabelDisplayModeChange: vi.fn(),
+          onMotionQualityChange: vi.fn(),
+        }),
+      )
+    })
+
+    const settingsButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Settings'),
+    )
+
+    await act(async () => {
+      settingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(container.querySelector('input[aria-label="Scope mode"]')).toBeNull()
+    expect(container.querySelector('input[aria-label="Scope field of view"]')).toBeNull()
+  })
+
+  it('delegates scope setting changes without owning scope logic', async () => {
+    const onScopeEnabledChange = vi.fn()
+    const onScopeVerticalFovChange = vi.fn()
+
+    await act(async () => {
+      root.render(
+        React.createElement(SettingsSheet, {
+          onEnterDemoMode: vi.fn(),
+          showScopeControls: true,
+          scopeEnabled: true,
+          scopeVerticalFovDeg: 12.5,
+          layers: {
+            aircraft: true,
+            satellites: true,
+            planets: true,
+            stars: true,
+            constellations: true,
+          },
+          likelyVisibleOnly: true,
+          labelDisplayMode: 'center_only',
+          motionQuality: 'balanced',
+          onLayerToggle: vi.fn(),
+          onLikelyVisibleOnlyChange: vi.fn(),
+          onLabelDisplayModeChange: vi.fn(),
+          onMotionQualityChange: vi.fn(),
+          onScopeEnabledChange,
+          onScopeVerticalFovChange,
+        }),
+      )
+    })
+
+    const settingsButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Settings'),
+    )
+
+    await act(async () => {
+      settingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const scopeToggle = container.querySelector(
+      'input[aria-label="Scope mode"]',
+    ) as HTMLInputElement | null
+    const scopeFovSlider = container.querySelector(
+      'input[aria-label="Scope field of view"]',
+    ) as HTMLInputElement | null
+
+    expect(scopeToggle?.checked).toBe(true)
+    expect(scopeFovSlider?.value).toBe('12.5')
+
+    await act(async () => {
+      scopeToggle?.click()
+      scopeFovSlider?.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+
+    expect(onScopeEnabledChange).toHaveBeenCalledWith(false)
+
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        'value',
+      )?.set
+
+      valueSetter?.call(scopeFovSlider, '15.5')
+      scopeFovSlider?.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    expect(onScopeVerticalFovChange).toHaveBeenCalledWith(15.5)
+  })
+
   it('clears the reported open state when the sheet unmounts while open', async () => {
     const onOpenChange = vi.fn()
 

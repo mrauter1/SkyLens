@@ -1,0 +1,41 @@
+version: 1
+task_id: skylensserverless-minimal-dev-tiles-cdn-runtime-gated
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/skylensserverless-minimal-dev-tiles-cdn-runtime-gated/runs/run-20260405T201747Z-d46708da/request.md
+phases:
+  - phase_id: runtime-gated-remote-scope-tiles
+    title: Runtime-Gated Remote Scope Tiles With Minimal Local Fallback
+    objective: Implement a dark-by-default remote CDN/R2 scope-data mode that prefers remote assets when configured, falls back to the committed local dev dataset on disable or failure, and shrinks the committed dataset to a deterministic minimal fallback artifact.
+    status: planned
+    in_scope:
+      - Add public env/config switches for remote scope dataset enablement and base URL.
+      - Refactor scope catalog loading to prefer remote sources and fall back to local `/data/scope/v1` assets.
+      - Partition manifest/index/tile caches by source so remote and local data cannot mix.
+      - Reduce the committed dev dataset and tracked export mirror to a minimal deterministic fallback set while keeping the current schema.
+      - Update docs and automated tests for remote-enabled, remote-disabled, and remote-failure fallback paths.
+    out_of_scope:
+      - Changing the scope manifest, names, band-index, or binary tile schema.
+      - Adding a server proxy, service worker, or new backend runtime for scope tiles.
+      - Reworking viewer UX outside the existing graceful-degradation behavior.
+      - Changing non-scope data delivery paths such as stars, constellations, aircraft, or satellites.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: Public config exposes a dark-by-default remote scope mode that becomes active only when explicitly enabled and configured, while preserving local-only behavior by default.
+      - id: AC-2
+        text: Scope runtime loads remote manifest/index/tile assets first when enabled, falls back to local `/data/scope/v1` assets on remote disable or fetch failure, and does not mix cache entries across sources.
+      - id: AC-3
+        text: The committed scope fallback dataset is rebuilt from a fixed 12-seed named allowlist, stays schema-valid and offline-buildable, ships exact manifest totals of `12/24/48/72` rows for `mag6p5/mag8p0/mag9p5/mag10p5`, preserves at least one demo-sky named deep-star path, and enforces a fixed tile-file cap so git footprint cannot silently regrow.
+      - id: AC-4
+        text: CI-local automated coverage includes remote-enabled success, remote-disabled local behavior, and remote-failure local fallback, plus updated docs/config references.
+    deliverables:
+      - Updated public config and scope catalog runtime code for remote-first/local-fallback loading.
+      - Regenerated minimal committed scope fallback assets under `SkyLensServerless/public/data/scope/v1` and matching tracked export assets under `SkyLensServerless/out/data/scope/v1`.
+      - Updated unit tests and docs covering the new scope-data delivery model.
+    risks:
+      - Source-agnostic caches could leak remote data into local fallback behavior unless cache keys include the resolved source root.
+      - A too-small local fallback dataset could preserve schema validity but stop being useful for deterministic development and tests unless the fixed 12-seed spread and demo-sky coverage are preserved.
+      - Remote fallback implemented only at manifest load would still leave tile-level failures unresolved.
+    rollback:
+      - Set the public remote enable flag off to force the existing local-only runtime path.
+      - Restore the previous committed fallback dataset snapshot if the slim dataset proves insufficient.
+      - Revert the source-order loader changes while keeping the existing local `/data/scope/v1` contract intact.
