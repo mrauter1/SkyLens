@@ -7,6 +7,10 @@ import {
   createPoseCalibration,
   type PoseCalibration,
 } from '../sensors/orientation'
+import {
+  normalizeScopeOptics,
+  type ScopeOptics,
+} from './scope-optics'
 
 export const VIEWER_SETTINGS_STORAGE_KEY = 'skylens-serverless.viewer-settings.v1'
 export const SCOPE_VERTICAL_FOV_MIN_DEG = 3
@@ -23,7 +27,6 @@ export interface ManualObserverSettings {
 }
 
 export interface ScopeSettings {
-  enabled: boolean
   verticalFovDeg: number
 }
 
@@ -36,7 +39,9 @@ export interface ViewerSettings {
   poseCalibration: PoseCalibration
   alignmentTargetPreference: AlignmentTargetPreference | null
   verticalFovAdjustmentDeg: number
+  scopeModeEnabled: boolean
   scope: ScopeSettings
+  scopeOptics: ScopeOptics
   selectedCameraDeviceId: string | null
   manualObserver: ManualObserverSettings | null
   onboardingCompleted: boolean
@@ -79,12 +84,9 @@ const SettingsSchema = z.object({
     })
     .optional(),
   verticalFovAdjustmentDeg: z.number(),
-  scope: z
-    .object({
-      enabled: z.boolean().optional(),
-      verticalFovDeg: z.number().optional(),
-    })
-    .optional(),
+  scopeModeEnabled: z.unknown().optional(),
+  scope: z.unknown().optional(),
+  scopeOptics: z.unknown().optional(),
   selectedCameraDeviceId: z.string().nullable(),
   manualObserver: z
     .object({
@@ -114,10 +116,11 @@ export function getDefaultViewerSettings(): ViewerSettings {
     poseCalibration: createIdentityPoseCalibration(),
     alignmentTargetPreference: null,
     verticalFovAdjustmentDeg: 0,
+    scopeModeEnabled: false,
     scope: {
-      enabled: false,
       verticalFovDeg: SCOPE_VERTICAL_FOV_DEFAULT_DEG,
     },
+    scopeOptics: normalizeScopeOptics(undefined),
     selectedCameraDeviceId: null,
     manualObserver: null,
     onboardingCompleted: false,
@@ -139,18 +142,38 @@ export function readViewerSettings(storage = getBrowserStorage()): ViewerSetting
     }
 
     const parsed = SettingsSchema.partial().parse(JSON.parse(rawValue))
+    const {
+      scope: rawScopeInput,
+      scopeOptics: rawScopeOpticsInput,
+      scopeModeEnabled: rawScopeModeEnabled,
+      ...parsedSettings
+    } = parsed
+    const scopeInput = getSettingsObject(rawScopeInput)
+    const scopeOpticsInput = getSettingsObject(rawScopeOpticsInput)
+    const scopeModeEnabled =
+      readBooleanSetting(rawScopeModeEnabled) ??
+      readBooleanSetting(scopeInput.enabled) ??
+      defaults.scopeModeEnabled
 
     return normalizeViewerSettings({
       ...defaults,
-      ...parsed,
+      ...parsedSettings,
+      scopeModeEnabled,
       enabledLayers: {
         ...defaults.enabledLayers,
         ...parsed.enabledLayers,
       },
       scope: {
         ...defaults.scope,
-        ...parsed.scope,
+        verticalFovDeg:
+          readNumberSetting(scopeInput.verticalFovDeg) ?? defaults.scope.verticalFovDeg,
       },
+      scopeOptics: normalizeScopeOptics({
+        ...defaults.scopeOptics,
+        apertureMm: readNumberSetting(scopeOpticsInput.apertureMm),
+        magnificationX: readNumberSetting(scopeOpticsInput.magnificationX),
+        transparencyPct: readNumberSetting(scopeOpticsInput.transparencyPct),
+      }),
     })
   } catch {
     return defaults
@@ -205,7 +228,9 @@ export function normalizeViewerSettings(settings: ViewerSettings): ViewerSetting
       settings.alignmentTargetPreference,
     ),
     verticalFovAdjustmentDeg: clamp(settings.verticalFovAdjustmentDeg, -30, 30),
+    scopeModeEnabled: settings.scopeModeEnabled === true,
     scope: normalizeScopeSettings(settings.scope),
+    scopeOptics: normalizeScopeOptics(settings.scopeOptics),
     selectedCameraDeviceId:
       typeof settings.selectedCameraDeviceId === 'string' &&
       settings.selectedCameraDeviceId.length > 0
@@ -234,9 +259,31 @@ function normalizeScopeSettings(
   scopeSettings: ScopeSettings | null | undefined,
 ): ScopeSettings {
   return {
-    enabled: scopeSettings?.enabled === true,
     verticalFovDeg: normalizeScopeVerticalFovDeg(scopeSettings?.verticalFovDeg),
   }
+}
+
+function getSettingsObject(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {}
+  }
+
+  return value as Record<string, unknown>
+}
+
+function readBooleanSetting(value: unknown) {
+  return typeof value === 'boolean' ? value : undefined
+}
+
+function readNumberSetting(value: unknown) {
+  const parsedValue =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string' && value.trim().length > 0
+        ? Number(value)
+        : Number.NaN
+
+  return Number.isFinite(parsedValue) ? parsedValue : undefined
 }
 
 export function normalizeScopeVerticalFovDeg(value: number | null | undefined) {

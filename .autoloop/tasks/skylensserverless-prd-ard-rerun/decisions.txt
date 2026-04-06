@@ -1,0 +1,16 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260406T105849Z-ad122605" ts="2026-04-06T10:58:49.487558+00:00" />
+Treat `scopeModeEnabled` as the new canonical persisted toggle, but keep settings reads backward-compatible by falling back to legacy `scope.enabled` when the new field is absent.
+Keep existing scope lens vertical-FOV behavior and likely-visible gating intact for this slice; add aperture, magnification, transparency, and scope photometric logic without repurposing those older controls.
+Desktop and mobile quick-control parity for this task applies to the scope toggle plus aperture and magnification controls, while `markerScale` must remain a Settings-only control.
+<autoloop-decisions-header version="1" block_seq="2" owner="planner" phase_id="task-global" pair="plan" turn_seq="2" run_id="run-20260406T105849Z-ad122605" ts="2026-04-06T11:02:21.348196+00:00" />
+Existing scope vertical-FOV control and behavior are preserved unchanged in this task; if implementation later finds a true conflict, it must stop for explicit confirmation instead of changing that behavior by default.
+The Settings placement contract should be explicit at the prop level: `SettingsSheet` receives transparency and marker-scale values plus change handlers, while optics math and canonical state remain outside the sheet.
+<autoloop-decisions-header version="1" block_seq="3" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260406T110433Z-4d331cc0" ts="2026-04-06T11:04:33.278408+00:00" />
+After normalization, `scopeModeEnabled` should be the only runtime boolean source for the scope toggle; legacy `scope.enabled` is read-only compatibility input for older persisted payloads.
+Preserve `scope.verticalFovDeg` as the existing lens/deep-star control separate from the new scope optics fields; this task should not repurpose that numeric setting into aperture, magnification, or transparency.
+Carry scope photometric/render data through existing `SkyObject.metadata` unless implementation proves a broader shared-contract change is unavoidable.
+<autoloop-decisions-header version="1" block_seq="4" owner="implementer" phase_id="scope-realism-slice" pair="implement" turn_seq="1" run_id="run-20260406T110433Z-4d331cc0" ts="2026-04-06T11:07:04.057587+00:00" />
+Scope photometric outputs stay on `SkyObject.metadata.scopeRender`, and `viewer-shell` treats malformed or missing values as a cue to fall back to the pre-existing scope marker sizing/opacity path instead of widening shared contracts.
+Desktop/mobile scope quick-control parity is implemented with shared aperture/magnification sliders sourced from `SCOPE_OPTICS_RANGES`, while transparency and marker scale remain Settings-owned controls and `scope.verticalFovDeg` stays separate from the new optics state.
+<autoloop-decisions-header version="1" block_seq="5" owner="implementer" phase_id="scope-realism-slice" pair="implement" turn_seq="2" run_id="run-20260406T110433Z-4d331cc0" ts="2026-04-06T11:23:13+00:00" />
+`readViewerSettings` now treats the new scope fields as compatibility input first and sanitizes them after parse so malformed `scopeModeEnabled`, `scope.enabled`, `scope.verticalFovDeg`, or `scopeOptics` entries cannot reset unrelated persisted viewer settings to defaults.

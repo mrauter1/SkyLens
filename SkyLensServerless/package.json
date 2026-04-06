@@ -13,7 +13,8 @@
     "scope:data:download": "node scripts/download-scope-source.mjs",
     "scope:data:build": "node scripts/build-scope-dataset.mjs",
     "scope:data:build:dev": "node scripts/build-scope-dataset.mjs --dev",
-    "scope:data:verify": "node scripts/verify-scope-dataset.mjs"
+    "scope:data:verify": "node scripts/verify-scope-dataset.mjs",
+    "render:check-live": "node scripts/check-render-deploy.mjs"
   },
   "dependencies": {
     "astronomy-engine": "^2.1.19",

@@ -151,6 +151,53 @@ describe('celestial layer', () => {
     expect(constellations.lineSegments).toEqual([])
   })
 
+  it('adds scope render metadata only in scope mode and filters stars through the optics limit after existing gates', () => {
+    const baselineStars = normalizeVisibleStars({
+      observer: nyDayObserver as ObserverState,
+      timeMs: nyDayObserver.timestampMs,
+      enabledLayers: ENABLED_LAYERS,
+      likelyVisibleOnly: false,
+      sunAltitudeDeg: 12.61,
+    })
+    const scopeStars = normalizeVisibleStars({
+      observer: nyDayObserver as ObserverState,
+      timeMs: nyDayObserver.timestampMs,
+      enabledLayers: ENABLED_LAYERS,
+      likelyVisibleOnly: false,
+      sunAltitudeDeg: 12.61,
+      scopeModeEnabled: true,
+      scopeOptics: {
+        apertureMm: 40,
+        magnificationX: 10,
+        transparencyPct: 40,
+      },
+    })
+
+    expect(baselineStars.length).toBeGreaterThanOrEqual(scopeStars.length)
+    expect(
+      baselineStars.every((entry) => entry.object.metadata.scopeRender === undefined),
+    ).toBe(true)
+    expect(scopeStars.length).toBeGreaterThan(0)
+    expect(
+      scopeStars.every((entry) => {
+        const scopeRender = entry.object.metadata.scopeRender as
+          | {
+              effectiveLimitMag?: number
+              intensity?: number
+              haloPx?: number
+            }
+          | undefined
+
+        return (
+          scopeRender !== undefined &&
+          Number.isFinite(scopeRender.effectiveLimitMag) &&
+          Number.isFinite(scopeRender.intensity) &&
+          Number.isFinite(scopeRender.haloPx)
+        )
+      }),
+    ).toBe(true)
+  })
+
   it('locks celestial, star, and constellation detail payload fields', () => {
     const celestial = normalizeCelestialObjects({
       observer: sfEveningObserver as ObserverState,

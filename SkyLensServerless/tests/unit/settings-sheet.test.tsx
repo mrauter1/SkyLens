@@ -231,21 +231,27 @@ describe('SettingsSheet', () => {
       settingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
+    expect(container.querySelector('input[aria-label="Marker scale"]')).not.toBeNull()
     expect(container.querySelector('input[aria-label="Scope mode"]')).toBeNull()
     expect(container.querySelector('input[aria-label="Scope field of view"]')).toBeNull()
+    expect(container.querySelector('input[aria-label="Transparency"]')).toBeNull()
   })
 
   it('delegates scope setting changes without owning scope logic', async () => {
-    const onScopeEnabledChange = vi.fn()
+    const onScopeModeEnabledChange = vi.fn()
     const onScopeVerticalFovChange = vi.fn()
+    const onTransparencyChange = vi.fn()
+    const onMarkerScaleChange = vi.fn()
 
     await act(async () => {
       root.render(
         React.createElement(SettingsSheet, {
           onEnterDemoMode: vi.fn(),
           showScopeControls: true,
-          scopeEnabled: true,
+          scopeModeEnabled: true,
           scopeVerticalFovDeg: 12.5,
+          transparencyPct: 78,
+          markerScale: 1.8,
           layers: {
             aircraft: true,
             satellites: true,
@@ -260,8 +266,10 @@ describe('SettingsSheet', () => {
           onLikelyVisibleOnlyChange: vi.fn(),
           onLabelDisplayModeChange: vi.fn(),
           onMotionQualityChange: vi.fn(),
-          onScopeEnabledChange,
+          onScopeModeEnabledChange,
           onScopeVerticalFovChange,
+          onTransparencyChange,
+          onMarkerScaleChange,
         }),
       )
     })
@@ -280,16 +288,24 @@ describe('SettingsSheet', () => {
     const scopeFovSlider = container.querySelector(
       'input[aria-label="Scope field of view"]',
     ) as HTMLInputElement | null
+    const transparencySlider = container.querySelector(
+      'input[aria-label="Transparency"]',
+    ) as HTMLInputElement | null
+    const markerScaleSlider = container.querySelector(
+      'input[aria-label="Marker scale"]',
+    ) as HTMLInputElement | null
 
     expect(scopeToggle?.checked).toBe(true)
     expect(scopeFovSlider?.value).toBe('12.5')
+    expect(transparencySlider?.value).toBe('78')
+    expect(markerScaleSlider?.value).toBe('1.8')
 
     await act(async () => {
       scopeToggle?.click()
       scopeFovSlider?.dispatchEvent(new Event('input', { bubbles: true }))
     })
 
-    expect(onScopeEnabledChange).toHaveBeenCalledWith(false)
+    expect(onScopeModeEnabledChange).toHaveBeenCalledWith(false)
 
     await act(async () => {
       const valueSetter = Object.getOwnPropertyDescriptor(
@@ -302,6 +318,21 @@ describe('SettingsSheet', () => {
     })
 
     expect(onScopeVerticalFovChange).toHaveBeenCalledWith(15.5)
+
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        'value',
+      )?.set
+
+      valueSetter?.call(transparencySlider, '82')
+      transparencySlider?.dispatchEvent(new Event('change', { bubbles: true }))
+      valueSetter?.call(markerScaleSlider, '2.4')
+      markerScaleSlider?.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    expect(onTransparencyChange).toHaveBeenCalledWith(82)
+    expect(onMarkerScaleChange).toHaveBeenCalledWith(2.4)
   })
 
   it('clears the reported open state when the sheet unmounts while open', async () => {

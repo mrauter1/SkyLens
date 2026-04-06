@@ -236,6 +236,49 @@ describe('ViewerShell settings integration', () => {
     })
   })
 
+  it('ignores non-object persisted scope optics payloads while preserving the rest of the settings', () => {
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabledLayers: {
+          aircraft: false,
+          satellites: true,
+          planets: true,
+          stars: true,
+          constellations: true,
+        },
+        likelyVisibleOnly: false,
+        scopeModeEnabled: true,
+        scopeOptics: true,
+        labelDisplayMode: 'on_objects',
+        motionQuality: 'high',
+        verticalFovAdjustmentDeg: 6,
+        onboardingCompleted: false,
+      }),
+    )
+
+    expect(readViewerSettings()).toMatchObject({
+      enabledLayers: {
+        aircraft: false,
+        satellites: true,
+        planets: true,
+        stars: true,
+        constellations: true,
+      },
+      likelyVisibleOnly: false,
+      scopeModeEnabled: true,
+      scopeOptics: {
+        apertureMm: 100,
+        magnificationX: 40,
+        transparencyPct: 80,
+      },
+      labelDisplayMode: 'on_objects',
+      motionQuality: 'high',
+      verticalFovAdjustmentDeg: 6,
+      onboardingCompleted: false,
+    })
+  })
+
   it('clamps persisted scope optics values into the supported ranges', () => {
     window.localStorage.setItem(
       VIEWER_SETTINGS_STORAGE_KEY,

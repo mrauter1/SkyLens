@@ -3345,17 +3345,16 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                 {canUseAlignmentAction ? `Target ${calibrationTarget.label}` : 'Live only'}
               </span>
             </button>
-            {viewerSettings.scopeModeEnabled ? (
-              <ScopeQuickControls
-                layout="desktop"
-                scopeModeEnabled={viewerSettings.scopeModeEnabled}
-                scopeOptics={viewerSettings.scopeOptics}
-                onApertureChange={(value) => updateScopeOpticsValue('apertureMm', value)}
-                onMagnificationChange={(value) =>
-                  updateScopeOpticsValue('magnificationX', value)
-                }
-              />
-            ) : null}
+            <ScopeQuickControls
+              layout="desktop"
+              scopeModeEnabled={viewerSettings.scopeModeEnabled}
+              scopeOptics={viewerSettings.scopeOptics}
+              onScopeModeEnabledChange={setScopeModeEnabled}
+              onApertureChange={(value) => updateScopeOpticsValue('apertureMm', value)}
+              onMagnificationChange={(value) =>
+                updateScopeOpticsValue('magnificationX', value)
+              }
+            />
             <div className="flex items-center justify-center rounded-[1.25rem] border border-sky-100/15 bg-white/5 px-4 py-3">
               <SettingsSheet {...desktopSettingsSheetProps} />
             </div>

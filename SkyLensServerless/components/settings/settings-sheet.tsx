@@ -11,6 +11,7 @@ import {
 import type { EnabledLayer } from '../../lib/config'
 import type { DemoScenarioId } from '../../lib/demo/scenarios'
 import type { LabelDisplayMode, MotionQuality } from '../../lib/viewer/settings'
+import { SCOPE_OPTICS_RANGES } from '../../lib/viewer/scope-optics'
 import { CompactMobilePanelShell } from '../ui/compact-mobile-panel-shell'
 
 type SettingsSheetProps = {
@@ -24,8 +25,10 @@ type SettingsSheetProps = {
   canRecenter?: boolean
   verticalFovAdjustmentDeg?: number
   showScopeControls?: boolean
-  scopeEnabled?: boolean
+  scopeModeEnabled?: boolean
   scopeVerticalFovDeg?: number
+  transparencyPct?: number
+  markerScale?: number
   cameraDevices?: Array<{
     deviceId: string
     label: string
@@ -41,8 +44,10 @@ type SettingsSheetProps = {
   onLabelDisplayModeChange: (mode: LabelDisplayMode) => void
   onMotionQualityChange: (quality: MotionQuality) => void
   onVerticalFovAdjustmentChange?: (value: number) => void
-  onScopeEnabledChange?: (enabled: boolean) => void
+  onScopeModeEnabledChange?: (enabled: boolean) => void
   onScopeVerticalFovChange?: (value: number) => void
+  onTransparencyChange?: (value: number) => void
+  onMarkerScaleChange?: (value: number) => void
   onSelectedCameraDeviceChange?: (deviceId: string) => void
   demoScenarioId?: DemoScenarioId
   demoScenarioOptions?: Array<{
@@ -114,8 +119,10 @@ export function SettingsSheet({
   canRecenter = false,
   verticalFovAdjustmentDeg = 0,
   showScopeControls = false,
-  scopeEnabled = false,
+  scopeModeEnabled = false,
   scopeVerticalFovDeg = 10,
+  transparencyPct = 85,
+  markerScale = 1,
   cameraDevices = [],
   selectedCameraDeviceId = null,
   layers,
@@ -128,8 +135,10 @@ export function SettingsSheet({
   onLabelDisplayModeChange,
   onMotionQualityChange,
   onVerticalFovAdjustmentChange,
-  onScopeEnabledChange,
+  onScopeModeEnabledChange,
   onScopeVerticalFovChange,
+  onTransparencyChange,
+  onMarkerScaleChange,
   onSelectedCameraDeviceChange,
   demoScenarioId,
   demoScenarioOptions = [],
@@ -434,15 +443,24 @@ export function SettingsSheet({
                     suffix="°"
                     onChange={onVerticalFovAdjustmentChange}
                   />
+                  <RangeControl
+                    label="Marker scale"
+                    min={1}
+                    max={4}
+                    step={0.1}
+                    value={markerScale}
+                    suffix="x"
+                    onChange={onMarkerScaleChange}
+                  />
                   {showScopeControls ? (
                     <>
                       <label className="flex items-center justify-between rounded-2xl border border-sky-100/10 bg-white/5 px-4 py-3 text-sm text-sky-50">
                         <span>Scope mode</span>
                         <input
                           type="checkbox"
-                          checked={scopeEnabled}
+                          checked={scopeModeEnabled}
                           onChange={(event) =>
-                            onScopeEnabledChange?.(event.target.checked)
+                            onScopeModeEnabledChange?.(event.target.checked)
                           }
                           aria-label="Scope mode"
                         />
@@ -455,6 +473,15 @@ export function SettingsSheet({
                         value={scopeVerticalFovDeg}
                         suffix="°"
                         onChange={onScopeVerticalFovChange}
+                      />
+                      <RangeControl
+                        label="Transparency"
+                        min={SCOPE_OPTICS_RANGES.transparencyPct.min}
+                        max={SCOPE_OPTICS_RANGES.transparencyPct.max}
+                        step={SCOPE_OPTICS_RANGES.transparencyPct.step}
+                        value={transparencyPct}
+                        suffix="%"
+                        onChange={onTransparencyChange}
                       />
                     </>
                   ) : null}
