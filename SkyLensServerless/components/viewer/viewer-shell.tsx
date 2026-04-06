@@ -156,6 +156,11 @@ import {
   type ManualObserverSettings,
   type MotionQuality,
 } from '../../lib/viewer/settings'
+import {
+  SCOPE_OPTICS_RANGES,
+  type ScopeOptics,
+  type ScopeRenderProfile,
+} from '../../lib/viewer/scope-optics'
 import { SettingsSheet } from '../settings/settings-sheet'
 import { CompactMobilePanelShell } from '../ui/compact-mobile-panel-shell'
 import {
@@ -724,6 +729,8 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         timeMs: sceneTimeMs,
         enabledLayers,
         likelyVisibleOnly,
+        scopeModeEnabled: viewerSettings.scopeModeEnabled,
+        scopeOptics: viewerSettings.scopeOptics,
         focusedObjectId: selectedObjectId,
         aircraftTracker: aircraftTrackerRef.current,
         aircraftRevision,
@@ -761,8 +768,8 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     12,
   )
   const scopeModeActive =
-    scopeControlsAvailable && viewerSettings.scope.enabled && !isMobileAlignmentFocusActive
-  const hydratedScopeEnabled = hasMounted ? viewerSettings.scope.enabled : false
+    scopeControlsAvailable && viewerSettings.scopeModeEnabled && !isMobileAlignmentFocusActive
+  const hydratedScopeEnabled = hasMounted ? viewerSettings.scopeModeEnabled : false
   const hydratedScopeVerticalFovDeg = hasMounted ? viewerSettings.scope.verticalFovDeg : 10
   const blockingCopy = getBlockingCopy(state, startupState)
   const locationStatusValue =
@@ -1108,6 +1115,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
               viewerSettings.scope.verticalFovDeg,
               viewerSettings.markerScale,
             ),
+            opacity: getScopeMarkerOpacity(object),
             className: getMarkerVisualClassName(object, {
               centerLockedObjectId: scopeCenterLockedBrightObject?.id ?? null,
               selectedObjectId,
@@ -3132,8 +3140,10 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     onAlignmentTargetPreferenceChange: handleAlignmentTargetPreferenceChange,
     verticalFovAdjustmentDeg: viewerSettings.verticalFovAdjustmentDeg,
     showScopeControls: scopeControlsAvailable,
-    scopeEnabled: viewerSettings.scope.enabled,
+    scopeModeEnabled: viewerSettings.scopeModeEnabled,
     scopeVerticalFovDeg: viewerSettings.scope.verticalFovDeg,
+    transparencyPct: viewerSettings.scopeOptics.transparencyPct,
+    markerScale: viewerSettings.markerScale,
     cameraDevices,
     selectedCameraDeviceId: viewerSettings.selectedCameraDeviceId,
     layers: enabledLayers,
@@ -3179,13 +3189,10 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         verticalFovAdjustmentDeg: value,
       }))
     },
-    onScopeEnabledChange: (enabled: boolean) => {
+    onScopeModeEnabledChange: (enabled: boolean) => {
       setViewerSettings((current) => ({
         ...current,
-        scope: {
-          ...current.scope,
-          enabled,
-        },
+        scopeModeEnabled: enabled,
       }))
     },
     onScopeVerticalFovChange: (value: number) => {
@@ -3195,6 +3202,21 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
           ...current.scope,
           verticalFovDeg: value,
         },
+      }))
+    },
+    onTransparencyChange: (value: number) => {
+      setViewerSettings((current) => ({
+        ...current,
+        scopeOptics: {
+          ...current.scopeOptics,
+          transparencyPct: value,
+        },
+      }))
+    },
+    onMarkerScaleChange: (value: number) => {
+      setViewerSettings((current) => ({
+        ...current,
+        markerScale: value,
       }))
     },
     onSelectedCameraDeviceChange: (deviceId: string) => {
@@ -3970,10 +3992,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                         onClick={() =>
                           setViewerSettings((current) => ({
                             ...current,
-                            scope: {
-                              ...current.scope,
-                              enabled: !current.scope.enabled,
-                            },
+                            scopeModeEnabled: !current.scopeModeEnabled,
                           }))
                         }
                         pressed={hydratedScopeEnabled}
@@ -3995,6 +4014,51 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                       />
                     ) : null}
                   </div>
+                  {scopeControlsAvailable && hydratedScopeEnabled ? (
+                    <div
+                      className="mt-4 grid gap-3 sm:grid-cols-2"
+                      data-testid="desktop-scope-quick-controls"
+                    >
+                      <QuickRangeSlider
+                        label="Scope aperture"
+                        value={viewerSettings.scopeOptics.apertureMm}
+                        suffix=" mm"
+                        min={SCOPE_OPTICS_RANGES.apertureMm.min}
+                        max={SCOPE_OPTICS_RANGES.apertureMm.max}
+                        step={SCOPE_OPTICS_RANGES.apertureMm.step}
+                        valueTestId="desktop-scope-aperture-value"
+                        sliderTestId="desktop-scope-aperture-slider"
+                        onChange={(value) =>
+                          setViewerSettings((current) => ({
+                            ...current,
+                            scopeOptics: {
+                              ...current.scopeOptics,
+                              apertureMm: value,
+                            },
+                          }))
+                        }
+                      />
+                      <QuickRangeSlider
+                        label="Scope magnification"
+                        value={viewerSettings.scopeOptics.magnificationX}
+                        suffix="x"
+                        min={SCOPE_OPTICS_RANGES.magnificationX.min}
+                        max={SCOPE_OPTICS_RANGES.magnificationX.max}
+                        step={SCOPE_OPTICS_RANGES.magnificationX.step}
+                        valueTestId="desktop-scope-magnification-value"
+                        sliderTestId="desktop-scope-magnification-slider"
+                        onChange={(value) =>
+                          setViewerSettings((current) => ({
+                            ...current,
+                            scopeOptics: {
+                              ...current.scopeOptics,
+                              magnificationX: value,
+                            },
+                          }))
+                        }
+                      />
+                    </div>
+                  ) : null}
                 </section>
               </div>
             </div>
@@ -4590,35 +4654,50 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         ) : (
           <>
             <div className="grid justify-center gap-3" data-testid="mobile-viewer-quick-actions">
-              {!isMobileAlignmentFocusActive ? (
-                <label className="pointer-events-auto grid gap-2 rounded-[1.25rem] border border-sky-100/15 bg-slate-950/70 px-4 py-3 text-sm text-sky-50 shadow-[0_12px_30px_rgba(3,7,13,0.32)]">
-                  <span className="flex items-center justify-between gap-3">
-                    <span>Marker scale</span>
-                    <span
-                      className="text-xs uppercase tracking-[0.16em] text-sky-200/65"
-                      data-testid="mobile-marker-scale-value"
-                    >
-                      {formatMarkerScaleValue(viewerSettings.markerScale)}
-                    </span>
-                  </span>
-                  <input
-                    aria-label="Marker scale"
-                    data-testid="mobile-marker-scale-slider"
-                    type="range"
-                    min={1}
-                    max={4}
-                    step={0.1}
-                    value={viewerSettings.markerScale}
-                    onChange={(event) => {
-                      const nextMarkerScale = clampNumber(Number(event.target.value), 1, 4)
-
+              {!isMobileAlignmentFocusActive && hydratedScopeEnabled ? (
+                <div
+                  className="grid gap-3"
+                  data-testid="mobile-scope-quick-controls"
+                >
+                  <QuickRangeSlider
+                    label="Scope aperture"
+                    value={viewerSettings.scopeOptics.apertureMm}
+                    suffix=" mm"
+                    min={SCOPE_OPTICS_RANGES.apertureMm.min}
+                    max={SCOPE_OPTICS_RANGES.apertureMm.max}
+                    step={SCOPE_OPTICS_RANGES.apertureMm.step}
+                    valueTestId="mobile-scope-aperture-value"
+                    sliderTestId="mobile-scope-aperture-slider"
+                    onChange={(value) =>
                       setViewerSettings((current) => ({
                         ...current,
-                        markerScale: nextMarkerScale,
+                        scopeOptics: {
+                          ...current.scopeOptics,
+                          apertureMm: value,
+                        },
                       }))
-                    }}
+                    }
                   />
-                </label>
+                  <QuickRangeSlider
+                    label="Scope magnification"
+                    value={viewerSettings.scopeOptics.magnificationX}
+                    suffix="x"
+                    min={SCOPE_OPTICS_RANGES.magnificationX.min}
+                    max={SCOPE_OPTICS_RANGES.magnificationX.max}
+                    step={SCOPE_OPTICS_RANGES.magnificationX.step}
+                    valueTestId="mobile-scope-magnification-value"
+                    sliderTestId="mobile-scope-magnification-slider"
+                    onChange={(value) =>
+                      setViewerSettings((current) => ({
+                        ...current,
+                        scopeOptics: {
+                          ...current.scopeOptics,
+                          magnificationX: value,
+                        },
+                      }))
+                    }
+                  />
+                </div>
               ) : null}
               <div className="pointer-events-auto flex flex-wrap justify-center gap-2">
                 {!isMobileAlignmentFocusActive ? (
@@ -4669,10 +4748,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                     onClick={() =>
                       setViewerSettings((current) => ({
                         ...current,
-                        scope: {
-                          ...current.scope,
-                          enabled: !current.scope.enabled,
-                        },
+                        scopeModeEnabled: !current.scopeModeEnabled,
                       }))
                     }
                     aria-pressed={hydratedScopeEnabled}
@@ -4839,11 +4915,27 @@ function getScopeMarkerSizePx(
   scopeVerticalFovDeg: number,
   markerScale: number,
 ) {
+  const scopeRender = getScopeRenderProfile(object)
+
+  if (object.type === 'star' && scopeRender) {
+    return Math.max(1, Math.round(scopeRender.haloPx * markerScale))
+  }
+
   return getMarkerSizePxForEffectiveVerticalFovDeg(
     object,
     scopeVerticalFovDeg,
     markerScale,
   )
+}
+
+function getScopeMarkerOpacity(object: SkyObject) {
+  const scopeRender = getScopeRenderProfile(object)
+
+  if (object.type === 'star' && scopeRender) {
+    return clampNumber(scopeRender.intensity, 0.18, 1)
+  }
+
+  return 1
 }
 
 function getScopeDeepStarImportance(magnitude: number, hasDisplayName: boolean) {
@@ -4908,6 +5000,50 @@ function getScopeLensDiameterPx(viewport: {
   height: number
 }) {
   return clampNumber(Math.min(viewport.width, viewport.height) * 0.58, 220, 320)
+}
+
+function getScopeRenderProfile(object: SkyObject): ScopeRenderProfile | null {
+  const candidate = object.metadata.scopeRender
+
+  if (!candidate || typeof candidate !== 'object') {
+    return null
+  }
+
+  const {
+    effectiveLimitMag,
+    relativeFlux,
+    transmission,
+    opticsGain,
+    intensity,
+    corePx,
+    haloPx,
+  } = candidate as Partial<ScopeRenderProfile>
+
+  if (
+    !isFiniteScopeRenderValue(effectiveLimitMag) ||
+    !isFiniteScopeRenderValue(relativeFlux) ||
+    !isFiniteScopeRenderValue(transmission) ||
+    !isFiniteScopeRenderValue(opticsGain) ||
+    !isFiniteScopeRenderValue(intensity) ||
+    !isFiniteScopeRenderValue(corePx) ||
+    !isFiniteScopeRenderValue(haloPx)
+  ) {
+    return null
+  }
+
+  return {
+    effectiveLimitMag,
+    relativeFlux,
+    transmission,
+    opticsGain,
+    intensity,
+    corePx,
+    haloPx,
+  }
+}
+
+function isFiniteScopeRenderValue(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
 }
 
 function isScopeBrightObject(object: SkyObject) {
@@ -5277,12 +5413,62 @@ function DesktopActionButton({
   )
 }
 
+function QuickRangeSlider({
+  label,
+  value,
+  suffix,
+  min,
+  max,
+  step,
+  valueTestId,
+  sliderTestId,
+  onChange,
+}: {
+  label: string
+  value: number
+  suffix: string
+  min: number
+  max: number
+  step: number
+  valueTestId: string
+  sliderTestId: string
+  onChange: (value: number) => void
+}) {
+  return (
+    <label className="pointer-events-auto grid gap-2 rounded-[1.25rem] border border-sky-100/15 bg-slate-950/70 px-4 py-3 text-sm text-sky-50 shadow-[0_12px_30px_rgba(3,7,13,0.32)]">
+      <span className="flex items-center justify-between gap-3">
+        <span>{label}</span>
+        <span
+          className="text-xs uppercase tracking-[0.16em] text-sky-200/65"
+          data-testid={valueTestId}
+        >
+          {formatQuickRangeValue(value, suffix)}
+        </span>
+      </span>
+      <input
+        aria-label={label}
+        data-testid={sliderTestId}
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
+    </label>
+  )
+}
+
 function formatScopeActionStatus(enabled: boolean, verticalFovDeg: number) {
   return `${enabled ? 'On' : 'Off'} ${formatScopeFovValue(verticalFovDeg)}`
 }
 
 function formatScopeFovValue(verticalFovDeg: number) {
   return `${Number.isInteger(verticalFovDeg) ? verticalFovDeg : verticalFovDeg.toFixed(1)}° lens`
+}
+
+function formatQuickRangeValue(value: number, suffix: string) {
+  return `${Number.isInteger(value) ? value : value.toFixed(1)}${suffix}`
 }
 
 function CompactTopBanner({
@@ -6011,6 +6197,8 @@ function buildSceneSnapshot({
   timeMs,
   enabledLayers,
   likelyVisibleOnly,
+  scopeModeEnabled,
+  scopeOptics,
   focusedObjectId,
   aircraftTracker,
   aircraftRevision: _aircraftRevision,
@@ -6020,6 +6208,8 @@ function buildSceneSnapshot({
   timeMs: number
   enabledLayers: Record<EnabledLayer, boolean>
   likelyVisibleOnly: boolean
+  scopeModeEnabled: boolean
+  scopeOptics: ScopeOptics
   focusedObjectId: string | null
   aircraftTracker: AircraftTracker | null
   aircraftRevision: number
@@ -6041,6 +6231,8 @@ function buildSceneSnapshot({
       enabledLayers,
       likelyVisibleOnly,
       sunAltitudeDeg: celestial.sunAltitudeDeg,
+      scopeModeEnabled,
+      scopeOptics,
     })
     let aircraft: SkyObject[] = []
     let satellites: SkyObject[] = []

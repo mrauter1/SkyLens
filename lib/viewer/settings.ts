@@ -19,9 +19,48 @@ export interface ManualObserverSettings {
   altMeters: number
 }
 
+export interface ScopeOpticsSettings {
+  apertureMm: number
+  magnificationX: number
+  transparencyPct: number
+}
+
+export const SCOPE_OPTICS_RANGES = {
+  apertureMm: {
+    min: 50,
+    max: 400,
+    step: 1,
+  },
+  magnificationX: {
+    min: 10,
+    max: 400,
+    step: 1,
+  },
+  transparencyPct: {
+    min: 40,
+    max: 100,
+    step: 1,
+  },
+} as const satisfies Record<
+  keyof ScopeOpticsSettings,
+  {
+    min: number
+    max: number
+    step: number
+  }
+>
+
+export const DEFAULT_SCOPE_OPTICS_SETTINGS: ScopeOpticsSettings = {
+  apertureMm: 100,
+  magnificationX: 40,
+  transparencyPct: 80,
+}
+
 export interface ViewerSettings {
   enabledLayers: Record<EnabledLayer, boolean>
   likelyVisibleOnly: boolean
+  scopeModeEnabled: boolean
+  scopeOptics: ScopeOpticsSettings
   labelDisplayMode: LabelDisplayMode
   motionQuality: MotionQuality
   markerScale: number
@@ -38,6 +77,12 @@ interface StorageLike {
   setItem(key: string, value: string): void
 }
 
+const ScopeOpticsSettingsSchema = z.object({
+  apertureMm: z.number(),
+  magnificationX: z.number(),
+  transparencyPct: z.number(),
+})
+
 const SettingsSchema = z.object({
   enabledLayers: z.object({
     aircraft: z.boolean(),
@@ -47,6 +92,8 @@ const SettingsSchema = z.object({
     constellations: z.boolean(),
   }),
   likelyVisibleOnly: z.boolean(),
+  scopeModeEnabled: z.boolean().optional(),
+  scopeOptics: z.unknown().optional(),
   labelDisplayMode: z.enum(['center_only', 'on_objects', 'top_list']),
   motionQuality: z.enum(['low', 'balanced', 'high']).optional(),
   markerScale: z.number().optional(),
@@ -92,6 +139,10 @@ export function getDefaultViewerSettings(): ViewerSettings {
       constellations: config.defaults.enabledLayers.includes('constellations'),
     },
     likelyVisibleOnly: config.defaults.likelyVisibleOnly,
+    scopeModeEnabled: false,
+    scopeOptics: {
+      ...DEFAULT_SCOPE_OPTICS_SETTINGS,
+    },
     labelDisplayMode: 'center_only',
     motionQuality: 'balanced',
     markerScale: 1,
@@ -119,6 +170,7 @@ export function readViewerSettings(storage = getBrowserStorage()): ViewerSetting
     }
 
     const parsed = SettingsSchema.partial().parse(JSON.parse(rawValue))
+    const scopeOptics = getSettingsObject(parsed.scopeOptics)
 
     return normalizeViewerSettings({
       ...defaults,
@@ -126,6 +178,12 @@ export function readViewerSettings(storage = getBrowserStorage()): ViewerSetting
       enabledLayers: {
         ...defaults.enabledLayers,
         ...parsed.enabledLayers,
+      },
+      scopeOptics: {
+        ...defaults.scopeOptics,
+        apertureMm: scopeOptics.apertureMm,
+        magnificationX: scopeOptics.magnificationX,
+        transparencyPct: scopeOptics.transparencyPct,
       },
     })
   } catch {
@@ -173,6 +231,8 @@ export function normalizeViewerSettings(settings: ViewerSettings): ViewerSetting
       constellations: settings.enabledLayers.constellations,
     },
     likelyVisibleOnly: settings.likelyVisibleOnly,
+    scopeModeEnabled: settings.scopeModeEnabled === true,
+    scopeOptics: normalizeScopeOpticsSettings(settings.scopeOptics),
     labelDisplayMode: settings.labelDisplayMode,
     motionQuality: normalizeMotionQuality(settings.motionQuality),
     markerScale: normalizeMarkerScale(settings.markerScale),
@@ -205,6 +265,14 @@ function normalizeManualObserver(
   }
 }
 
+function getSettingsObject(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {}
+  }
+
+  return value as Record<string, unknown>
+}
+
 function normalizeMotionQuality(
   motionQuality: MotionQuality | null | undefined,
 ): MotionQuality {
@@ -214,6 +282,31 @@ function normalizeMotionQuality(
       return motionQuality
     default:
       return 'balanced'
+  }
+}
+
+export function normalizeScopeOpticsSettings(
+  scopeOptics: ScopeOpticsSettings | null | undefined,
+): ScopeOpticsSettings {
+  return {
+    apertureMm: normalizeFiniteNumber(
+      scopeOptics?.apertureMm,
+      DEFAULT_SCOPE_OPTICS_SETTINGS.apertureMm,
+      SCOPE_OPTICS_RANGES.apertureMm.min,
+      SCOPE_OPTICS_RANGES.apertureMm.max,
+    ),
+    magnificationX: normalizeFiniteNumber(
+      scopeOptics?.magnificationX,
+      DEFAULT_SCOPE_OPTICS_SETTINGS.magnificationX,
+      SCOPE_OPTICS_RANGES.magnificationX.min,
+      SCOPE_OPTICS_RANGES.magnificationX.max,
+    ),
+    transparencyPct: normalizeFiniteNumber(
+      scopeOptics?.transparencyPct,
+      DEFAULT_SCOPE_OPTICS_SETTINGS.transparencyPct,
+      SCOPE_OPTICS_RANGES.transparencyPct.min,
+      SCOPE_OPTICS_RANGES.transparencyPct.max,
+    ),
   }
 }
 
@@ -243,6 +336,19 @@ function getBrowserStorage(): StorageLike | null {
   }
 
   return window.localStorage
+}
+
+function normalizeFiniteNumber(
+  value: number | null | undefined,
+  fallback: number,
+  min: number,
+  max: number,
+) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return fallback
+  }
+
+  return clamp(value, min, max)
 }
 
 function clamp(value: number, min: number, max: number) {

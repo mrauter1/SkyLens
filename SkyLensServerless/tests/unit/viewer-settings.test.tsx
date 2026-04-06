@@ -125,9 +125,14 @@ describe('ViewerShell settings integration', () => {
       markerScale: 1,
       alignmentTargetPreference: null,
       verticalFovAdjustmentDeg: 6,
+      scopeModeEnabled: false,
       scope: {
-        enabled: false,
         verticalFovDeg: 10,
+      },
+      scopeOptics: {
+        apertureMm: 120,
+        magnificationX: 50,
+        transparencyPct: 85,
       },
       onboardingCompleted: false,
     })
@@ -203,9 +208,14 @@ describe('ViewerShell settings integration', () => {
   })
 
   it('defaults and clamps persisted scope settings without breaking older payloads', () => {
+    expect(readViewerSettings().scopeModeEnabled).toBe(false)
     expect(readViewerSettings().scope).toEqual({
-      enabled: false,
       verticalFovDeg: 10,
+    })
+    expect(readViewerSettings().scopeOptics).toEqual({
+      apertureMm: 120,
+      magnificationX: 50,
+      transparencyPct: 85,
     })
 
     window.localStorage.setItem(
@@ -222,17 +232,27 @@ describe('ViewerShell settings integration', () => {
         labelDisplayMode: 'on_objects',
         motionQuality: 'balanced',
         verticalFovAdjustmentDeg: 6,
+        scopeModeEnabled: true,
+        scopeOptics: {
+          apertureMm: 9,
+          magnificationX: 800,
+          transparencyPct: Number.POSITIVE_INFINITY,
+        },
         scope: {
-          enabled: true,
           verticalFovDeg: 1.5,
         },
         onboardingCompleted: false,
       }),
     )
 
+    expect(readViewerSettings().scopeModeEnabled).toBe(true)
     expect(readViewerSettings().scope).toEqual({
-      enabled: true,
       verticalFovDeg: 3,
+    })
+    expect(readViewerSettings().scopeOptics).toEqual({
+      apertureMm: 40,
+      magnificationX: 300,
+      transparencyPct: 85,
     })
 
     window.localStorage.setItem(
@@ -257,8 +277,8 @@ describe('ViewerShell settings integration', () => {
       }),
     )
 
+    expect(readViewerSettings().scopeModeEnabled).toBe(true)
     expect(readViewerSettings().scope).toEqual({
-      enabled: true,
       verticalFovDeg: 20,
     })
 
@@ -283,8 +303,8 @@ describe('ViewerShell settings integration', () => {
       }),
     )
 
+    expect(readViewerSettings().scopeModeEnabled).toBe(true)
     expect(readViewerSettings().scope).toEqual({
-      enabled: true,
       verticalFovDeg: 10,
     })
 
@@ -309,9 +329,92 @@ describe('ViewerShell settings integration', () => {
       }),
     )
 
+    expect(readViewerSettings().scopeModeEnabled).toBe(false)
     expect(readViewerSettings().scope).toEqual({
-      enabled: false,
       verticalFovDeg: 12.5,
+    })
+  })
+
+  it('prefers canonical scopeModeEnabled over legacy scope.enabled when both are present', () => {
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabledLayers: {
+          aircraft: false,
+          satellites: true,
+          planets: true,
+          stars: true,
+          constellations: true,
+        },
+        likelyVisibleOnly: false,
+        labelDisplayMode: 'on_objects',
+        motionQuality: 'balanced',
+        verticalFovAdjustmentDeg: 6,
+        scopeModeEnabled: false,
+        scope: {
+          enabled: true,
+          verticalFovDeg: 12,
+        },
+        onboardingCompleted: false,
+      }),
+    )
+
+    const settings = readViewerSettings()
+
+    expect(settings.scopeModeEnabled).toBe(false)
+    expect(settings.scope.verticalFovDeg).toBe(12)
+  })
+
+  it('sanitizes malformed persisted scope fields without discarding unrelated viewer settings', () => {
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabledLayers: {
+          aircraft: false,
+          satellites: true,
+          planets: true,
+          stars: true,
+          constellations: false,
+        },
+        likelyVisibleOnly: false,
+        labelDisplayMode: 'top_list',
+        motionQuality: 'high',
+        verticalFovAdjustmentDeg: 6,
+        scopeModeEnabled: 'true',
+        scope: {
+          enabled: true,
+          verticalFovDeg: 'bad',
+        },
+        scopeOptics: {
+          apertureMm: '120',
+          magnificationX: null,
+          transparencyPct: '75',
+        },
+        onboardingCompleted: false,
+      }),
+    )
+
+    expect(readViewerSettings()).toMatchObject({
+      enabledLayers: {
+        aircraft: false,
+        satellites: true,
+        planets: true,
+        stars: true,
+        constellations: false,
+      },
+      likelyVisibleOnly: false,
+      labelDisplayMode: 'top_list',
+      motionQuality: 'high',
+      verticalFovAdjustmentDeg: 6,
+      scopeModeEnabled: true,
+      scope: {
+        verticalFovDeg: 10,
+      },
+      scopeOptics: {
+        apertureMm: 120,
+        magnificationX: 50,
+        transparencyPct: 75,
+      },
     })
   })
 
@@ -561,8 +664,8 @@ describe('ViewerShell settings integration', () => {
       desktopScopeAction?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
+    expect(readViewerSettings().scopeModeEnabled).toBe(true)
     expect(readViewerSettings().scope).toEqual({
-      enabled: true,
       verticalFovDeg: 10,
     })
 
@@ -591,8 +694,8 @@ describe('ViewerShell settings integration', () => {
       setInputValue(scopeFovSlider!, '12.5')
     })
 
+    expect(readViewerSettings().scopeModeEnabled).toBe(false)
     expect(readViewerSettings().scope).toEqual({
-      enabled: false,
       verticalFovDeg: 12.5,
     })
 

@@ -1,0 +1,69 @@
+version: 1
+task_id: skylensserverless-scope-optics
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/skylensserverless-scope-optics/runs/run-20260406T023904Z-ba39616f/request.md
+phases:
+  - phase_id: scope-optics-foundation
+    title: Settings and Optics Foundation
+    objective: Extend persisted viewer settings and the star pipeline with deterministic scope-optics logic while preserving existing visibility gates and backward compatibility.
+    status: planned
+    in_scope:
+      - Add scope mode and scope optics state, defaults, and clamps to viewer settings.
+      - Create the pure scope-optics module with the locked limiting-magnitude and photometric formulas.
+      - Integrate scope filtering and optional scope-render metadata into the visible-star pipeline after existing daylight and horizon gates.
+      - Add formula and settings compatibility tests.
+    out_of_scope:
+      - Bortle or sky-quality modeling.
+      - Changes to aircraft, satellites, planets, or non-star visibility logic.
+      - Any work inside the excluded SkyLensServerless tree.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: Viewer settings load legacy payloads safely and normalize the new scope fields to the locked defaults and clamp ranges.
+      - id: AC-2
+        text: Scope-optics helpers are deterministic and pass monotonic tests for aperture, magnification, transparency, and altitude.
+      - id: AC-3
+        text: Existing likely-visible/daylight and horizon gates remain unchanged and execute before any scope-mode filter.
+    deliverables:
+      - lib/viewer/scope-optics.ts
+      - Updated lib/viewer/settings.ts
+      - Updated lib/astronomy/stars.ts
+      - Unit coverage for optics formulas and settings compatibility
+    risks:
+      - Nested settings parsing could break older local-storage payloads.
+      - The optics filter could be inserted in the wrong order and change daylight behavior.
+    rollback:
+      - Revert the new settings fields and optics module together if persistence or star filtering regresses.
+      - Fall back to the pre-scope star pipeline with no scope-render metadata if rendering integration is not ready.
+  - phase_id: scope-optics-ui-rendering
+    title: Controls and Rendering Integration
+    objective: Expose the new scope controls in the intended surfaces and render stars from scope photometry without letting magnification inflate star diameter linearly.
+    status: planned
+    in_scope:
+      - Add quick-control scope toggle plus aperture and magnification controls when scope mode is enabled.
+      - Move marker-scale into Settings and add Settings controls for the mirrored scope toggle and transparency.
+      - Wire toggle synchronization through the canonical viewer settings state.
+      - Consume star scope-render metadata in ViewerShell and preserve legacy rendering when scope mode is off.
+      - Add viewer integration and non-regression tests for control placement and rendering behavior.
+    out_of_scope:
+      - New storage keys or migrations beyond backward-compatible defaults.
+      - Redesigns of unrelated mobile overlay or alignment flows.
+      - Changes to existing likely-visible rules beyond proving non-regression.
+    dependencies:
+      - scope-optics-foundation
+    acceptance_criteria:
+      - id: AC-1
+        text: Quick controls and Settings expose the requested controls in the correct locations and keep the scope-mode toggle synchronized.
+      - id: AC-2
+        text: Scope mode applies the optics filter and photometric star rendering, while scope mode off preserves legacy viewer behavior.
+      - id: AC-3
+        text: Increasing magnification does not scale star diameter linearly, and marker-scale remains a separate Settings-only display control.
+    deliverables:
+      - Updated components/viewer/viewer-shell.tsx
+      - Updated components/settings/settings-sheet.tsx
+      - Updated viewer integration tests covering control placement, toggle sync, and compact star rendering
+    risks:
+      - Quick-control and Settings surfaces could drift if they do not share the same callbacks.
+      - Constellation overlays could remain visible for stars filtered out by scope optics.
+    rollback:
+      - Revert the UI control relocation and mirrored toggle changes as one slice if interaction parity breaks.
+      - Disable scope-mode rendering paths and restore legacy marker sizing if photometric rendering causes visual regressions.
