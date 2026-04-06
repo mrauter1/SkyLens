@@ -1,0 +1,64 @@
+version: 1
+task_id: skylensserverless-prd-ard-rerun
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/skylensserverless-prd-ard-rerun/runs/run-20260406T110433Z-4d331cc0/request.md
+phases:
+- phase_id: scope-realism-slice
+  title: Scope realism settings, optics, and star rendering
+  objective: Implement the SkyLensServerless scope-realism contract with backward-compatible
+    settings normalization, optics-aware star filtering/render metadata, quick-control
+    parity, and targeted regression tests.
+  status: planned
+  in_scope:
+  - Add canonical scope optics persisted state and shared range/normalization helpers
+    in SkyLensServerless.
+  - Apply scope-only limiting-magnitude and photometric render metadata to the star
+    pipeline after existing visibility gates.
+  - Update desktop/mobile quick controls and Settings ownership to match the requested
+    control placement.
+  - Add or update unit tests for normalization robustness, shared range reuse, quick-control
+    parity, marker-scale placement, and renderer fallback behavior.
+  out_of_scope:
+  - Changes outside the SkyLensServerless subtree except runtime-owned autoloop artifacts.
+  - Reworking existing likely-visible logic.
+  - Replacing or altering the current scope lens vertical-FOV behavior in this task.
+  - Unrelated scope catalog or deep-star ingestion changes.
+  dependencies: []
+  acceptance_criteria:
+  - id: AC-1
+    text: Persisted settings expose canonical 'scopeModeEnabled' and 'scopeOptics',
+      prefer the canonical toggle after normalization while still reading legacy
+      'scope.enabled' payloads, reuse shared optics ranges, and safely normalize malformed
+      inputs without emitting NaN or Infinity.
+  - id: AC-2
+    text: '''normalizeVisibleStars'' preserves existing gates, applies scope optics
+      filtering only when scope mode is enabled, and emits scope render metadata only
+      for surviving scope-mode stars.'
+  - id: AC-3
+    text: Desktop and mobile quick actions both expose scope toggle plus aperture/magnification
+      when scope mode is enabled, while 'markerScale' remains Settings-only and
+      settings-sheet transparency ownership is explicit.
+  - id: AC-4
+    text: Viewer rendering falls back safely when scope render metadata is missing
+      or malformed, scope render metadata stays local to existing viewer metadata/contracts,
+      and targeted SkyLensServerless tests cover parity, placement, normalization,
+      and photometric behavior.
+  - id: AC-5
+    text: Existing scope vertical-FOV control and behavior remain unchanged, and the
+      implementation plan does not pre-authorize changing them without a later explicit
+      user confirmation.
+  deliverables:
+  - Updated plan-aligned settings, optics, stars, and viewer UI code under `SkyLensServerless/`.
+  - New or updated SkyLensServerless unit tests covering the requested acceptance
+    surfaces.
+  risks:
+  - Legacy `scope.enabled` payloads may break if migration logic is incomplete.
+  - Quick-control parity may drift if desktop/mobile slider ranges are duplicated.
+  - Invalid photometric metadata could regress star marker rendering if fallback is
+    not explicit.
+  - Broadening shared viewer contracts may create avoidable churn outside the requested
+    files.
+  rollback:
+  - Revert scope render metadata consumption in the viewer and fall back to the existing
+    star marker sizing path.
+  - Keep settings reads backward-compatible so legacy stored payloads remain loadable
+    during rollback.

@@ -93,7 +93,7 @@ const SettingsSchema = z.object({
   }),
   likelyVisibleOnly: z.boolean(),
   scopeModeEnabled: z.boolean().optional(),
-  scopeOptics: ScopeOpticsSettingsSchema.partial().optional(),
+  scopeOptics: z.unknown().optional(),
   labelDisplayMode: z.enum(['center_only', 'on_objects', 'top_list']),
   motionQuality: z.enum(['low', 'balanced', 'high']).optional(),
   markerScale: z.number().optional(),
@@ -170,6 +170,7 @@ export function readViewerSettings(storage = getBrowserStorage()): ViewerSetting
     }
 
     const parsed = SettingsSchema.partial().parse(JSON.parse(rawValue))
+    const scopeOptics = getSettingsObject(parsed.scopeOptics)
 
     return normalizeViewerSettings({
       ...defaults,
@@ -180,7 +181,9 @@ export function readViewerSettings(storage = getBrowserStorage()): ViewerSetting
       },
       scopeOptics: {
         ...defaults.scopeOptics,
-        ...parsed.scopeOptics,
+        apertureMm: scopeOptics.apertureMm,
+        magnificationX: scopeOptics.magnificationX,
+        transparencyPct: scopeOptics.transparencyPct,
       },
     })
   } catch {
@@ -260,6 +263,14 @@ function normalizeManualObserver(
     lon: clamp(manualObserver.lon, -180, 180),
     altMeters: clamp(manualObserver.altMeters, -500, 10_000),
   }
+}
+
+function getSettingsObject(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {}
+  }
+
+  return value as Record<string, unknown>
 }
 
 function normalizeMotionQuality(

@@ -9,6 +9,7 @@ export type ScopeLensOverlayObject = {
   x: number
   y: number
   sizePx: number
+  opacity: number
   className: string
 }
 
@@ -129,6 +130,7 @@ export function ScopeLensOverlay({
                 style={{
                   width: `${object.sizePx}px`,
                   height: `${object.sizePx}px`,
+                  opacity: object.opacity,
                 }}
               />
             </div>

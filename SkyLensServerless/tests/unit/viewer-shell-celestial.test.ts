@@ -409,8 +409,8 @@ describe('ViewerShell celestial behavior', () => {
       JSON.stringify({
         ...readViewerSettings(),
         labelDisplayMode: 'on_objects',
+        scopeModeEnabled: true,
         scope: {
-          enabled: true,
           verticalFovDeg: 10,
         },
       }),
@@ -485,8 +485,8 @@ describe('ViewerShell celestial behavior', () => {
       JSON.stringify({
         ...readViewerSettings(),
         labelDisplayMode: 'on_objects',
+        scopeModeEnabled: true,
         scope: {
-          enabled: true,
           verticalFovDeg: 10,
         },
       }),
@@ -1468,7 +1468,7 @@ describe('ViewerShell celestial behavior', () => {
     10_000,
   )
 
-  it('applies the mobile marker scale slider live and persists the chosen scale', async () => {
+  it('applies settings-owned marker scale changes live and persists the chosen scale', async () => {
     mockNormalizeCelestialObjects.mockReturnValue({
       sunAltitudeDeg: -12,
       objects: [
@@ -1498,29 +1498,27 @@ describe('ViewerShell celestial behavior', () => {
       orientation: 'denied',
     })
 
-    const slider = container.querySelector(
-      '[data-testid="mobile-marker-scale-slider"]',
-    ) as HTMLInputElement | null
-    const sliderValue = container.querySelector(
-      '[data-testid="mobile-marker-scale-value"]',
-    ) as HTMLElement | null
+    const latestSettingsProps = () =>
+      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+        | {
+            markerScale?: number
+            onMarkerScaleChange?: (value: number) => void
+          }
+        | undefined
     const dimStarMarker = container.querySelector(
       '[data-testid="sky-object-marker"][data-object-id="star-dim"]',
     ) as HTMLButtonElement | null
 
-    expect(slider).not.toBeNull()
-    expect(slider?.value).toBe('1')
-    expect(sliderValue?.textContent).toContain('1.0x')
+    expect(latestSettingsProps()?.markerScale).toBe(1)
     expect(dimStarMarker).not.toBeNull()
     expect(getMarkerVisualSizePx(dimStarMarker!)).toBe(1)
 
     await act(async () => {
-      setInputValue(slider!, '4')
+      latestSettingsProps()?.onMarkerScaleChange?.(4)
     })
     await flushEffects()
 
-    expect(slider?.value).toBe('4')
-    expect(sliderValue?.textContent).toContain('4.0x')
+    expect(latestSettingsProps()?.markerScale).toBe(4)
     expect(getMarkerVisualSizePx(dimStarMarker!)).toBe(4)
     expect(readViewerSettings().markerScale).toBe(4)
 
@@ -1537,20 +1535,77 @@ describe('ViewerShell celestial behavior', () => {
       orientation: 'denied',
     })
 
-    const reloadedSlider = container.querySelector(
-      '[data-testid="mobile-marker-scale-slider"]',
-    ) as HTMLInputElement | null
-    const reloadedSliderValue = container.querySelector(
-      '[data-testid="mobile-marker-scale-value"]',
-    ) as HTMLElement | null
+    const reloadedSettingsProps = mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+      | {
+          markerScale?: number
+        }
+      | undefined
     const reloadedDimStarMarker = container.querySelector(
       '[data-testid="sky-object-marker"][data-object-id="star-dim"]',
     ) as HTMLButtonElement | null
 
-    expect(reloadedSlider?.value).toBe('4')
-    expect(reloadedSliderValue?.textContent).toContain('4.0x')
+    expect(reloadedSettingsProps?.markerScale).toBe(4)
     expect(reloadedDimStarMarker).not.toBeNull()
     expect(getMarkerVisualSizePx(reloadedDimStarMarker!)).toBe(4)
+  })
+
+  it('falls back to legacy scope marker sizing when scope render metadata is malformed', async () => {
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        ...readViewerSettings(),
+        scopeModeEnabled: true,
+        scope: {
+          verticalFovDeg: 10,
+        },
+      }),
+    )
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -12,
+      objects: [
+        {
+          id: 'star-fallback',
+          type: 'star',
+          label: 'Fallback Star',
+          azimuthDeg: 0,
+          elevationDeg: 16,
+          magnitude: 1.5,
+          importance: 72,
+          metadata: {
+            detail: {
+              typeLabel: 'Star',
+              magnitude: 1.5,
+              elevationDeg: 16,
+              constellationName: 'Orion',
+            },
+            scopeRender: {
+              effectiveLimitMag: 10,
+              relativeFlux: 1,
+              transmission: 1,
+              opticsGain: 1,
+              intensity: Number.NaN,
+              corePx: Number.POSITIVE_INFINITY,
+              haloPx: Number.POSITIVE_INFINITY,
+            },
+          },
+        },
+      ],
+    })
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
+
+    const scopeMarkerVisual = container.querySelector(
+      '[data-testid="scope-bright-object-marker"][data-object-id="star-fallback"] > span',
+    ) as HTMLSpanElement | null
+
+    expect(scopeMarkerVisual).not.toBeNull()
+    expect(scopeMarkerVisual?.style.width).toBe('9px')
+    expect(scopeMarkerVisual?.style.opacity).toBe('1')
   })
 
   it('renders stable nearby labels when on-object mode is enabled', async () => {

@@ -244,8 +244,8 @@ describe('ViewerShell scope runtime', () => {
       VIEWER_SETTINGS_STORAGE_KEY,
       JSON.stringify({
         ...readViewerSettings(),
+        scopeModeEnabled: true,
         scope: {
-          enabled: true,
           verticalFovDeg: 10,
         },
         labelDisplayMode: 'center_only',
@@ -274,8 +274,8 @@ describe('ViewerShell scope runtime', () => {
       VIEWER_SETTINGS_STORAGE_KEY,
       JSON.stringify({
         ...readViewerSettings(),
+        scopeModeEnabled: true,
         scope: {
-          enabled: true,
           verticalFovDeg: 10,
         },
         labelDisplayMode: 'center_only',
@@ -305,8 +305,8 @@ describe('ViewerShell scope runtime', () => {
       VIEWER_SETTINGS_STORAGE_KEY,
       JSON.stringify({
         ...readViewerSettings(),
+        scopeModeEnabled: true,
         scope: {
-          enabled: true,
           verticalFovDeg: 10,
         },
         labelDisplayMode: 'center_only',
