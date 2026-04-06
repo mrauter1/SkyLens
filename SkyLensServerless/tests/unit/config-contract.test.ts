@@ -34,8 +34,8 @@ describe('getPublicConfig', () => {
         { id: 'brightest', label: '100 Brightest' },
       ],
       scopeData: {
-        remoteEnabled: false,
-        remoteBaseUrl: null,
+        remoteEnabled: true,
+        remoteBaseUrl: 'https://pub-566fb74233f3432ba4d47900577e552e.r2.dev/scope/v1',
         localBasePath: '/data/scope/v1',
       },
     })
@@ -48,7 +48,7 @@ describe('getPublicConfig', () => {
     expect(getPublicConfig().buildVersion).toBe('public-build')
   })
 
-  it('enables remote scope data only when the public flag and base URL are both valid', () => {
+  it('accepts explicit remote scope env overrides when both values are valid', () => {
     process.env.NEXT_PUBLIC_SKYLENS_SCOPE_REMOTE_ENABLED = 'true'
     process.env.NEXT_PUBLIC_SKYLENS_SCOPE_REMOTE_BASE_URL =
       'https://pub-566fb74233f3432ba4d47900577e552e.r2.dev/scope/v1/'
@@ -60,13 +60,22 @@ describe('getPublicConfig', () => {
     })
   })
 
-  it('keeps scope data local-only when the enable flag is blank or the base URL is invalid', () => {
+  it('allows explicitly disabling remote scope data', () => {
     process.env.NEXT_PUBLIC_SKYLENS_SCOPE_REMOTE_ENABLED = ' , '
-    process.env.NEXT_PUBLIC_SKYLENS_SCOPE_REMOTE_BASE_URL = 'not-a-url'
 
     expect(getPublicConfig().scopeData).toEqual({
       remoteEnabled: false,
-      remoteBaseUrl: null,
+      remoteBaseUrl: 'https://pub-566fb74233f3432ba4d47900577e552e.r2.dev/scope/v1',
+      localBasePath: '/data/scope/v1',
+    })
+  })
+
+  it('falls back to the baked-in R2 URL when the configured base URL is invalid', () => {
+    process.env.NEXT_PUBLIC_SKYLENS_SCOPE_REMOTE_BASE_URL = 'not-a-url'
+
+    expect(getPublicConfig().scopeData).toEqual({
+      remoteEnabled: true,
+      remoteBaseUrl: 'https://pub-566fb74233f3432ba4d47900577e552e.r2.dev/scope/v1',
       localBasePath: '/data/scope/v1',
     })
   })

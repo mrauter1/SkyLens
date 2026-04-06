@@ -3,6 +3,8 @@ import { z } from 'zod'
 export const DEFAULT_AIRCRAFT_RADIUS_KM = 180
 export const MIN_AIRCRAFT_ELEVATION_DEG = 2
 export const LOCAL_SCOPE_DATA_BASE_PATH = '/data/scope/v1' as const
+export const DEFAULT_SCOPE_REMOTE_BASE_URL =
+  'https://pub-566fb74233f3432ba4d47900577e552e.r2.dev/scope/v1'
 export const POLL_INTERVAL_MS_BY_QUALITY = {
   low: 30_000,
   balanced: 15_000,
@@ -61,6 +63,7 @@ export const PRIVACY_REASSURANCE_COPY = [
 
 export function getPublicConfig(): PublicConfig {
   const remoteBaseUrl = getConfiguredScopeRemoteBaseUrl()
+  const remoteEnabled = getConfiguredScopeRemoteEnabled()
 
   return ConfigSchema.parse({
     buildVersion:
@@ -86,9 +89,7 @@ export function getPublicConfig(): PublicConfig {
       { id: 'brightest', label: '100 Brightest' },
     ],
     scopeData: {
-      remoteEnabled:
-        parsePublicBooleanEnv(process.env.NEXT_PUBLIC_SKYLENS_SCOPE_REMOTE_ENABLED) &&
-        remoteBaseUrl !== null,
+      remoteEnabled: remoteEnabled && remoteBaseUrl !== null,
       remoteBaseUrl,
       localBasePath: LOCAL_SCOPE_DATA_BASE_PATH,
     },
@@ -105,17 +106,22 @@ function parsePublicBooleanEnv(value: string | undefined) {
 
 function getConfiguredScopeRemoteBaseUrl() {
   const configured = process.env.NEXT_PUBLIC_SKYLENS_SCOPE_REMOTE_BASE_URL?.trim()
-
-  if (!configured) {
-    return null
-  }
+  const candidate = configured || DEFAULT_SCOPE_REMOTE_BASE_URL
 
   try {
-    const url = new URL(configured)
+    const url = new URL(candidate)
     url.hash = ''
     url.search = ''
     return url.toString().replace(/\/+$/u, '')
   } catch {
-    return null
+    return DEFAULT_SCOPE_REMOTE_BASE_URL
   }
+}
+
+function getConfiguredScopeRemoteEnabled() {
+  if (process.env.NEXT_PUBLIC_SKYLENS_SCOPE_REMOTE_ENABLED === undefined) {
+    return true
+  }
+
+  return parsePublicBooleanEnv(process.env.NEXT_PUBLIC_SKYLENS_SCOPE_REMOTE_ENABLED)
 }
