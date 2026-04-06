@@ -55,8 +55,11 @@ vi.mock('../../lib/satellites/client', () => ({
 
 import { ViewerShell } from '../../components/viewer/viewer-shell'
 import {
+  normalizeScopeOpticsSettings,
+  SCOPE_OPTICS_RANGES,
   VIEWER_SETTINGS_STORAGE_KEY,
   readViewerSettings,
+  writeViewerSettings,
 } from '../../lib/viewer/settings'
 
 describe('ViewerShell settings integration', () => {
@@ -116,6 +119,12 @@ describe('ViewerShell settings integration', () => {
         constellations: true,
       },
       likelyVisibleOnly: false,
+      scopeModeEnabled: false,
+      scopeOptics: {
+        apertureMm: 100,
+        magnificationX: 40,
+        transparencyPct: 80,
+      },
       labelDisplayMode: 'on_objects',
       motionQuality: 'balanced',
       markerScale: 1,
@@ -194,6 +203,119 @@ describe('ViewerShell settings integration', () => {
     expect(readViewerSettings().markerScale).toBe(1)
   })
 
+  it('defaults missing nested scope optics fields while preserving provided values', () => {
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabledLayers: {
+          aircraft: false,
+          satellites: true,
+          planets: true,
+          stars: true,
+          constellations: true,
+        },
+        likelyVisibleOnly: false,
+        scopeModeEnabled: true,
+        scopeOptics: {
+          apertureMm: 180,
+        },
+        labelDisplayMode: 'on_objects',
+        motionQuality: 'balanced',
+        verticalFovAdjustmentDeg: 6,
+        onboardingCompleted: false,
+      }),
+    )
+
+    expect(readViewerSettings()).toMatchObject({
+      scopeModeEnabled: true,
+      scopeOptics: {
+        apertureMm: 180,
+        magnificationX: 40,
+        transparencyPct: 80,
+      },
+    })
+  })
+
+  it('clamps persisted scope optics values into the supported ranges', () => {
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabledLayers: {
+          aircraft: false,
+          satellites: true,
+          planets: true,
+          stars: true,
+          constellations: true,
+        },
+        likelyVisibleOnly: false,
+        scopeModeEnabled: true,
+        scopeOptics: {
+          apertureMm: 900,
+          magnificationX: 4,
+          transparencyPct: 5,
+        },
+        labelDisplayMode: 'on_objects',
+        motionQuality: 'balanced',
+        verticalFovAdjustmentDeg: 6,
+        onboardingCompleted: false,
+      }),
+    )
+
+    expect(readViewerSettings()).toMatchObject({
+      scopeModeEnabled: true,
+      scopeOptics: {
+        apertureMm: SCOPE_OPTICS_RANGES.apertureMm.max,
+        magnificationX: SCOPE_OPTICS_RANGES.magnificationX.min,
+        transparencyPct: SCOPE_OPTICS_RANGES.transparencyPct.min,
+      },
+    })
+  })
+
+  it('reuses the shared scope optics ranges for direct normalization', () => {
+    expect(
+      normalizeScopeOpticsSettings({
+        apertureMm: Number.NEGATIVE_INFINITY,
+        magnificationX: 999,
+        transparencyPct: 5,
+      }),
+    ).toEqual({
+      apertureMm: 100,
+      magnificationX: SCOPE_OPTICS_RANGES.magnificationX.max,
+      transparencyPct: SCOPE_OPTICS_RANGES.transparencyPct.min,
+    })
+  })
+
+  it('round-trips nested scope optics settings through persisted storage', () => {
+    writeViewerSettings({
+      ...readViewerSettings(),
+      scopeModeEnabled: true,
+      scopeOptics: {
+        apertureMm: 155,
+        magnificationX: 95,
+        transparencyPct: 65,
+      },
+    })
+
+    expect(
+      JSON.parse(window.localStorage.getItem(VIEWER_SETTINGS_STORAGE_KEY) ?? 'null'),
+    ).toMatchObject({
+      scopeModeEnabled: true,
+      scopeOptics: {
+        apertureMm: 155,
+        magnificationX: 95,
+        transparencyPct: 65,
+      },
+    })
+    expect(readViewerSettings()).toMatchObject({
+      scopeModeEnabled: true,
+      scopeOptics: {
+        apertureMm: 155,
+        magnificationX: 95,
+        transparencyPct: 65,
+      },
+    })
+  })
+
   it('loads persisted settings, preserves offsets on recenter, and routes demo mode from the sheet', async () => {
     await act(async () => {
       root.render(
@@ -220,14 +342,13 @@ describe('ViewerShell settings integration', () => {
       settingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    const checkboxes = Array.from(
-      container.querySelectorAll('input[type="checkbox"]'),
-    ) as HTMLInputElement[]
-    const planesToggle = checkboxes[0]
-    const likelyVisibleToggle = checkboxes[5]
+    const planesToggle = container.querySelector(
+      'input[aria-label="Planes"]',
+    ) as HTMLInputElement | null
+    const likelyVisibleToggle = findToggleByLabelText(container, 'Likely visible only')
 
-    expect(planesToggle.checked).toBe(false)
-    expect(likelyVisibleToggle.checked).toBe(false)
+    expect(planesToggle?.checked).toBe(false)
+    expect(likelyVisibleToggle?.checked).toBe(false)
 
     const alignmentButton = Array.from(container.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Alignment'),
@@ -302,12 +423,13 @@ describe('ViewerShell settings integration', () => {
       settingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    const checkboxes = Array.from(
-      container.querySelectorAll('input[type="checkbox"]'),
-    ) as HTMLInputElement[]
-    const planesToggle = checkboxes[0]
-    const satellitesToggle = checkboxes[1]
-    const likelyVisibleToggle = checkboxes[5]
+    const planesToggle = container.querySelector(
+      'input[aria-label="Planes"]',
+    ) as HTMLInputElement | null
+    const satellitesToggle = container.querySelector(
+      'input[aria-label="Satellites"]',
+    ) as HTMLInputElement | null
+    const likelyVisibleToggle = findToggleByLabelText(container, 'Likely visible only')
 
     const alignmentButton = Array.from(container.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Alignment'),
@@ -325,15 +447,15 @@ describe('ViewerShell settings integration', () => {
       'input[aria-label="High"]',
     ) as HTMLInputElement | null
 
-    expect(planesToggle.checked).toBe(false)
-    expect(satellitesToggle.checked).toBe(true)
-    expect(likelyVisibleToggle.checked).toBe(false)
+    expect(planesToggle?.checked).toBe(false)
+    expect(satellitesToggle?.checked).toBe(true)
+    expect(likelyVisibleToggle?.checked).toBe(false)
     expect(fovSlider?.value).toBe('6')
 
     await act(async () => {
-      planesToggle.click()
-      satellitesToggle.click()
-      likelyVisibleToggle.click()
+      planesToggle?.click()
+      satellitesToggle?.click()
+      likelyVisibleToggle?.click()
       topListRadio?.click()
       highMotionQualityRadio?.click()
       setInputValue(fovSlider!, '-4')
@@ -385,13 +507,20 @@ describe('ViewerShell settings integration', () => {
       reloadedSettingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    const reloadedCheckboxes = Array.from(
-      container.querySelectorAll('input[type="checkbox"]'),
-    ) as HTMLInputElement[]
+    const reloadedPlanesToggle = container.querySelector(
+      'input[aria-label="Planes"]',
+    ) as HTMLInputElement | null
+    const reloadedSatellitesToggle = container.querySelector(
+      'input[aria-label="Satellites"]',
+    ) as HTMLInputElement | null
+    const reloadedLikelyVisibleToggle = findToggleByLabelText(
+      container,
+      'Likely visible only',
+    )
 
-    expect(reloadedCheckboxes[0].checked).toBe(true)
-    expect(reloadedCheckboxes[1].checked).toBe(false)
-    expect(reloadedCheckboxes[5].checked).toBe(true)
+    expect(reloadedPlanesToggle?.checked).toBe(true)
+    expect(reloadedSatellitesToggle?.checked).toBe(false)
+    expect(reloadedLikelyVisibleToggle?.checked).toBe(true)
 
     const reloadedAlignmentButton = Array.from(container.querySelectorAll('button')).find(
       (button) => button.textContent?.includes('Alignment'),
@@ -411,6 +540,103 @@ describe('ViewerShell settings integration', () => {
     expect(
       (container.querySelector('input[aria-label="High"]') as HTMLInputElement | null)?.checked,
     ).toBe(true)
+  })
+
+  it('persists scope settings and marker scale through the real settings sheet', async () => {
+    await act(async () => {
+      root.render(
+        React.createElement(ViewerShell, {
+          initialState: {
+            entry: 'demo',
+            location: 'unavailable',
+            camera: 'unavailable',
+            orientation: 'unavailable',
+          },
+        }),
+      )
+    })
+
+    const settingsButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Settings'),
+    )
+
+    expect(settingsButton).toBeDefined()
+
+    await act(async () => {
+      settingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const scopeModeToggle = container.querySelector(
+      'input[aria-label="Scope mode"]',
+    ) as HTMLInputElement | null
+    const transparencySlider = container.querySelector(
+      'input[aria-label="Transparency"]',
+    ) as HTMLInputElement | null
+    const markerScaleSlider = container.querySelector(
+      'input[aria-label="Marker scale"]',
+    ) as HTMLInputElement | null
+
+    expect(scopeModeToggle?.checked).toBe(false)
+    expect(transparencySlider?.value).toBe('80')
+    expect(markerScaleSlider?.value).toBe('1')
+
+    await act(async () => {
+      scopeModeToggle?.click()
+      setInputValue(transparencySlider!, '91')
+      setInputValue(markerScaleSlider!, '3.2')
+    })
+
+    expect(readViewerSettings()).toMatchObject({
+      scopeModeEnabled: true,
+      scopeOptics: {
+        apertureMm: 100,
+        magnificationX: 40,
+        transparencyPct: 91,
+      },
+      markerScale: 3.2,
+    })
+
+    await act(async () => {
+      root.unmount()
+    })
+
+    root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        React.createElement(ViewerShell, {
+          initialState: {
+            entry: 'demo',
+            location: 'unavailable',
+            camera: 'unavailable',
+            orientation: 'unavailable',
+          },
+        }),
+      )
+    })
+
+    const reloadedSettingsButton = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.includes('Settings'),
+    )
+
+    expect(reloadedSettingsButton).toBeDefined()
+
+    await act(async () => {
+      reloadedSettingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(
+      (container.querySelector('input[aria-label="Scope mode"]') as HTMLInputElement | null)
+        ?.checked,
+    ).toBe(true)
+    expect(
+      (container.querySelector('input[aria-label="Transparency"]') as HTMLInputElement | null)
+        ?.value,
+    ).toBe('91')
+    expect(
+      (container.querySelector('input[aria-label="Marker scale"]') as HTMLInputElement | null)
+        ?.value,
+    ).toBe('3.2')
   })
 
   it.each([
@@ -472,6 +698,12 @@ function setInputValue(input: HTMLInputElement, value: string) {
   valueSetter?.call(input, value)
   input.dispatchEvent(new Event('input', { bubbles: true }))
   input.dispatchEvent(new Event('change', { bubbles: true }))
+}
+
+function findToggleByLabelText(root: ParentNode, labelText: string) {
+  return Array.from(root.querySelectorAll('label input[type="checkbox"]')).find(
+    (input) => input.parentElement?.textContent?.includes(labelText) === true,
+  ) as HTMLInputElement | undefined
 }
 
 function createHealthResponse(status: 'empty' | 'stale' | 'expired') {

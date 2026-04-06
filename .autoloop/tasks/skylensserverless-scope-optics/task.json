@@ -1,0 +1,51 @@
+{
+  "task_id": "skylensserverless-scope-optics",
+  "created_at": "2026-04-06T02:39:04.984100+00:00",
+  "request_text": "# SkyLens Scope Realism \u2014 Final Complete PRD + ARD\n\n## Locked Decisions\n1. Scope mode toggle is in quick controls with optional mirrored settings toggle.\n2. Aperture + magnification are in quick controls when scope mode is ON.\n3. Transparency and marker-scale are in Settings.\n4. Sky quality/Bortle is out of scope (assume best-sky baseline).\n5. Existing likely-visible logic is unchanged.\n6. Add separate scope-optics filtering and photometric rendering logic.\n\n## PRD\n### Goals\n- Add optics-driven limiting magnitude using aperture, magnification, transparency, and altitude.\n- Add photometric dimmer/brightness realism based on magnitude and conditions.\n- Keep stars compact; do not scale star diameter linearly with zoom/magnification.\n- Persist settings and remain backward compatible.\n\n### Functional Requirements\n- Canonical state: `scopeModeEnabled` in viewer settings.\n- Quick controls show aperture+magnification only when scope mode ON.\n- Settings show transparency + marker-scale; marker-scale removed from quick controls.\n- Scope optics filter is applied in addition to existing logic.\n- Likely-visible/daylight behavior remains unchanged.\n\n### Acceptance Criteria\n- Toggle sync between quick controls and settings.\n- Monotonic limiting magnitude behavior with A/M/T/altitude changes.\n- Photometric intensity varies realistically with magnitude/transparency/altitude.\n- 10x magnification does not produce 10x star diameter.\n- Legacy settings payloads load safely.\n\n## ARD\n### New module\nCreate `lib/viewer/scope-optics.ts` with pure deterministic functions:\n- `computeLimitingMagnitude(optics, altitudeDeg)`\n- `isStarVisibleWithScopeOptics(starMagnitude, optics, altitudeDeg)`\n- `computeStarPhotometry(starMagnitude, optics, altitudeDeg)`\n\n### Settings schema\nAdd to `ViewerSettings`:\n- `scopeModeEnabled: boolean`\n- `scopeOptics: { apertureMm, magnificationX, transparencyPct }`\n\nClamps:\n- aperture 50..400\n- magnification 10..400\n- transparency 40..100\n\nDefaults:\n- scopeModeEnabled false\n- aperture 100\n- magnification 40\n- transparency 80\n\n### Limiting magnitude formula\n- `base = 2.2 + 2.0*log10(A) + 0.30*log10(M)`\n- `transparencyAdj = 1.3*(T - 0.7)`\n- `z = clamp(90-h, 0, 80)`\n- `airmass = 1/cos(z)`\n- `altPenalty = 0.22*(airmass - 1)`\n- `effectiveLimit = clamp(base + transparencyAdj - altPenalty, 3.0, 15.5)`\n\n### Photometric model constants (locked)\n- `mRef=6.0`, `kExt=0.16`, `gamma=2.2`, `Imax=4.0`\n- `coreMin=1.0`, `coreMax=3.8`, `haloBase=1.25`, `haloGain=1.6`\n- `gAmax=1.35`, `gMmax=1.20`\n\n### Photometric equations\n- `relativeFlux = 10^(-0.4*(m-mRef))`\n- `transparencyFactor = clamp(T,0.4,1.0)`\n- `altitudeTransmission = exp(-kExt*(airmass-1))`\n- `gA = clamp(1 + 0.18*log10(A/100), 0.85, gAmax)`\n- `gM = clamp(1 + 0.10*log10(M/40), 0.90, gMmax)`\n- `rawI = relativeFlux * transparencyFactor * altitudeTransmission * gA * gM`\n- `displayIntensity = clamp(rawI,0,Imax)^(1/gamma)` then clamp 0..1\n- `corePx = clamp(coreMin + 1.2*log10(1 + 6*displayIntensity), coreMin, coreMax)`\n- `haloPx = corePx * (haloBase + haloGain*displayIntensity)`\n\n### Pipeline order\n1. Existing gates unchanged (enabled layer, likely-visible/daylight, horizon).\n2. If scope mode ON: limiting magnitude filter.\n3. If passes: compute `scopeRender {displayIntensity, corePx, haloPx}` metadata.\n4. Render consumes metadata directly.\n\n### Test plan\n- Add `tests/unit/scope-optics.test.ts` with deterministic and monotonic checks.\n- Update settings tests for defaults/clamps/legacy compatibility.\n- Update viewer integration tests for control placement and toggle sync.\n- Add non-regression tests proving likely-visible behavior is unchanged.\n\n## Definition of Done\n- All controls are in correct locations and synchronized.\n- Scope optics filtering + photometric rendering active in scope mode.\n- Marker-scale relocated to settings.\n- Likely-visible logic unchanged.\n- Tests pass and calibration envelopes are met.",
+  "request_updated_at": "2026-04-06T02:39:04.984158+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/skylensserverless-scope-optics/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260406T023904Z-ba39616f",
+    "mode": "single",
+    "phase_ids": [
+      "scope-optics-foundation",
+      "scope-optics-ui-rendering"
+    ],
+    "explicit": true,
+    "current_phase_index": 2,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "scope-optics-foundation": "completed",
+    "scope-optics-ui-rendering": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "scope-optics-foundation",
+      "run_id": "run-20260406T023904Z-ba39616f",
+      "status": "in_progress",
+      "ts": "2026-04-06T02:42:25.051658+00:00"
+    },
+    {
+      "phase_id": "scope-optics-foundation",
+      "run_id": "run-20260406T023904Z-ba39616f",
+      "status": "completed",
+      "ts": "2026-04-06T02:57:19.576963+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "scope-optics-ui-rendering",
+      "run_id": "run-20260406T023904Z-ba39616f",
+      "status": "in_progress",
+      "ts": "2026-04-06T02:57:19.578248+00:00"
+    },
+    {
+      "phase_id": "scope-optics-ui-rendering",
+      "run_id": "run-20260406T023904Z-ba39616f",
+      "status": "completed",
+      "ts": "2026-04-06T03:09:57.625070+00:00",
+      "pair": "test"
+    }
+  ]
+}
