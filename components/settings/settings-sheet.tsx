@@ -10,7 +10,11 @@ import {
 
 import type { EnabledLayer } from '../../lib/config'
 import type { DemoScenarioId } from '../../lib/demo/scenarios'
-import type { LabelDisplayMode, MotionQuality } from '../../lib/viewer/settings'
+import {
+  SCOPE_OPTICS_RANGES,
+  type LabelDisplayMode,
+  type MotionQuality,
+} from '../../lib/viewer/settings'
 import type { AlignmentTargetPreference } from '../../lib/viewer/alignment-tutorial'
 import { CompactMobilePanelShell } from '../ui/compact-mobile-panel-shell'
 
@@ -337,9 +341,9 @@ export function SettingsSheet({
                       </label>
                       <RangeControl
                         label="Transparency"
-                        min={40}
-                        max={100}
-                        step={1}
+                        min={SCOPE_OPTICS_RANGES.transparencyPct.min}
+                        max={SCOPE_OPTICS_RANGES.transparencyPct.max}
+                        step={SCOPE_OPTICS_RANGES.transparencyPct.step}
                         value={transparencyPct}
                         suffix="%"
                         onChange={onTransparencyPctChange}

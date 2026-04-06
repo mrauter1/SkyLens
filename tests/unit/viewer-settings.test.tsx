@@ -55,6 +55,8 @@ vi.mock('../../lib/satellites/client', () => ({
 
 import { ViewerShell } from '../../components/viewer/viewer-shell'
 import {
+  normalizeScopeOpticsSettings,
+  SCOPE_OPTICS_RANGES,
   VIEWER_SETTINGS_STORAGE_KEY,
   readViewerSettings,
   writeViewerSettings,
@@ -262,10 +264,24 @@ describe('ViewerShell settings integration', () => {
     expect(readViewerSettings()).toMatchObject({
       scopeModeEnabled: true,
       scopeOptics: {
-        apertureMm: 400,
-        magnificationX: 10,
-        transparencyPct: 40,
+        apertureMm: SCOPE_OPTICS_RANGES.apertureMm.max,
+        magnificationX: SCOPE_OPTICS_RANGES.magnificationX.min,
+        transparencyPct: SCOPE_OPTICS_RANGES.transparencyPct.min,
       },
+    })
+  })
+
+  it('reuses the shared scope optics ranges for direct normalization', () => {
+    expect(
+      normalizeScopeOpticsSettings({
+        apertureMm: Number.NEGATIVE_INFINITY,
+        magnificationX: 999,
+        transparencyPct: 5,
+      }),
+    ).toEqual({
+      apertureMm: 100,
+      magnificationX: SCOPE_OPTICS_RANGES.magnificationX.max,
+      transparencyPct: SCOPE_OPTICS_RANGES.transparencyPct.min,
     })
   })
 

@@ -25,6 +25,31 @@ export interface ScopeOpticsSettings {
   transparencyPct: number
 }
 
+export const SCOPE_OPTICS_RANGES = {
+  apertureMm: {
+    min: 50,
+    max: 400,
+    step: 1,
+  },
+  magnificationX: {
+    min: 10,
+    max: 400,
+    step: 1,
+  },
+  transparencyPct: {
+    min: 40,
+    max: 100,
+    step: 1,
+  },
+} as const satisfies Record<
+  keyof ScopeOpticsSettings,
+  {
+    min: number
+    max: number
+    step: number
+  }
+>
+
 export const DEFAULT_SCOPE_OPTICS_SETTINGS: ScopeOpticsSettings = {
   apertureMm: 100,
   magnificationX: 40,
@@ -256,20 +281,20 @@ export function normalizeScopeOpticsSettings(
     apertureMm: normalizeFiniteNumber(
       scopeOptics?.apertureMm,
       DEFAULT_SCOPE_OPTICS_SETTINGS.apertureMm,
-      50,
-      400,
+      SCOPE_OPTICS_RANGES.apertureMm.min,
+      SCOPE_OPTICS_RANGES.apertureMm.max,
     ),
     magnificationX: normalizeFiniteNumber(
       scopeOptics?.magnificationX,
       DEFAULT_SCOPE_OPTICS_SETTINGS.magnificationX,
-      10,
-      400,
+      SCOPE_OPTICS_RANGES.magnificationX.min,
+      SCOPE_OPTICS_RANGES.magnificationX.max,
     ),
     transparencyPct: normalizeFiniteNumber(
       scopeOptics?.transparencyPct,
       DEFAULT_SCOPE_OPTICS_SETTINGS.transparencyPct,
-      40,
-      100,
+      SCOPE_OPTICS_RANGES.transparencyPct.min,
+      SCOPE_OPTICS_RANGES.transparencyPct.max,
     ),
   }
 }

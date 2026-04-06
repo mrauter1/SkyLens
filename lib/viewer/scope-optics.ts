@@ -1,4 +1,7 @@
-import type { ScopeOpticsSettings } from './settings'
+import {
+  normalizeScopeOpticsSettings,
+  type ScopeOpticsSettings,
+} from './settings'
 
 export interface ScopeRenderMetadata {
   displayIntensity: number
@@ -26,11 +29,12 @@ export function computeLimitingMagnitude(
   optics: ScopeOpticsSettings,
   altitudeDeg: number,
 ) {
-  const transparencyFactor = normalizeTransparencyFactor(optics.transparencyPct)
+  const normalizedOptics = normalizeScopeOpticsSettings(optics)
+  const transparencyFactor = normalizeTransparencyFactor(normalizedOptics.transparencyPct)
   const base =
     2.2 +
-    2.0 * Math.log10(optics.apertureMm) +
-    0.3 * Math.log10(optics.magnificationX)
+    2.0 * Math.log10(normalizedOptics.apertureMm) +
+    0.3 * Math.log10(normalizedOptics.magnificationX)
   const transparencyAdj = 1.3 * (transparencyFactor - 0.7)
   const altPenalty = 0.22 * (computeAirmass(altitudeDeg) - 1)
 
@@ -54,17 +58,18 @@ export function computeStarPhotometry(
   optics: ScopeOpticsSettings,
   altitudeDeg: number,
 ): ScopeRenderMetadata {
-  const transparencyFactor = normalizeTransparencyFactor(optics.transparencyPct)
+  const normalizedOptics = normalizeScopeOpticsSettings(optics)
+  const transparencyFactor = normalizeTransparencyFactor(normalizedOptics.transparencyPct)
   const airmass = computeAirmass(altitudeDeg)
   const relativeFlux = 10 ** (-0.4 * (starMagnitude - M_REF))
   const altitudeTransmission = Math.exp(-K_EXT * (airmass - 1))
   const gA = clamp(
-    1 + 0.18 * Math.log10(optics.apertureMm / 100),
+    1 + 0.18 * Math.log10(normalizedOptics.apertureMm / 100),
     0.85,
     G_A_MAX,
   )
   const gM = clamp(
-    1 + 0.1 * Math.log10(optics.magnificationX / 40),
+    1 + 0.1 * Math.log10(normalizedOptics.magnificationX / 40),
     0.9,
     G_M_MAX,
   )

@@ -1,0 +1,51 @@
+{
+  "task_id": "skylensserverless-scope-optics-review-fixes",
+  "created_at": "2026-04-06T03:29:10.595569+00:00",
+  "request_text": "# Autoloop Task: Scope optics review fixes (SkyLensServerless)\n\n## Objective\nAnalyze the provided PR review comments for correctness and applicability, then apply all applicable suggestions to the codebase while preserving agreed product behavior.\n\n## Required process\n- Use plan, implement, and test pairs.\n- Use full auto answers.\n- Do NOT set max_iterations.\n- Apply only applicable suggestions; explicitly reject non-applicable ones with rationale in task artifacts.\n\n## Review items to analyze and apply when applicable\n1. **Robustness in `lib/viewer/scope-optics.ts`**\n   - Normalize scope optics inputs inside exported functions (`computeLimitingMagnitude`, `computeStarPhotometry`, and any public helper that depends on optics values) so invalid values cannot produce NaN via `Math.log10`.\n   - Reuse normalization from settings domain (`normalizeScopeOpticsSettings`) or equivalent safe boundary normalization.\n\n2. **Extract large inline JSX scope star marker rendering in `components/viewer/viewer-shell.tsx`**\n   - Refactor the large conditional JSX block into a dedicated component (e.g. `ScopeStarMarker`) or clear helper render function(s) to improve readability and maintainability.\n\n3. **Metadata validation for scope render data in `viewer-shell.tsx`**\n   - Evaluate using Zod schema for `scopeRender` extraction/parsing.\n   - Apply if it improves robustness and consistency with existing project patterns.\n\n4. **Remove type duplication**\n   - Replace inline scope optics shape types with shared `ScopeOpticsSettings` type where applicable.\n\n5. **Centralize scope optics range constants**\n   - Define and export shared constants (e.g., `SCOPE_OPTICS_RANGES`) in `lib/viewer/settings.ts` near defaults.\n   - Reuse these constants in normalization, settings UI sliders, and viewer quick-control sliders to avoid drift.\n\n6. **Address functional gap from review bot**\n   - Ensure aperture/magnification controls are available in non-mobile/desktop path as well, not only mobile quick actions.\n   - Keep agreed placement semantics: quick controls context should allow tuning in both mobile and desktop experiences when scope mode is on.\n\n## Constraints to preserve\n- Keep existing likely-visible logic unchanged.\n- Scope optics remains a separate additional stage.\n- Marker-scale remains in Settings (not mobile quick controls).\n- Transparency remains in Settings.\n- Backward compatibility for persisted settings.\n\n## Testing requirements\n- Add or update unit/integration tests covering:\n  - optics normalization robustness against invalid inputs,\n  - centralized range reuse,\n  - desktop and mobile availability of aperture/magnification controls when scope mode is enabled,\n  - refactor parity for scope star rendering,\n  - any schema validation behavior changes.\n- Run targeted tests and then full relevant suite for touched areas.\n\n## Deliverables\n- Code changes implementing applicable suggestions.\n- Updated tests.\n- Autoloop artifacts documenting applicability decisions.",
+  "request_updated_at": "2026-04-06T03:29:10.595627+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/skylensserverless-scope-optics-review-fixes/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260406T033255Z-38f3ee02",
+    "mode": "single",
+    "phase_ids": [
+      "apply-scope-optics-review-fixes",
+      "verify-scope-optics-review-fixes"
+    ],
+    "explicit": true,
+    "current_phase_index": 2,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "apply-scope-optics-review-fixes": "completed",
+    "verify-scope-optics-review-fixes": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "apply-scope-optics-review-fixes",
+      "run_id": "run-20260406T033255Z-38f3ee02",
+      "status": "in_progress",
+      "ts": "2026-04-06T03:35:27.623127+00:00"
+    },
+    {
+      "phase_id": "apply-scope-optics-review-fixes",
+      "run_id": "run-20260406T033255Z-38f3ee02",
+      "status": "completed",
+      "ts": "2026-04-06T03:51:35.520414+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "verify-scope-optics-review-fixes",
+      "run_id": "run-20260406T033255Z-38f3ee02",
+      "status": "in_progress",
+      "ts": "2026-04-06T03:51:35.521625+00:00"
+    },
+    {
+      "phase_id": "verify-scope-optics-review-fixes",
+      "run_id": "run-20260406T033255Z-38f3ee02",
+      "status": "completed",
+      "ts": "2026-04-06T03:58:09.387379+00:00",
+      "pair": "test"
+    }
+  ]
+}

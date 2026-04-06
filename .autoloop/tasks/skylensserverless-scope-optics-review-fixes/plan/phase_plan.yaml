@@ -1,0 +1,102 @@
+version: 1
+task_id: skylensserverless-scope-optics-review-fixes
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/skylensserverless-scope-optics-review-fixes/runs/run-20260406T033255Z-38f3ee02/request.md
+phases:
+- phase_id: apply-scope-optics-review-fixes
+  title: Apply scope optics hardening and viewer-shell parity fixes
+  objective: Implement the applicable review items in settings, optics math, and viewer-shell
+    UI without changing agreed product behavior.
+  status: planned
+  in_scope:
+  - Normalize optics inside exported scope optics helpers using the settings-domain
+    bounds.
+  - Export and reuse shared scope optics range constants across normalization and
+    UI sliders.
+  - Extract scope star marker rendering into a focused local component/helper with
+    parity-preserving output.
+  - Replace inline scope optics object shapes with ScopeOpticsSettings where viewer-shell
+    helpers accept optics.
+  - Add desktop quick-controls access to aperture and magnification in the existing
+    desktop primary action row when scope mode is enabled.
+  - Evaluate the scopeRender Zod suggestion and retain the current lightweight render-boundary
+    guard unless a schema adds clear net robustness.
+  - Update unit tests for optics normalization, shared ranges, quick-controls parity,
+    and scope marker fallback/parity.
+  out_of_scope:
+  - Moving marker scale into quick controls.
+  - Moving transparency out of Settings.
+  - Changing scope optics formulas for already-valid inputs.
+  - Broad viewer redesign unrelated to scope controls.
+  dependencies: []
+  acceptance_criteria:
+  - id: AC-1
+    text: Exported scope optics helpers cannot produce NaN from invalid aperture,
+      magnification, or transparency inputs and valid-input behavior remains unchanged.
+  - id: AC-2
+    text: Scope optics range literals are centralized in settings and reused by normalization
+      plus the relevant settings/viewer controls.
+  - id: AC-3
+    text: Viewer shell exposes aperture and magnification quick controls on mobile
+      and in the desktop primary action row when scope mode is enabled, while transparency
+      and marker scale remain in Settings.
+  - id: AC-4
+    text: Scope star marker rendering is extracted without changing focus semantics,
+      fallback behavior, or rendered sizing math.
+  - id: AC-5
+    text: The Zod suggestion is either adopted with a clear robustness benefit or
+      explicitly rejected in implementation artifacts with rationale.
+  deliverables:
+  - Updated settings, optics, and viewer-shell code implementing the applicable review
+    comments.
+  - Updated unit tests covering the touched scope optics and viewer-shell behavior.
+  - Implementation-phase artifact notes documenting the applicability outcome for
+    each review item.
+  risks:
+  - Desktop parity work could accidentally duplicate or diverge from the existing
+    mobile quick-control behavior or crowd the desktop primary action row.
+  - JSX extraction could change DOM hooks or marker styling relied on by tests.
+  - A partial range-constant rollout could leave one slider path out of sync with
+    normalization.
+  rollback:
+  - Revert the extracted quick-controls/helper components back to inline rendering
+    if parity cannot be maintained across the mobile strip and desktop primary action
+    row.
+  - Fall back to the existing manual scopeRender guard if a schema-based approach
+    adds churn without measurable robustness.
+  - Revert to pre-change slider bounds only as a single coherent change if shared
+    constants introduce unexpected UI regressions.
+- phase_id: verify-scope-optics-review-fixes
+  title: Verify touched scope optics and viewer behavior
+  objective: Run targeted and broader tests for the touched viewer/settings surfaces
+    and confirm no regressions before handoff.
+  status: planned
+  in_scope:
+  - Run targeted Vitest coverage for scope optics, viewer settings, and viewer shell
+    behavior.
+  - Run the broader repository test suite after targeted tests pass or after documenting
+    any pre-existing failures.
+  - Capture test outcomes, residual risks, and any rejected review suggestions in
+    task artifacts.
+  out_of_scope:
+  - New feature work beyond the agreed review fixes.
+  - Changing the plan scope in response to unrelated failing tests.
+  dependencies:
+  - apply-scope-optics-review-fixes
+  acceptance_criteria:
+  - id: AC-1
+    text: Targeted tests cover invalid optics normalization, shared range reuse, desktop/mobile
+      quick-controls parity, and scope marker fallback/parity.
+  - id: AC-2
+    text: '''pnpm test'' is executed and any failures are classified as new regressions
+      or pre-existing issues.'
+  deliverables:
+  - Targeted test run results for the touched files.
+  - Broader suite results from 'pnpm test'.
+  - Final verification notes suitable for the later test-phase artifacts.
+  risks:
+  - Full-suite failures may be unrelated and slow down classification.
+  - Render-path refactors may require test fixture updates in multiple viewer-shell
+    cases.
+  rollback:
+  - If verification exposes a regression, revert the smallest offending implementation
+    slice and re-run the targeted suite before proceeding.

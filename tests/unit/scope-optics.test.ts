@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-import { DEFAULT_SCOPE_OPTICS_SETTINGS } from '../../lib/viewer/settings'
+import {
+  DEFAULT_SCOPE_OPTICS_SETTINGS,
+  normalizeScopeOpticsSettings,
+} from '../../lib/viewer/settings'
 import {
   computeLimitingMagnitude,
   computeStarPhotometry,
@@ -67,5 +70,24 @@ describe('scope optics helpers', () => {
     expect(murky.haloPx).toBeLessThan(clear.haloPx)
     expect(highMag.corePx).toBeGreaterThan(lowMag.corePx)
     expect(highMag.corePx).toBeLessThan(lowMag.corePx * 1.1)
+  })
+
+  it('normalizes invalid optics inside exported helpers so direct callers stay finite', () => {
+    const malformedOptics = {
+      apertureMm: 0,
+      magnificationX: Number.NaN,
+      transparencyPct: Number.POSITIVE_INFINITY,
+    } as typeof DEFAULT_SCOPE_OPTICS_SETTINGS
+    const normalizedOptics = normalizeScopeOpticsSettings(malformedOptics)
+
+    const limitingMagnitude = computeLimitingMagnitude(malformedOptics, 45)
+    const photometry = computeStarPhotometry(6, malformedOptics, 45)
+
+    expect(limitingMagnitude).toBe(computeLimitingMagnitude(normalizedOptics, 45))
+    expect(Number.isFinite(limitingMagnitude)).toBe(true)
+    expect(photometry).toEqual(computeStarPhotometry(6, normalizedOptics, 45))
+    expect(Number.isFinite(photometry.displayIntensity)).toBe(true)
+    expect(Number.isFinite(photometry.corePx)).toBe(true)
+    expect(Number.isFinite(photometry.haloPx)).toBe(true)
   })
 })

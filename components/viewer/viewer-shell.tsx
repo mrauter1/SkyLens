@@ -117,9 +117,11 @@ import {
 import {
   markViewerOnboardingCompleted,
   readViewerSettings,
+  SCOPE_OPTICS_RANGES,
   writeViewerSettings,
   type ManualObserverSettings,
   type MotionQuality,
+  type ScopeOpticsSettings,
 } from '../../lib/viewer/settings'
 import type { ScopeRenderMetadata } from '../../lib/viewer/scope-optics'
 import { SettingsSheet } from '../settings/settings-sheet'
@@ -225,6 +227,156 @@ const MOTION_AFFORDANCE_SAMPLE_LIMITS: Record<MotionQuality, number> = {
   balanced: 8,
   high: 16,
 }
+
+type ScopeQuickControlsProps = {
+  layout: 'mobile' | 'desktop'
+  scopeModeEnabled: boolean
+  scopeOptics: ScopeOpticsSettings
+  onScopeModeEnabledChange?: (enabled: boolean) => void
+  onApertureChange: (value: number) => void
+  onMagnificationChange: (value: number) => void
+}
+
+function ScopeQuickControls({
+  layout,
+  scopeModeEnabled,
+  scopeOptics,
+  onScopeModeEnabledChange,
+  onApertureChange,
+  onMagnificationChange,
+}: ScopeQuickControlsProps) {
+  const testIdPrefix = layout === 'mobile' ? 'mobile' : 'desktop'
+  const containerClassName =
+    layout === 'mobile'
+      ? 'grid gap-3'
+      : 'flex min-w-[16rem] flex-[1.2] flex-col gap-3 rounded-[1.25rem] border border-sky-100/15 bg-white/5 px-4 py-3'
+  const labelClassName =
+    layout === 'mobile'
+      ? 'pointer-events-auto grid gap-2 rounded-[1.25rem] border border-sky-100/15 bg-slate-950/70 px-4 py-3 text-sm text-sky-50 shadow-[0_12px_30px_rgba(3,7,13,0.32)]'
+      : 'grid gap-2 rounded-2xl border border-sky-100/10 bg-slate-950/35 px-4 py-3 text-sm text-sky-50'
+
+  if (!scopeModeEnabled && !onScopeModeEnabledChange) {
+    return null
+  }
+
+  return (
+    <div
+      className={containerClassName}
+      data-testid={layout === 'desktop' ? 'desktop-scope-quick-controls' : undefined}
+    >
+      {onScopeModeEnabledChange ? (
+        <label className="pointer-events-auto flex items-center justify-between gap-3 rounded-[1.25rem] border border-sky-100/15 bg-slate-950/70 px-4 py-3 text-sm text-sky-50 shadow-[0_12px_30px_rgba(3,7,13,0.32)]">
+          <span>Scope mode</span>
+          <input
+            aria-label="Quick scope mode"
+            data-testid={`${testIdPrefix}-scope-mode-toggle`}
+            type="checkbox"
+            checked={scopeModeEnabled}
+            onChange={(event) => onScopeModeEnabledChange(event.target.checked)}
+          />
+        </label>
+      ) : null}
+      {scopeModeEnabled ? (
+        <>
+          <label className={labelClassName}>
+            <span className="flex items-center justify-between gap-3">
+              <span>Aperture</span>
+              <span
+                className="text-xs uppercase tracking-[0.16em] text-sky-200/65"
+                data-testid={`${testIdPrefix}-scope-aperture-value`}
+              >
+                {formatScopeApertureValue(scopeOptics.apertureMm)}
+              </span>
+            </span>
+            <input
+              aria-label="Quick scope aperture"
+              data-testid={`${testIdPrefix}-scope-aperture-slider`}
+              type="range"
+              min={SCOPE_OPTICS_RANGES.apertureMm.min}
+              max={SCOPE_OPTICS_RANGES.apertureMm.max}
+              step={SCOPE_OPTICS_RANGES.apertureMm.step}
+              value={scopeOptics.apertureMm}
+              onChange={(event) => onApertureChange(Number(event.target.value))}
+            />
+          </label>
+          <label className={labelClassName}>
+            <span className="flex items-center justify-between gap-3">
+              <span>Magnification</span>
+              <span
+                className="text-xs uppercase tracking-[0.16em] text-sky-200/65"
+                data-testid={`${testIdPrefix}-scope-magnification-value`}
+              >
+                {formatScopeMagnificationValue(scopeOptics.magnificationX)}
+              </span>
+            </span>
+            <input
+              aria-label="Quick scope magnification"
+              data-testid={`${testIdPrefix}-scope-magnification-slider`}
+              type="range"
+              min={SCOPE_OPTICS_RANGES.magnificationX.min}
+              max={SCOPE_OPTICS_RANGES.magnificationX.max}
+              step={SCOPE_OPTICS_RANGES.magnificationX.step}
+              value={scopeOptics.magnificationX}
+              onChange={(event) => onMagnificationChange(Number(event.target.value))}
+            />
+          </label>
+        </>
+      ) : null}
+    </div>
+  )
+}
+
+type ScopeStarMarkerProps = {
+  scopeRender: ScopeRenderMetadata
+  markerScale: number
+  isFocused: boolean
+}
+
+export function ScopeStarMarker({
+  scopeRender,
+  markerScale,
+  isFocused,
+}: ScopeStarMarkerProps) {
+  const haloSizePx = scopeRender.haloPx * markerScale
+  const coreSizePx = scopeRender.corePx * markerScale
+
+  return (
+    <span
+      className={`relative block rounded-full ${isFocused ? 'ring-2 ring-amber-200/55' : ''}`}
+      style={{
+        width: `${haloSizePx}px`,
+        height: `${haloSizePx}px`,
+      }}
+    >
+      <span
+        className="absolute left-1/2 top-1/2 rounded-full"
+        style={{
+          width: `${haloSizePx}px`,
+          height: `${haloSizePx}px`,
+          transform: 'translate(-50%, -50%)',
+          backgroundColor: isFocused ? 'rgba(251, 191, 36, 0.22)' : 'rgba(186, 230, 253, 0.14)',
+          boxShadow: isFocused
+            ? `0 0 ${Math.max(8, haloSizePx * 1.45)}px rgba(251, 191, 36, 0.36)`
+            : `0 0 ${Math.max(6, haloSizePx * 1.3)}px rgba(186, 230, 253, ${0.16 + scopeRender.displayIntensity * 0.24})`,
+          opacity: 0.55 + scopeRender.displayIntensity * 0.35,
+        }}
+      />
+      <span
+        className="absolute left-1/2 top-1/2 rounded-full"
+        style={{
+          width: `${coreSizePx}px`,
+          height: `${coreSizePx}px`,
+          transform: 'translate(-50%, -50%)',
+          backgroundColor: isFocused ? 'rgba(254, 243, 199, 0.98)' : 'rgba(240, 249, 255, 0.92)',
+          boxShadow: isFocused
+            ? '0 0 10px rgba(251, 191, 36, 0.42)'
+            : `0 0 ${Math.max(4, coreSizePx)}px rgba(240, 249, 255, ${0.18 + scopeRender.displayIntensity * 0.22})`,
+        }}
+      />
+    </span>
+  )
+}
+
 export function ViewerShell({ initialState }: ViewerShellProps) {
   const router = useRouter()
   const initialDemoScenario = getDemoScenario(initialState.demoScenarioId)
@@ -2204,6 +2356,28 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     showStartAlignmentAction: usesCameraStageAlignmentFocus,
   }
 
+  const setScopeModeEnabled = (enabled: boolean) => {
+    setViewerSettings((current) => ({
+      ...current,
+      scopeModeEnabled: enabled,
+    }))
+  }
+
+  const updateScopeOpticsValue = <Key extends keyof ScopeOpticsSettings>(
+    key: Key,
+    value: ScopeOpticsSettings[Key],
+  ) => {
+    const range = SCOPE_OPTICS_RANGES[key]
+
+    setViewerSettings((current) => ({
+      ...current,
+      scopeOptics: {
+        ...current.scopeOptics,
+        [key]: clampNumber(value, range.min, range.max),
+      },
+    }))
+  }
+
   const settingsSheetProps = {
     onEnterDemoMode: handleEnterDemoMode,
     onDemoScenarioSelect: handleSelectDemoScenario,
@@ -2268,20 +2442,9 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         verticalFovAdjustmentDeg: value,
       }))
     },
-    onScopeModeEnabledChange: (enabled: boolean) => {
-      setViewerSettings((current) => ({
-        ...current,
-        scopeModeEnabled: enabled,
-      }))
-    },
+    onScopeModeEnabledChange: setScopeModeEnabled,
     onTransparencyPctChange: (value: number) => {
-      setViewerSettings((current) => ({
-        ...current,
-        scopeOptics: {
-          ...current.scopeOptics,
-          transparencyPct: clampNumber(value, 40, 100),
-        },
-      }))
+      updateScopeOpticsValue('transparencyPct', value)
     },
     onMarkerScaleChange: (value: number) => {
       setViewerSettings((current) => ({
@@ -2984,54 +3147,11 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                 {object.label} {formatSkyObjectSublabel(object)}
               </span>
               {scopeRender ? (
-                <span
-                  className={`relative block rounded-full ${
-                    isFocusedMarker ? 'ring-2 ring-amber-200/55' : ''
-                  }`}
-                  style={{
-                    width: `${scopeRender.haloPx * viewerSettings.markerScale}px`,
-                    height: `${scopeRender.haloPx * viewerSettings.markerScale}px`,
-                  }}
-                >
-                  <span
-                    className="absolute left-1/2 top-1/2 rounded-full"
-                    style={{
-                      width: `${scopeRender.haloPx * viewerSettings.markerScale}px`,
-                      height: `${scopeRender.haloPx * viewerSettings.markerScale}px`,
-                      transform: 'translate(-50%, -50%)',
-                      backgroundColor: isFocusedMarker
-                        ? 'rgba(251, 191, 36, 0.22)'
-                        : 'rgba(186, 230, 253, 0.14)',
-                      boxShadow: isFocusedMarker
-                        ? `0 0 ${Math.max(
-                            8,
-                            scopeRender.haloPx * viewerSettings.markerScale * 1.45,
-                          )}px rgba(251, 191, 36, 0.36)`
-                        : `0 0 ${Math.max(
-                            6,
-                            scopeRender.haloPx * viewerSettings.markerScale * 1.3,
-                          )}px rgba(186, 230, 253, ${0.16 + scopeRender.displayIntensity * 0.24})`,
-                      opacity: 0.55 + scopeRender.displayIntensity * 0.35,
-                    }}
-                  />
-                  <span
-                    className="absolute left-1/2 top-1/2 rounded-full"
-                    style={{
-                      width: `${scopeRender.corePx * viewerSettings.markerScale}px`,
-                      height: `${scopeRender.corePx * viewerSettings.markerScale}px`,
-                      transform: 'translate(-50%, -50%)',
-                      backgroundColor: isFocusedMarker
-                        ? 'rgba(254, 243, 199, 0.98)'
-                        : 'rgba(240, 249, 255, 0.92)',
-                      boxShadow: isFocusedMarker
-                        ? '0 0 10px rgba(251, 191, 36, 0.42)'
-                        : `0 0 ${Math.max(
-                            4,
-                            scopeRender.corePx * viewerSettings.markerScale,
-                          )}px rgba(240, 249, 255, ${0.18 + scopeRender.displayIntensity * 0.22})`,
-                    }}
-                  />
-                </span>
+                <ScopeStarMarker
+                  scopeRender={scopeRender}
+                  markerScale={viewerSettings.markerScale}
+                  isFocused={isFocusedMarker}
+                />
               ) : (
                 <span
                   className={`block ${getMarkerVisualClassName(object, {
@@ -3225,6 +3345,17 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                 {canUseAlignmentAction ? `Target ${calibrationTarget.label}` : 'Live only'}
               </span>
             </button>
+            {viewerSettings.scopeModeEnabled ? (
+              <ScopeQuickControls
+                layout="desktop"
+                scopeModeEnabled={viewerSettings.scopeModeEnabled}
+                scopeOptics={viewerSettings.scopeOptics}
+                onApertureChange={(value) => updateScopeOpticsValue('apertureMm', value)}
+                onMagnificationChange={(value) =>
+                  updateScopeOpticsValue('magnificationX', value)
+                }
+              />
+            ) : null}
             <div className="flex items-center justify-center rounded-[1.25rem] border border-sky-100/15 bg-white/5 px-4 py-3">
               <SettingsSheet {...desktopSettingsSheetProps} />
             </div>
@@ -3421,99 +3552,16 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
           <>
             <div className="grid justify-center gap-3" data-testid="mobile-viewer-quick-actions">
               {!isMobileAlignmentFocusActive ? (
-                <>
-                  <label className="pointer-events-auto flex items-center justify-between gap-3 rounded-[1.25rem] border border-sky-100/15 bg-slate-950/70 px-4 py-3 text-sm text-sky-50 shadow-[0_12px_30px_rgba(3,7,13,0.32)]">
-                    <span>Scope mode</span>
-                    <input
-                      aria-label="Quick scope mode"
-                      data-testid="mobile-scope-mode-toggle"
-                      type="checkbox"
-                      checked={viewerSettings.scopeModeEnabled}
-                      onChange={(event) => {
-                        setViewerSettings((current) => ({
-                          ...current,
-                          scopeModeEnabled: event.target.checked,
-                        }))
-                      }}
-                    />
-                  </label>
-                  {viewerSettings.scopeModeEnabled ? (
-                    <>
-                      <label className="pointer-events-auto grid gap-2 rounded-[1.25rem] border border-sky-100/15 bg-slate-950/70 px-4 py-3 text-sm text-sky-50 shadow-[0_12px_30px_rgba(3,7,13,0.32)]">
-                        <span className="flex items-center justify-between gap-3">
-                          <span>Aperture</span>
-                          <span
-                            className="text-xs uppercase tracking-[0.16em] text-sky-200/65"
-                            data-testid="mobile-scope-aperture-value"
-                          >
-                            {formatScopeApertureValue(viewerSettings.scopeOptics.apertureMm)}
-                          </span>
-                        </span>
-                        <input
-                          aria-label="Quick scope aperture"
-                          data-testid="mobile-scope-aperture-slider"
-                          type="range"
-                          min={50}
-                          max={400}
-                          step={1}
-                          value={viewerSettings.scopeOptics.apertureMm}
-                          onChange={(event) => {
-                            const nextApertureMm = clampNumber(
-                              Number(event.target.value),
-                              50,
-                              400,
-                            )
-
-                            setViewerSettings((current) => ({
-                              ...current,
-                              scopeOptics: {
-                                ...current.scopeOptics,
-                                apertureMm: nextApertureMm,
-                              },
-                            }))
-                          }}
-                        />
-                      </label>
-                      <label className="pointer-events-auto grid gap-2 rounded-[1.25rem] border border-sky-100/15 bg-slate-950/70 px-4 py-3 text-sm text-sky-50 shadow-[0_12px_30px_rgba(3,7,13,0.32)]">
-                        <span className="flex items-center justify-between gap-3">
-                          <span>Magnification</span>
-                          <span
-                            className="text-xs uppercase tracking-[0.16em] text-sky-200/65"
-                            data-testid="mobile-scope-magnification-value"
-                          >
-                            {formatScopeMagnificationValue(
-                              viewerSettings.scopeOptics.magnificationX,
-                            )}
-                          </span>
-                        </span>
-                        <input
-                          aria-label="Quick scope magnification"
-                          data-testid="mobile-scope-magnification-slider"
-                          type="range"
-                          min={10}
-                          max={400}
-                          step={1}
-                          value={viewerSettings.scopeOptics.magnificationX}
-                          onChange={(event) => {
-                            const nextMagnificationX = clampNumber(
-                              Number(event.target.value),
-                              10,
-                              400,
-                            )
-
-                            setViewerSettings((current) => ({
-                              ...current,
-                              scopeOptics: {
-                                ...current.scopeOptics,
-                                magnificationX: nextMagnificationX,
-                              },
-                            }))
-                          }}
-                        />
-                      </label>
-                    </>
-                  ) : null}
-                </>
+                <ScopeQuickControls
+                  layout="mobile"
+                  scopeModeEnabled={viewerSettings.scopeModeEnabled}
+                  scopeOptics={viewerSettings.scopeOptics}
+                  onScopeModeEnabledChange={setScopeModeEnabled}
+                  onApertureChange={(value) => updateScopeOpticsValue('apertureMm', value)}
+                  onMagnificationChange={(value) =>
+                    updateScopeOpticsValue('magnificationX', value)
+                  }
+                />
               ) : null}
               <div className="pointer-events-auto flex flex-wrap justify-center gap-2">
                 {!isMobileAlignmentFocusActive ? (
@@ -3796,7 +3844,7 @@ function formatScopeMagnificationValue(value: number) {
   return `${Math.round(value)}x`
 }
 
-function getScopeRenderMetadata(object: SkyObject): ScopeRenderMetadata | null {
+export function getScopeRenderMetadata(object: SkyObject): ScopeRenderMetadata | null {
   if (object.type !== 'star') {
     return null
   }
@@ -4366,11 +4414,7 @@ function buildSceneSnapshot({
   enabledLayers: Record<EnabledLayer, boolean>
   likelyVisibleOnly: boolean
   scopeModeEnabled: boolean
-  scopeOptics: {
-    apertureMm: number
-    magnificationX: number
-    transparencyPct: number
-  }
+  scopeOptics: ScopeOpticsSettings
   focusedObjectId: string | null
   aircraftTracker: AircraftTracker | null
   aircraftRevision: number

@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { SettingsSheet } from '../../components/settings/settings-sheet'
+import { SCOPE_OPTICS_RANGES } from '../../lib/viewer/settings'
 
 describe('SettingsSheet', () => {
   let container: HTMLDivElement
@@ -255,6 +256,9 @@ describe('SettingsSheet', () => {
 
     expect(scopeToggle?.checked).toBe(true)
     expect(transparencySlider?.value).toBe('72')
+    expect(transparencySlider?.min).toBe(String(SCOPE_OPTICS_RANGES.transparencyPct.min))
+    expect(transparencySlider?.max).toBe(String(SCOPE_OPTICS_RANGES.transparencyPct.max))
+    expect(transparencySlider?.step).toBe(String(SCOPE_OPTICS_RANGES.transparencyPct.step))
     expect(markerScaleSlider?.value).toBe('2.5')
     expect(container.textContent).not.toContain('Aperture')
     expect(container.textContent).not.toContain('Magnification')

@@ -4,6 +4,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 
 import { buildViewerHref, type ViewerRouteState } from '../../lib/permissions/coordinator'
 import {
+  SCOPE_OPTICS_RANGES,
   VIEWER_SETTINGS_STORAGE_KEY,
   readViewerSettings,
   writeViewerSettings,
@@ -140,7 +141,11 @@ vi.mock('../../lib/viewer/motion', async () => {
   }
 })
 
-import { ViewerShell } from '../../components/viewer/viewer-shell'
+import {
+  getScopeRenderMetadata,
+  ScopeStarMarker,
+  ViewerShell,
+} from '../../components/viewer/viewer-shell'
 
 const LIVE_OBSERVER_FIXTURE = {
   lat: 37.7749,
@@ -820,6 +825,8 @@ describe('ViewerShell startup gating', () => {
     expect(apertureSlider).not.toBeNull()
     expect(magnificationSlider).not.toBeNull()
     expect(latestSettingsProps()?.scopeModeEnabled).toBe(true)
+    expect(apertureSlider?.step).toBe(String(SCOPE_OPTICS_RANGES.apertureMm.step))
+    expect(magnificationSlider?.step).toBe(String(SCOPE_OPTICS_RANGES.magnificationX.step))
 
     await act(async () => {
       setInputValue(apertureSlider!, '175')
@@ -848,6 +855,150 @@ describe('ViewerShell startup gating', () => {
     ).toBe(false)
     expect(container.querySelector('[data-testid="mobile-scope-aperture-slider"]')).toBeNull()
     expect(container.querySelector('[data-testid="mobile-scope-magnification-slider"]')).toBeNull()
+  })
+
+  it('shows aperture and magnification quick controls in the desktop action row when scope mode is enabled', async () => {
+    await renderViewer({
+      entry: 'demo',
+      location: 'unavailable',
+      camera: 'unavailable',
+      orientation: 'unavailable',
+      demoScenarioId: 'sf-evening',
+    })
+
+    await setStageViewportSize({ width: 1280, height: 720 })
+
+    const latestSettingsProps = () =>
+      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+        | {
+            onScopeModeEnabledChange?: (enabled: boolean) => void
+          }
+        | undefined
+
+    expect(container.querySelector('[data-testid="desktop-scope-aperture-slider"]')).toBeNull()
+    expect(container.querySelector('[data-testid="desktop-scope-magnification-slider"]')).toBeNull()
+
+    await act(async () => {
+      latestSettingsProps()?.onScopeModeEnabledChange?.(true)
+    })
+    await flushEffects()
+
+    const apertureSlider = container.querySelector(
+      '[data-testid="desktop-scope-aperture-slider"]',
+    ) as HTMLInputElement | null
+    const magnificationSlider = container.querySelector(
+      '[data-testid="desktop-scope-magnification-slider"]',
+    ) as HTMLInputElement | null
+
+    expect(apertureSlider).not.toBeNull()
+    expect(magnificationSlider).not.toBeNull()
+    expect(apertureSlider?.min).toBe(String(SCOPE_OPTICS_RANGES.apertureMm.min))
+    expect(apertureSlider?.max).toBe(String(SCOPE_OPTICS_RANGES.apertureMm.max))
+    expect(apertureSlider?.step).toBe(String(SCOPE_OPTICS_RANGES.apertureMm.step))
+    expect(magnificationSlider?.min).toBe(String(SCOPE_OPTICS_RANGES.magnificationX.min))
+    expect(magnificationSlider?.max).toBe(String(SCOPE_OPTICS_RANGES.magnificationX.max))
+    expect(magnificationSlider?.step).toBe(String(SCOPE_OPTICS_RANGES.magnificationX.step))
+
+    await act(async () => {
+      setInputValue(apertureSlider!, '220')
+      setInputValue(magnificationSlider!, '180')
+    })
+    await flushEffects()
+
+    expect(readViewerSettings()).toMatchObject({
+      scopeModeEnabled: true,
+      scopeOptics: {
+        apertureMm: 220,
+        magnificationX: 180,
+        transparencyPct: 80,
+      },
+    })
+
+    await act(async () => {
+      latestSettingsProps()?.onScopeModeEnabledChange?.(false)
+    })
+    await flushEffects()
+
+    expect(container.querySelector('[data-testid="desktop-scope-aperture-slider"]')).toBeNull()
+    expect(container.querySelector('[data-testid="desktop-scope-magnification-slider"]')).toBeNull()
+  })
+
+  it('renders scope star metadata with the extracted marker sizing and focus ring', async () => {
+    const scopeRender = {
+      displayIntensity: 0.6,
+      corePx: 3,
+      haloPx: 7,
+    }
+
+    await act(async () => {
+      root.render(
+        React.createElement(ScopeStarMarker, {
+          scopeRender,
+          markerScale: 2,
+          isFocused: false,
+        }),
+      )
+    })
+
+    let scopeMarker = container.querySelector('span.relative.block.rounded-full') as
+      | HTMLSpanElement
+      | null
+
+    expect(scopeMarker).not.toBeNull()
+    expect(scopeMarker?.style.width).toBe('14px')
+    expect(scopeMarker?.style.height).toBe('14px')
+    expect(scopeMarker?.className).not.toContain('ring-2')
+
+    await act(async () => {
+      root.render(
+        React.createElement(ScopeStarMarker, {
+          scopeRender,
+          markerScale: 2,
+          isFocused: true,
+        }),
+      )
+    })
+
+    scopeMarker = container.querySelector('span.relative.block.rounded-full') as
+      | HTMLSpanElement
+      | null
+
+    expect(scopeMarker?.className).toContain('ring-2')
+  })
+
+  it('falls back to the standard star marker when scope render metadata is malformed', async () => {
+    expect(
+      getScopeRenderMetadata(
+        createScopeStar({
+          id: 'scope-star-fallback',
+          metadata: {
+            scopeRender: {
+              displayIntensity: Number.NaN,
+              corePx: 3,
+              haloPx: 7,
+            },
+          },
+        }).object,
+      ),
+    ).toBeNull()
+
+    expect(
+      getScopeRenderMetadata(
+        createScopeStar({
+          metadata: {
+            scopeRender: {
+              displayIntensity: 0.6,
+              corePx: 3,
+              haloPx: 7,
+            },
+          },
+        }).object,
+      ),
+    ).toEqual({
+      displayIntensity: 0.6,
+      corePx: 3,
+      haloPx: 7,
+    })
   })
 
   it('uses a camera-only recovery action when motion is already available', async () => {
@@ -3633,6 +3784,37 @@ describe('ViewerShell startup gating', () => {
     await flushEffects()
   }
 })
+
+function createScopeStar(
+  overrides: Partial<{
+    id: string
+    metadata: Record<string, unknown>
+  }> = {},
+) {
+  const object = {
+    id: overrides.id ?? 'scope-star',
+    type: 'star' as const,
+    label: 'Scope Star',
+    azimuthDeg: 0,
+    elevationDeg: 0,
+    magnitude: 2,
+    importance: 10,
+    metadata: overrides.metadata ?? {},
+  }
+
+  return {
+    id: object.id,
+    name: object.label,
+    raDeg: 0,
+    decDeg: 0,
+    azimuthDeg: object.azimuthDeg,
+    elevationDeg: object.elevationDeg,
+    constellationName: undefined,
+    importance: object.importance,
+    magnitude: object.magnitude,
+    object,
+  }
+}
 
 function dispatchPointerEvent(
   target: EventTarget,
