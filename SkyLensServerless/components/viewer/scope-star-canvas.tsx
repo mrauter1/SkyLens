@@ -23,9 +23,8 @@ const MIN_LENS_DIAMETER_PX = 180
 const MAX_LENS_DIAMETER_PX = 400
 const CORE_RADIUS_MIN_PX = 0.9
 const CORE_RADIUS_MAX_PX = 2.2
-const HALO_RADIUS_MIN_PX = 1.4
-const HALO_RADIUS_MAX_PX = 3.6
-const HALO_ENABLE_CORE_RADIUS_THRESHOLD_PX = 1.15
+const CORE_ALPHA_MIN = 0.32
+const CORE_ALPHA_MAX = 0.98
 
 export function ScopeStarCanvas({
   diameterPx,
@@ -54,29 +53,14 @@ export function ScopeStarCanvas({
     const compressionFactor = getLensCompressionFactor(diameterPx)
 
     for (const star of stars) {
-      const haloRadiusPx = compressRadius(
-        normalizeScopeStarRadiusPx(star.haloPx, 2.1),
-        compressionFactor,
-        HALO_RADIUS_MIN_PX,
-        HALO_RADIUS_MAX_PX,
-      )
       const coreRadiusPx = compressRadius(
         normalizeScopeStarRadiusPx(star.corePx, 1),
         compressionFactor,
         CORE_RADIUS_MIN_PX,
         CORE_RADIUS_MAX_PX,
       )
-      const haloOpacity = getScopeStarHaloOpacity(star.intensity)
-      const coreOpacity = getScopeStarCoreOpacity(star.intensity)
+      const coreOpacity = getScopeStarCoreAlpha(star.intensity)
       const color = getScopeStarColor(star.bMinusV)
-
-      if (coreRadiusPx >= HALO_ENABLE_CORE_RADIUS_THRESHOLD_PX) {
-        context.beginPath()
-        context.globalAlpha = 1
-        context.fillStyle = getScopeStarHaloFill(context, star.x, star.y, haloRadiusPx, color, haloOpacity)
-        context.arc(star.x, star.y, haloRadiusPx, 0, Math.PI * 2)
-        context.fill()
-      }
 
       context.beginPath()
       context.fillStyle = color
@@ -136,60 +120,12 @@ function compressRadius(radiusPx: number, compressionFactor: number, min: number
   return Math.min(Math.max(safeRadiusPx * safeCompressionFactor, min), max)
 }
 
-function getScopeStarHaloOpacity(intensity: number) {
-  if (!Number.isFinite(intensity)) {
-    return 0.2
-  }
-
-  return Math.min(Math.max(0.1 + intensity * 0.32, 0.1), 0.42)
-}
-
-function getScopeStarCoreOpacity(intensity: number) {
+function getScopeStarCoreAlpha(intensity: number) {
   if (!Number.isFinite(intensity)) {
     return 0.65
   }
 
-  return Math.min(Math.max(0.32 + intensity * 0.68, 0.32), 0.98)
-}
-
-function getScopeStarHaloFill(
-  context: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  radiusPx: number,
-  color: string,
-  alpha: number,
-) {
-  const centerColor = withScopeStarAlpha(color, alpha)
-  const edgeColor = withScopeStarAlpha(color, 0)
-
-  if (typeof context.createRadialGradient !== 'function') {
-    return centerColor
-  }
-
-  try {
-    const gradient = context.createRadialGradient(x, y, 0, x, y, radiusPx)
-    gradient.addColorStop(0, centerColor)
-    gradient.addColorStop(1, edgeColor)
-    return gradient
-  } catch {
-    return centerColor
-  }
-}
-
-function withScopeStarAlpha(color: string, alpha: number) {
-  const rgbaMatch = color.match(
-    /^rgba\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*[\d.]+\s*\)$/i,
-  )
-
-  if (!rgbaMatch) {
-    return color
-  }
-
-  const [, red, green, blue] = rgbaMatch
-  const clampedAlpha = Math.min(Math.max(alpha, 0), 1)
-
-  return `rgba(${red}, ${green}, ${blue}, ${clampedAlpha})`
+  return Math.min(Math.max(CORE_ALPHA_MIN + intensity * 0.68, CORE_ALPHA_MIN), CORE_ALPHA_MAX)
 }
 
 function getScopeStarColor(bMinusV: number) {

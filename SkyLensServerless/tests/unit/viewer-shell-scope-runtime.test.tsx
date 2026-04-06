@@ -131,17 +131,16 @@ type CanvasFillCall = {
 }
 
 let canvasFillCalls: CanvasFillCall[] = []
+let container: HTMLDivElement
+let root: Root
+let originalFetch: typeof global.fetch | undefined
+let originalGetBoundingClientRect: PropertyDescriptor | undefined
+let stageBounds = {
+  width: 390,
+  height: 844,
+}
 
 describe('ViewerShell scope runtime', () => {
-  let container: HTMLDivElement
-  let root: Root
-  let originalFetch: typeof global.fetch | undefined
-  let originalGetBoundingClientRect: PropertyDescriptor | undefined
-  let stageBounds = {
-    width: 390,
-    height: 844,
-  }
-
   beforeAll(() => {
     ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
       .IS_REACT_ACT_ENVIRONMENT = true
@@ -367,12 +366,12 @@ describe('ViewerShell scope runtime', () => {
     expect(getCanvasStars()).toHaveLength(2)
   })
 
-  it('filters marginal deep stars at weak optics and brightens them under stronger optics', async () => {
+  it('dims deep-star display at smaller aperture without changing inclusion order', async () => {
     const dataset = createMultiBandScopeDataset([
       {
         azimuthDeg: 0,
         elevationDeg: getDemoScenario('tokyo-iss').initialPitchDeg,
-        vMag: 6.15,
+        vMag: 5.4,
       },
     ])
     global.fetch = vi.fn().mockImplementation(dataset.fetcher) as typeof fetch
@@ -382,21 +381,24 @@ describe('ViewerShell scope runtime', () => {
       scopeOptics: {
         apertureMm: 40,
         magnificationX: 50,
-        transparencyPct: 40,
+        transparencyPct: 85,
       },
       labelDisplayMode: 'center_only',
     })
 
     await renderViewer()
 
-    expect(getCanvasStars()).toHaveLength(0)
+    const dimStars = getCanvasStars()
+
+    expect(dimStars).toHaveLength(1)
+    expect(dimStars[0]?.radii).toHaveLength(1)
 
     await rerenderViewerWithSettings({
       scopeModeEnabled: true,
       scopeOptics: {
         apertureMm: 240,
-        magnificationX: 120,
-        transparencyPct: 95,
+        magnificationX: 50,
+        transparencyPct: 85,
       },
       labelDisplayMode: 'center_only',
     })
@@ -404,8 +406,7 @@ describe('ViewerShell scope runtime', () => {
     const brightStars = getCanvasStars()
 
     expect(brightStars).toHaveLength(1)
-    expect(Math.max(...brightStars[0].radii)).toBeGreaterThan(3)
-    expect(Math.max(...brightStars[0].alphas)).toBeGreaterThan(0.7)
+    expect(Math.max(...brightStars[0].alphas)).toBeGreaterThan(Math.max(...dimStars[0].alphas))
   })
 
   it('widens deep-star spacing with magnification without scaling star size linearly', async () => {
@@ -436,10 +437,10 @@ describe('ViewerShell scope runtime', () => {
 
     await renderViewer()
 
-    const lensCenterPx = 113.1
+    const lensCenterPx = getScopeLensRadiusPx()
     const lowMagnificationStars = getCanvasStars()
     const lowFarthestStar = getFarthestCanvasStar(lowMagnificationStars, lensCenterPx, lensCenterPx)
-    const lowHaloRadius = Math.max(...(lowFarthestStar?.radii ?? [0]))
+    const lowCoreRadius = Math.max(...(lowFarthestStar?.radii ?? [0]))
 
     await rerenderViewerWithSettings({
       scopeModeEnabled: true,
@@ -453,7 +454,7 @@ describe('ViewerShell scope runtime', () => {
 
     const highMagnificationStars = getCanvasStars()
     const highFarthestStar = getFarthestCanvasStar(highMagnificationStars, lensCenterPx, lensCenterPx)
-    const highHaloRadius = Math.max(...(highFarthestStar?.radii ?? [0]))
+    const highCoreRadius = Math.max(...(highFarthestStar?.radii ?? [0]))
 
     expect(lowMagnificationStars).toHaveLength(2)
     expect(highMagnificationStars).toHaveLength(2)
@@ -462,8 +463,125 @@ describe('ViewerShell scope runtime', () => {
     expect(highFarthestStar!.distanceFromCenterPx).toBeGreaterThan(
       lowFarthestStar!.distanceFromCenterPx,
     )
-    expect(highHaloRadius).toBeGreaterThan(0)
-    expect(highHaloRadius).toBeLessThan(lowHaloRadius * 2)
+    expect(highCoreRadius).toBeGreaterThan(0)
+    expect(highCoreRadius).toBeLessThan(lowCoreRadius * 2)
+  })
+
+  it('updates the runtime scope lens diameter from the persisted height percentage while staying viewport-safe', async () => {
+    setStoredViewerSettings({
+      scopeModeEnabled: true,
+      scopeLensDiameterPct: 50,
+      labelDisplayMode: 'center_only',
+    })
+
+    await renderViewer()
+
+    expect(getScopeLensDiameterPxFromDom()).toBeCloseTo(180)
+
+    await rerenderViewerWithSettings({
+      scopeModeEnabled: true,
+      scopeLensDiameterPct: 90,
+      labelDisplayMode: 'center_only',
+    })
+
+    expect(getScopeLensDiameterPxFromDom()).toBeCloseTo(358)
+  })
+
+  it('remaps supported telescope diameter percentages across the safe envelope on narrow portrait layouts', async () => {
+    stageBounds = {
+      width: 260,
+      height: 844,
+    }
+
+    setStoredViewerSettings({
+      scopeModeEnabled: true,
+      scopeLensDiameterPct: 50,
+      labelDisplayMode: 'center_only',
+    })
+
+    await renderViewer()
+
+    const narrowLowDiameterPx = getScopeLensDiameterPxFromDom()
+
+    await rerenderViewerWithSettings({
+      scopeModeEnabled: true,
+      scopeLensDiameterPct: 90,
+      labelDisplayMode: 'center_only',
+    })
+
+    const narrowHighDiameterPx = getScopeLensDiameterPxFromDom()
+
+    expect(narrowLowDiameterPx).toBeCloseTo(180)
+    expect(narrowHighDiameterPx).toBeCloseTo(228)
+    expect(narrowHighDiameterPx).toBeGreaterThan(narrowLowDiameterPx)
+  })
+
+  it('scales scope planet size with magnification and keeps opacity monotonic with aperture and magnification', async () => {
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -12,
+      objects: [
+        {
+          id: 'planet-jupiter',
+          type: 'planet',
+          label: 'Jupiter',
+          azimuthDeg: 0,
+          elevationDeg: getDemoScenario('tokyo-iss').initialPitchDeg,
+          magnitude: -2.7,
+          importance: 90,
+          metadata: {
+            detail: {
+              typeLabel: 'Planet',
+              magnitude: -2.7,
+              elevationDeg: getDemoScenario('tokyo-iss').initialPitchDeg,
+            },
+          },
+        },
+      ],
+    })
+
+    setStoredViewerSettings({
+      scopeModeEnabled: true,
+      scopeOptics: {
+        apertureMm: 120,
+        magnificationX: 25,
+        transparencyPct: 85,
+      },
+      labelDisplayMode: 'center_only',
+    })
+
+    await renderViewer()
+
+    const lowMagnificationSizePx = getScopeMarkerSizePx('planet-jupiter')
+    const lowMagnificationOpacity = getScopeMarkerOpacity('planet-jupiter')
+
+    await rerenderViewerWithSettings({
+      scopeModeEnabled: true,
+      scopeOptics: {
+        apertureMm: 120,
+        magnificationX: 100,
+        transparencyPct: 85,
+      },
+      labelDisplayMode: 'center_only',
+    })
+
+    const highMagnificationSizePx = getScopeMarkerSizePx('planet-jupiter')
+    const highMagnificationOpacity = getScopeMarkerOpacity('planet-jupiter')
+
+    await rerenderViewerWithSettings({
+      scopeModeEnabled: true,
+      scopeOptics: {
+        apertureMm: 240,
+        magnificationX: 100,
+        transparencyPct: 85,
+      },
+      labelDisplayMode: 'center_only',
+    })
+
+    const largeApertureOpacity = getScopeMarkerOpacity('planet-jupiter')
+
+    expect(highMagnificationSizePx).toBeGreaterThan(lowMagnificationSizePx)
+    expect(highMagnificationOpacity).toBeLessThanOrEqual(lowMagnificationOpacity)
+    expect(largeApertureOpacity).toBeGreaterThanOrEqual(highMagnificationOpacity)
   })
 
   it('keeps daylight suppression unchanged for scope deep-star tile fetches', async () => {
@@ -1058,6 +1176,34 @@ function getFarthestCanvasStar(
       distanceFromCenterPx: Math.hypot(star.x - centerX, star.y - centerY),
     }))
     .sort((left, right) => right.distanceFromCenterPx - left.distanceFromCenterPx)[0] ?? null
+}
+
+function getScopeLensDiameterPxFromDom() {
+  const lensFrame = container.querySelector('[data-testid="scope-lens-frame"]') as
+    | HTMLDivElement
+    | null
+
+  return lensFrame ? Number.parseFloat(lensFrame.style.width) : Number.NaN
+}
+
+function getScopeLensRadiusPx() {
+  return getScopeLensDiameterPxFromDom() / 2
+}
+
+function getScopeMarkerVisual(objectId: string) {
+  return container.querySelector(
+    `[data-testid="scope-bright-object-marker"][data-object-id="${objectId}"] > span`,
+  ) as HTMLSpanElement | null
+}
+
+function getScopeMarkerSizePx(objectId: string) {
+  const marker = getScopeMarkerVisual(objectId)
+  return marker ? Number.parseFloat(marker.style.width) : Number.NaN
+}
+
+function getScopeMarkerOpacity(objectId: string) {
+  const marker = getScopeMarkerVisual(objectId)
+  return marker ? Number.parseFloat(marker.style.opacity) : Number.NaN
 }
 
 function setStoredViewerSettings(overrides: Record<string, unknown>) {

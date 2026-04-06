@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { SettingsSheet } from '../../components/settings/settings-sheet'
+import { SCOPE_LENS_DIAMETER_PCT_RANGE } from '../../lib/viewer/settings'
 
 describe('SettingsSheet', () => {
   let container: HTMLDivElement
@@ -234,11 +235,13 @@ describe('SettingsSheet', () => {
     expect(container.querySelector('input[aria-label="Marker scale"]')).not.toBeNull()
     expect(container.querySelector('input[aria-label="Scope mode"]')).toBeNull()
     expect(container.querySelector('input[aria-label="Scope field of view"]')).toBeNull()
+    expect(container.querySelector('input[aria-label="Telescope diameter"]')).toBeNull()
     expect(container.querySelector('input[aria-label="Transparency"]')).toBeNull()
   })
 
   it('delegates scope setting changes without owning scope logic', async () => {
     const onScopeModeEnabledChange = vi.fn()
+    const onScopeLensDiameterPctChange = vi.fn()
     const onTransparencyChange = vi.fn()
     const onMarkerScaleChange = vi.fn()
 
@@ -248,6 +251,7 @@ describe('SettingsSheet', () => {
           onEnterDemoMode: vi.fn(),
           showScopeControls: true,
           scopeModeEnabled: true,
+          scopeLensDiameterPct: 82,
           transparencyPct: 78,
           markerScale: 1.8,
           layers: {
@@ -265,6 +269,7 @@ describe('SettingsSheet', () => {
           onLabelDisplayModeChange: vi.fn(),
           onMotionQualityChange: vi.fn(),
           onScopeModeEnabledChange,
+          onScopeLensDiameterPctChange,
           onTransparencyChange,
           onMarkerScaleChange,
         }),
@@ -282,6 +287,9 @@ describe('SettingsSheet', () => {
     const scopeToggle = container.querySelector(
       'input[aria-label="Scope mode"]',
     ) as HTMLInputElement | null
+    const telescopeDiameterSlider = container.querySelector(
+      'input[aria-label="Telescope diameter"]',
+    ) as HTMLInputElement | null
     const transparencySlider = container.querySelector(
       'input[aria-label="Transparency"]',
     ) as HTMLInputElement | null
@@ -290,6 +298,11 @@ describe('SettingsSheet', () => {
     ) as HTMLInputElement | null
 
     expect(scopeToggle?.checked).toBe(true)
+    expect(telescopeDiameterSlider?.value).toBe('82')
+    expect(telescopeDiameterSlider?.min).toBe(String(SCOPE_LENS_DIAMETER_PCT_RANGE.min))
+    expect(telescopeDiameterSlider?.max).toBe(String(SCOPE_LENS_DIAMETER_PCT_RANGE.max))
+    expect(telescopeDiameterSlider?.step).toBe(String(SCOPE_LENS_DIAMETER_PCT_RANGE.step))
+    expect(container.textContent).toContain('% of screen height')
     expect(transparencySlider?.value).toBe('78')
     expect(markerScaleSlider?.value).toBe('1.8')
 
@@ -305,12 +318,15 @@ describe('SettingsSheet', () => {
         'value',
       )?.set
 
+      valueSetter?.call(telescopeDiameterSlider, '88')
+      telescopeDiameterSlider?.dispatchEvent(new Event('change', { bubbles: true }))
       valueSetter?.call(transparencySlider, '82')
       transparencySlider?.dispatchEvent(new Event('change', { bubbles: true }))
       valueSetter?.call(markerScaleSlider, '2.4')
       markerScaleSlider?.dispatchEvent(new Event('change', { bubbles: true }))
     })
 
+    expect(onScopeLensDiameterPctChange).toHaveBeenCalledWith(88)
     expect(onTransparencyChange).toHaveBeenCalledWith(82)
     expect(onMarkerScaleChange).toHaveBeenCalledWith(2.4)
   })

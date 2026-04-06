@@ -54,7 +54,7 @@ describe('ScopeStarCanvas', () => {
     container.remove()
   })
 
-  it('draws gradient halos with compact radii while preserving B-V color semantics', async () => {
+  it('draws one compact core per star while preserving B-V color semantics', async () => {
     await act(async () => {
       root.render(
         <ScopeStarCanvas
@@ -83,53 +83,18 @@ describe('ScopeStarCanvas', () => {
       )
     })
 
-    expect(fillCalls).toHaveLength(4)
-    expect(gradientCalls).toHaveLength(2)
-
-    const blueHaloFill = gradientCalls[0]
-    const blueCoreFill = fillCalls[1].fillStyle
-    const warmHaloFill = gradientCalls[1]
-    const warmCoreFill = fillCalls[3].fillStyle
-
-    expect(blueHaloFill).toMatchObject({
-      x0: 120,
-      y0: 118,
-      r0: 0,
-      x1: 120,
-      y1: 118,
-    })
-    expect(blueHaloFill.r1).toBeCloseTo(3.3447272727272725)
-    expect(fillCalls[0].radius).toBeCloseTo(3.3447272727272725)
-    expect(fillCalls[1].radius).toBeCloseTo(1.1945454545454544)
-    expect(blueCoreFill).toBe('rgba(192, 228, 255, 0.9)')
-
-    expect(blueHaloFill.colorStops).toEqual([
-      {
-        offset: 0,
-        color: 'rgba(192, 228, 255, 0.33999999999999997)',
-      },
-      {
-        offset: 1,
-        color: 'rgba(192, 228, 255, 0)',
-      },
-    ])
-    expect(extractAlpha(blueHaloFill.colorStops[0].color)).toBeGreaterThan(
-      extractAlpha(blueHaloFill.colorStops[1].color),
-    )
-    expect(extractAlpha(blueHaloFill.colorStops[0].color)).toBeLessThan(fillCalls[1].alpha)
-
-    expect(warmHaloFill).toMatchObject({
-      x0: 96,
-      y0: 102,
-      r0: 0,
-      x1: 96,
-      y1: 102,
-    })
-    expect(warmHaloFill.r1).toBeCloseTo(2.2298181818181817)
-    expect(fillCalls[2].radius).toBeCloseTo(2.2298181818181817)
-    expect(fillCalls[3].radius).toBeCloseTo(1.2741818181818183)
-    expect(warmCoreFill).toBe('rgba(255, 222, 186, 0.88)')
-    expect(extractAlpha(warmHaloFill.colorStops[0].color)).toBeLessThan(fillCalls[3].alpha)
+    expect(fillCalls).toHaveLength(2)
+    expect(gradientCalls).toHaveLength(0)
+    expect(fillCalls[0]?.x).toBe(120)
+    expect(fillCalls[0]?.y).toBe(118)
+    expect(fillCalls[0]?.radius).toBeCloseTo(1.1945454545454544)
+    expect(fillCalls[0]?.alpha).toBeCloseTo(0.8300000000000001)
+    expect(fillCalls[0]?.fillStyle).toBe('rgba(192, 228, 255, 0.9)')
+    expect(fillCalls[1]?.x).toBe(96)
+    expect(fillCalls[1]?.y).toBe(102)
+    expect(fillCalls[1]?.radius).toBeCloseTo(1.2741818181818183)
+    expect(fillCalls[1]?.alpha).toBeCloseTo(0.5376000000000001)
+    expect(fillCalls[1]?.fillStyle).toBe('rgba(255, 222, 186, 0.88)')
   })
 
   it('compresses and clamps radii into compact envelopes', async () => {
@@ -152,12 +117,13 @@ describe('ScopeStarCanvas', () => {
       )
     })
 
-    expect(fillCalls).toHaveLength(2)
-    expect(fillCalls[0].radius).toBe(3.6)
-    expect(fillCalls[1].radius).toBe(2.2)
+    expect(fillCalls).toHaveLength(1)
+    expect(gradientCalls).toHaveLength(0)
+    expect(fillCalls[0].radius).toBe(2.2)
+    expect(fillCalls[0].alpha).toBe(0.98)
   })
 
-  it('disables halo rendering when the compressed core radius stays below threshold', async () => {
+  it('ignores halo payload values and still renders a single fill pass', async () => {
     await act(async () => {
       root.render(
         <ScopeStarCanvas
@@ -187,20 +153,27 @@ describe('ScopeStarCanvas', () => {
     })
   })
 
-  it('falls back to a deterministic solid halo when gradient creation fails', async () => {
-    throwOnGradientCreation = true
-
+  it('clamps core alpha deterministically without a halo path', async () => {
     await act(async () => {
       root.render(
         <ScopeStarCanvas
           diameterPx={280}
           stars={[
             {
-              id: 'fallback-star',
+              id: 'bright-star',
               x: 88,
               y: 90,
               bMinusV: 0.1,
-              intensity: 0.5,
+              intensity: 99,
+              corePx: 1.8,
+              haloPx: 3.6,
+            },
+            {
+              id: 'fallback-star',
+              x: 120,
+              y: 90,
+              bMinusV: 0.1,
+              intensity: Number.NaN,
               corePx: 1.8,
               haloPx: 3.6,
             },
@@ -214,14 +187,15 @@ describe('ScopeStarCanvas', () => {
     expect(fillCalls[0]).toMatchObject({
       x: 88,
       y: 90,
-      radius: 3.050181818181818,
-      alpha: 1,
-      fillStyle: 'rgba(226, 242, 255, 0.26)',
+      radius: 1.525090909090909,
+      alpha: 0.98,
+      fillStyle: 'rgba(226, 242, 255, 0.92)',
     })
     expect(fillCalls[1]).toMatchObject({
-      x: 88,
+      x: 120,
       y: 90,
       radius: 1.525090909090909,
+      alpha: 0.65,
       fillStyle: 'rgba(226, 242, 255, 0.92)',
     })
   })
@@ -368,10 +342,4 @@ function stubCanvasContext(
     configurable: true,
     value: () => context,
   })
-}
-
-function extractAlpha(color: string) {
-  const match = color.match(/,\s*([\d.]+)\s*\)$/)
-
-  return match ? Number(match[1]) : Number.NaN
 }

@@ -60,6 +60,7 @@ vi.mock('../../lib/health/client', () => ({
 
 import { ViewerShell } from '../../components/viewer/viewer-shell'
 import {
+  SCOPE_LENS_DIAMETER_PCT_RANGE,
   VIEWER_SETTINGS_STORAGE_KEY,
   readViewerSettings,
   writeViewerSettings,
@@ -124,6 +125,7 @@ describe('ViewerShell settings integration', () => {
       labelDisplayMode: 'on_objects',
       motionQuality: 'balanced',
       markerScale: 1,
+      scopeLensDiameterPct: SCOPE_LENS_DIAMETER_PCT_RANGE.defaultValue,
       alignmentTargetPreference: null,
       verticalFovAdjustmentDeg: 6,
       scopeModeEnabled: false,
@@ -206,6 +208,72 @@ describe('ViewerShell settings integration', () => {
     )
 
     expect(readViewerSettings().markerScale).toBe(1)
+  })
+
+  it('defaults, clamps, and persists scope lens diameter without breaking older payloads', () => {
+    expect(readViewerSettings().scopeLensDiameterPct).toBe(
+      SCOPE_LENS_DIAMETER_PCT_RANGE.defaultValue,
+    )
+
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabledLayers: {
+          aircraft: false,
+          satellites: true,
+          planets: true,
+          stars: true,
+          constellations: true,
+        },
+        likelyVisibleOnly: false,
+        labelDisplayMode: 'on_objects',
+        motionQuality: 'balanced',
+        scopeLensDiameterPct: 999,
+        verticalFovAdjustmentDeg: 6,
+        onboardingCompleted: false,
+      }),
+    )
+
+    expect(readViewerSettings().scopeLensDiameterPct).toBe(
+      SCOPE_LENS_DIAMETER_PCT_RANGE.max,
+    )
+
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabledLayers: {
+          aircraft: false,
+          satellites: true,
+          planets: true,
+          stars: true,
+          constellations: true,
+        },
+        likelyVisibleOnly: false,
+        labelDisplayMode: 'on_objects',
+        motionQuality: 'balanced',
+        scopeLensDiameterPct: 'bad',
+        verticalFovAdjustmentDeg: 6,
+        onboardingCompleted: false,
+      }),
+    )
+
+    expect(readViewerSettings().scopeLensDiameterPct).toBe(
+      SCOPE_LENS_DIAMETER_PCT_RANGE.defaultValue,
+    )
+
+    writeViewerSettings({
+      ...readViewerSettings(),
+      scopeLensDiameterPct: 24,
+    })
+
+    expect(readViewerSettings().scopeLensDiameterPct).toBe(
+      SCOPE_LENS_DIAMETER_PCT_RANGE.min,
+    )
+    expect(
+      JSON.parse(window.localStorage.getItem(VIEWER_SETTINGS_STORAGE_KEY) ?? 'null'),
+    ).toMatchObject({
+      scopeLensDiameterPct: SCOPE_LENS_DIAMETER_PCT_RANGE.min,
+    })
   })
 
   it('defaults and clamps persisted scope settings without breaking older payloads', () => {
@@ -473,6 +541,7 @@ describe('ViewerShell settings integration', () => {
       motionQuality: 'high',
       verticalFovAdjustmentDeg: 6,
       scopeModeEnabled: true,
+      scopeLensDiameterPct: 75,
       scope: {
         verticalFovDeg: 10,
       },
@@ -748,9 +817,13 @@ describe('ViewerShell settings integration', () => {
     const scopeToggle = container.querySelector(
       'input[aria-label="Scope mode"]',
     ) as HTMLInputElement | null
+    const telescopeDiameterSlider = container.querySelector(
+      'input[aria-label="Telescope diameter"]',
+    ) as HTMLInputElement | null
 
     expect(scopeToggle?.checked).toBe(true)
     expect(container.querySelector('input[aria-label="Scope field of view"]')).toBeNull()
+    expect(telescopeDiameterSlider?.value).toBe('75')
 
     await act(async () => {
       scopeToggle?.click()
@@ -768,6 +841,12 @@ describe('ViewerShell settings integration', () => {
     expect(container.querySelector('[data-testid="desktop-scope-action"]')?.textContent).toContain(
       '10° lens',
     )
+
+    await act(async () => {
+      setInputValue(telescopeDiameterSlider!, '90')
+    })
+
+    expect(readViewerSettings().scopeLensDiameterPct).toBe(90)
   })
 
   it.each([

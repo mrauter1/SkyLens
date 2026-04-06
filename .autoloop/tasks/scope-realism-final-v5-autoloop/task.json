@@ -1,0 +1,66 @@
+{
+  "task_id": "scope-realism-final-v5-autoloop",
+  "created_at": "2026-04-06T19:37:34.821149+00:00",
+  "request_text": "Implement AUTOLOOP_TASK_SCOPE_REALISM_FINAL_V5.md exactly. Read the markdown file from repository root and execute it as the full standalone PRD+ARD for SkyLensServerless.",
+  "request_updated_at": "2026-04-06T19:37:34.821220+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/scope-realism-final-v5-autoloop/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260406T193734Z-735ed894",
+    "mode": "single",
+    "phase_ids": [
+      "settings-and-ui",
+      "scope-runtime-realism",
+      "verification"
+    ],
+    "explicit": true,
+    "current_phase_index": 3,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "settings-and-ui": "completed",
+    "scope-runtime-realism": "completed",
+    "verification": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "settings-and-ui",
+      "run_id": "run-20260406T193734Z-735ed894",
+      "status": "in_progress",
+      "ts": "2026-04-06T19:42:57.061549+00:00"
+    },
+    {
+      "phase_id": "settings-and-ui",
+      "run_id": "run-20260406T193734Z-735ed894",
+      "status": "completed",
+      "ts": "2026-04-06T19:52:31.695170+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "scope-runtime-realism",
+      "run_id": "run-20260406T193734Z-735ed894",
+      "status": "in_progress",
+      "ts": "2026-04-06T19:52:31.697256+00:00"
+    },
+    {
+      "phase_id": "scope-runtime-realism",
+      "run_id": "run-20260406T193734Z-735ed894",
+      "status": "completed",
+      "ts": "2026-04-06T20:15:49.266096+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "verification",
+      "run_id": "run-20260406T193734Z-735ed894",
+      "status": "in_progress",
+      "ts": "2026-04-06T20:15:49.269490+00:00"
+    },
+    {
+      "phase_id": "verification",
+      "run_id": "run-20260406T193734Z-735ed894",
+      "status": "completed",
+      "ts": "2026-04-06T20:23:50.346048+00:00",
+      "pair": "test"
+    }
+  ]
+}

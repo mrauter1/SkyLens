@@ -4,6 +4,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 
 import { buildViewerHref, type ViewerRouteState } from '../../lib/permissions/coordinator'
 import {
+  SCOPE_LENS_DIAMETER_PCT_RANGE,
   VIEWER_SETTINGS_STORAGE_KEY,
   readViewerSettings,
   writeViewerSettings,
@@ -791,6 +792,42 @@ describe('ViewerShell startup gating', () => {
     expect(container.querySelector('[data-testid="desktop-scope-action"]')).toBeNull()
     expect(container.querySelector('[data-testid="mobile-scope-action"]')).toBeNull()
     expect(container.textContent).toContain('Live AR requires a secure context.')
+  })
+
+  it('passes telescope diameter into the settings sheet and clamps viewer-owned callback updates', async () => {
+    await renderViewer({
+      entry: 'demo',
+      location: 'unavailable',
+      camera: 'unavailable',
+      orientation: 'unavailable',
+      demoScenarioId: 'sf-evening',
+    })
+
+    await openDesktopViewerPanel()
+
+    const latestSettingsProps = () =>
+      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+        | {
+            showScopeControls?: boolean
+            scopeLensDiameterPct?: number
+            onScopeLensDiameterPctChange?: (value: number) => void
+          }
+        | undefined
+
+    expect(latestSettingsProps()?.showScopeControls).toBe(true)
+    expect(latestSettingsProps()?.scopeLensDiameterPct).toBe(
+      SCOPE_LENS_DIAMETER_PCT_RANGE.defaultValue,
+    )
+
+    await act(async () => {
+      latestSettingsProps()?.onScopeLensDiameterPctChange?.(94)
+    })
+    await flushEffects()
+
+    expect(latestSettingsProps()?.scopeLensDiameterPct).toBe(
+      SCOPE_LENS_DIAMETER_PCT_RANGE.max,
+    )
+    expect(readViewerSettings().scopeLensDiameterPct).toBe(SCOPE_LENS_DIAMETER_PCT_RANGE.max)
   })
 
   it('supports keyboard panning in manual mode for desktop fallback', async () => {
@@ -4165,8 +4202,8 @@ describe('ViewerShell startup gating', () => {
       | null
 
     expect(container.querySelector('[data-testid="scope-lens-overlay"]')).not.toBeNull()
-    expect(lensFrame?.style.width).toBe('226.2px')
-    expect(lensFrame?.style.height).toBe('226.2px')
+    expect(lensFrame?.style.width).toBe('291.25px')
+    expect(lensFrame?.style.height).toBe('291.25px')
     expect(lensHitArea?.style.clipPath).toBe('circle(50% at 50% 50%)')
 
     await act(async () => {

@@ -1,0 +1,99 @@
+version: 1
+task_id: scope-realism-final-v5-autoloop
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/scope-realism-final-v5-autoloop/runs/run-20260406T193734Z-735ed894/request.md
+phases:
+  - phase_id: settings-and-ui
+    title: Settings migration and telescope diameter control
+    objective: Add the persisted scope lens diameter setting and wire it through the settings UI and viewer runtime without breaking older payloads.
+    status: planned
+    in_scope:
+      - Extend ViewerSettings with scopeLensDiameterPct defaulting to 75 and clamped to 50..90.
+      - Preserve backward-compatible reads and normalized persistence for older localStorage payloads.
+      - Add a SettingsSheet control and viewer-shell callback wiring for telescope diameter.
+    out_of_scope:
+      - Any storage key change
+      - Any scope optics semantic change beyond adding the new setting
+      - Any catalog or deployment change
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: Missing or invalid scopeLensDiameterPct loads safely as 75 and writes back normalized values.
+      - id: AC-2
+        text: SettingsSheet exposes a telescope diameter control that delegates changes immediately to viewer-shell state.
+    deliverables:
+      - Updated settings schema/defaults/normalization logic
+      - Updated SettingsSheet props and telescope diameter control
+      - Viewer-shell state wiring for the new setting
+    risks:
+      - Older persisted payloads could fail if normalization is not backward compatible.
+      - UI control naming or placement could drift from existing settings patterns.
+    rollback:
+      - Remove the new setting field and restore SettingsSheet/viewer-shell props if migration proves unstable.
+
+  - phase_id: scope-runtime-realism
+    title: Scope runtime rendering realism
+    objective: Deliver core-only deep-star rendering, aperture-based deep-star dimness, configurable scope lens sizing, and deterministic extended-object scope realism.
+    status: planned
+    in_scope:
+      - Remove deep-star halo rendering while preserving payload compatibility.
+      - Apply display-only aperture attenuation after existing deep-star render-profile computation.
+      - Replace hard-coded lens diameter sizing with height-derived, safely clamped runtime sizing.
+      - Rework Sun/Moon/planet scope size and opacity behavior using a single viewer-shell-owned body-id baseline angular-size table plus deterministic aperture and magnification rules.
+    out_of_scope:
+      - Reordering deep-star inclusion gates
+      - Wide-view marker behavior changes
+      - Deep-star catalog data changes
+      - Celestial pipeline or SkyObject metadata expansion for angular-size transport
+    dependencies:
+      - settings-and-ui
+    acceptance_criteria:
+      - id: AC-3
+        text: Deep stars render as single-pass compact points with no halo or gradient draw path.
+      - id: AC-4
+        text: Smaller aperture yields dimmer deep-star display under the same conditions, without changing existing inclusion gate order.
+      - id: AC-5
+        text: Scope lens diameter follows the persisted percentage input while remaining safely bounded within the active viewport.
+      - id: AC-6
+        text: Sun, Moon, and planets increase apparent scope size with magnification and use deterministic brightness constrained by aperture and magnification, with size inputs owned by one viewer-shell baseline table rather than scattered constants.
+    deliverables:
+      - Updated scope-star-canvas renderer
+      - Updated viewer-shell scope mapping, lens sizing, bright-object helper logic, and baseline angular-size lookup
+      - Compatibility-preserving runtime behavior around scope projection and center-lock
+    risks:
+      - Literal height-based sizing can overflow portrait layouts if viewport fit is not enforced.
+      - Extended-object sizing changes can regress marker usability or center-lock behavior.
+      - Angular-size ownership can drift if the implementation splits logic between viewer-shell and celestial metadata.
+      - Removing halos can over-dim stars if alpha/radius floors are too low.
+    rollback:
+      - Restore previous scope lens sizing helper if viewport-fit regressions appear.
+      - Restore previous bright-object scope helper behavior independently from deep-star changes if needed.
+
+  - phase_id: verification
+    title: Targeted regression coverage and task completion checks
+    objective: Prove the new behavior with focused tests, confirm compatibility invariants, and verify no forbidden artifacts were introduced.
+    status: planned
+    in_scope:
+      - Update the four required targeted test files.
+      - Run the explicit broader regression watchlist covering viewer-shell, viewer-shell-celestial, and scope-lens-overlay scope behavior when Phase 2 changes land.
+      - Run required tests and confirm no .bin files were added.
+    out_of_scope:
+      - Broad unrelated test-suite cleanup
+      - Snapshot-style visual golden infrastructure
+      - Non-scope refactors
+    dependencies:
+      - scope-runtime-realism
+    acceptance_criteria:
+      - id: AC-7
+        text: Required tests cover core-only deep stars, settings migration, telescope diameter UI wiring, lens px runtime behavior, and deterministic scope realism rules.
+      - id: AC-8
+        text: Minimum required npm test command passes, and the broader scope watchlist runs when lens sizing or bright-object scope behavior changes.
+      - id: AC-9
+        text: Final verification confirms no .bin artifacts were added.
+    deliverables:
+      - Updated unit/runtime tests
+      - Recorded validation outcomes for required commands, broader scope watchlist, and artifact checks
+    risks:
+      - Existing tests may encode old halo or fixed-size assumptions that need careful rewriting.
+      - Runtime tests can become brittle if they assert exact visual constants instead of deterministic relationships.
+    rollback:
+      - Narrow assertions to stable invariants while preserving the required behavioral coverage if tests prove flaky.
