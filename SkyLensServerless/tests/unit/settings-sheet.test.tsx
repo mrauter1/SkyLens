@@ -239,7 +239,6 @@ describe('SettingsSheet', () => {
 
   it('delegates scope setting changes without owning scope logic', async () => {
     const onScopeModeEnabledChange = vi.fn()
-    const onScopeVerticalFovChange = vi.fn()
     const onTransparencyChange = vi.fn()
     const onMarkerScaleChange = vi.fn()
 
@@ -249,7 +248,6 @@ describe('SettingsSheet', () => {
           onEnterDemoMode: vi.fn(),
           showScopeControls: true,
           scopeModeEnabled: true,
-          scopeVerticalFovDeg: 12.5,
           transparencyPct: 78,
           markerScale: 1.8,
           layers: {
@@ -267,7 +265,6 @@ describe('SettingsSheet', () => {
           onLabelDisplayModeChange: vi.fn(),
           onMotionQualityChange: vi.fn(),
           onScopeModeEnabledChange,
-          onScopeVerticalFovChange,
           onTransparencyChange,
           onMarkerScaleChange,
         }),
@@ -285,9 +282,6 @@ describe('SettingsSheet', () => {
     const scopeToggle = container.querySelector(
       'input[aria-label="Scope mode"]',
     ) as HTMLInputElement | null
-    const scopeFovSlider = container.querySelector(
-      'input[aria-label="Scope field of view"]',
-    ) as HTMLInputElement | null
     const transparencySlider = container.querySelector(
       'input[aria-label="Transparency"]',
     ) as HTMLInputElement | null
@@ -296,28 +290,14 @@ describe('SettingsSheet', () => {
     ) as HTMLInputElement | null
 
     expect(scopeToggle?.checked).toBe(true)
-    expect(scopeFovSlider?.value).toBe('12.5')
     expect(transparencySlider?.value).toBe('78')
     expect(markerScaleSlider?.value).toBe('1.8')
 
     await act(async () => {
       scopeToggle?.click()
-      scopeFovSlider?.dispatchEvent(new Event('input', { bubbles: true }))
     })
 
     expect(onScopeModeEnabledChange).toHaveBeenCalledWith(false)
-
-    await act(async () => {
-      const valueSetter = Object.getOwnPropertyDescriptor(
-        HTMLInputElement.prototype,
-        'value',
-      )?.set
-
-      valueSetter?.call(scopeFovSlider, '15.5')
-      scopeFovSlider?.dispatchEvent(new Event('change', { bubbles: true }))
-    })
-
-    expect(onScopeVerticalFovChange).toHaveBeenCalledWith(15.5)
 
     await act(async () => {
       const valueSetter = Object.getOwnPropertyDescriptor(

@@ -1,0 +1,71 @@
+version: 1
+task_id: scope-realism-v2
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/scope-realism-v2/runs/run-20260406T134900Z-90d728e0/request.md
+phases:
+  - phase_id: canonical-scope-optics-and-compatibility
+    title: Make magnification canonical for scope zoom and preserve legacy settings compatibility
+    objective: Introduce deterministic magnification-derived scope FOV, migrate legacy stored scope FOV safely into canonical optics state, and align the scope settings surface with the PRD without breaking existing installs.
+    status: planned
+    in_scope:
+      - Add shared magnification-to-scope-FOV conversion in `lib/viewer/scope-optics.ts` with deterministic defaults, clamping, and finite-output behavior.
+      - Add the inverse conversion helper if needed so legacy persisted `scope.verticalFovDeg` can seed `scopeOptics.magnificationX` when magnification is absent.
+      - Normalize `lib/viewer/settings.ts` so `scopeOptics.magnificationX` is canonical, `scope.verticalFovDeg` is compatibility-only, and canonical magnification wins over legacy FOV when both are present.
+      - Remove the user-facing settings-sheet scope FOV slider while keeping scope toggle, transparency, marker-scale ownership, and quick-control sync intact.
+    out_of_scope:
+      - Changing the storage key or introducing a new persistence format.
+      - Adding new optics controls beyond the PRD-defined aperture, magnification, transparency, and existing scope toggle.
+      - Deep-star render-profile drawing changes.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: Increasing `magnificationX` produces a monotonically narrower derived effective scope vertical FOV with deterministic clamping and finite outputs.
+      - id: AC-2
+        text: Persisted payloads with only legacy `scope.verticalFovDeg` still load into sensible canonical optics, and payloads containing both magnification and legacy FOV prefer magnification.
+      - id: AC-3
+        text: Scope settings continue to expose the scope toggle plus transparency and marker scale, while aperture and magnification remain the user-facing quick controls when scope mode is on.
+    deliverables:
+      - Updated shared optics helpers for magnification-derived scope FOV and optional inverse migration
+      - Updated viewer settings normalization/persistence compatibility behavior
+      - Updated settings-sheet and viewer-shell control wiring for canonical magnification semantics
+    risks:
+      - Legacy installs could drift if forward and inverse FOV conversion do not share the same default apparent-field contract.
+      - Removing the settings-sheet FOV slider could break UI-state sync if any code path still treats stored FOV as canonical.
+    rollback:
+      - Revert the canonical magnification/FOV migration and restore the user-facing settings FOV control if compatibility or control-sync regressions appear.
+      - Keep the storage key and legacy read tolerance intact during rollback.
+  - phase_id: unify-scope-runtime-and-deep-star-optics
+    title: Apply canonical scope optics across runtime projection, deep-star filtering, and rendering
+    objective: Rewire the scope runtime so projection, band selection, tile selection, and deep-star rendering all use the same magnification-derived FOV and optics-driven photometry while preserving current daylight suppression behavior.
+    status: planned
+    in_scope:
+      - Thread the derived effective scope vertical FOV through `components/viewer/viewer-shell.tsx` for scope projection, selection radius, band selection, status text, and scope marker sizing.
+      - Keep `lib/scope/depth.ts` band thresholds and alignment guardrails but feed them the magnification-derived effective scope FOV.
+      - In the deep-star mapping path, preserve existing upstream gates, reject below-horizon stars, apply scope limiting magnitude after those gates, compute render profiles for passing stars, and pass `intensity`, `corePx`, and `haloPx` to the canvas point contract.
+      - Update `components/viewer/scope-star-canvas.tsx` to render deep stars from profile-driven intensity/core/halo values while preserving compact sizing and current `bMinusV` color semantics.
+      - Extend unit/runtime tests for optics monotonicity, deep-star retention/photometry response, magnification-driven spacing, unchanged daylight suppression, and UI/persistence regression surfaces.
+    out_of_scope:
+      - Server-side changes or scope dataset format changes.
+      - New likely-visible/daylight policies, skyglow simulation, or physical eyepiece catalog modeling.
+      - Broad refactors of unrelated viewer projection or labeling code.
+    dependencies:
+      - canonical-scope-optics-and-compatibility
+    acceptance_criteria:
+      - id: AC-1
+        text: Scope projection, tile-selection radius, and scope band choice all use the same magnification-derived effective scope FOV.
+      - id: AC-2
+        text: Deep stars below the optics limiting magnitude are rejected only after existing daylight/likely-visible gates and horizon checks, with aperture, transparency, and altitude affecting retention monotonically.
+      - id: AC-3
+        text: Deep-star canvas rendering responds monotonically to optics and conditions through `intensity`, `corePx`, and `haloPx`, while stars remain compact and do not scale linearly with magnification.
+      - id: AC-4
+        text: Updated tests cover magnification-derived spacing, deep-star optics behavior, legacy settings compatibility, and unchanged likely-visible/daylight suppression.
+    deliverables:
+      - Updated scope runtime wiring in `viewer-shell.tsx` and `lib/scope/depth.ts`
+      - Updated deep-star canvas point contract and profile-driven rendering in `scope-star-canvas.tsx`
+      - Extended unit/runtime coverage for optics, scope runtime, settings compatibility, and scope UI state
+    risks:
+      - Runtime rewiring could accidentally leave mixed FOV sources in projection versus tile/band selection paths.
+      - Deep-star optics filtering could regress named-star center-lock or daylight suppression ordering if inserted in the wrong stage.
+      - Profile-driven rendering could over-brighten or oversize stars if compact clamps are not enforced consistently.
+    rollback:
+      - Revert the derived-FOV runtime threading if projection and tile/band selection diverge unexpectedly.
+      - Revert deep-star render-profile consumption separately if canvas rendering regresses while leaving the canonical settings migration intact.

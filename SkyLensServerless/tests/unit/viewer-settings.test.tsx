@@ -62,6 +62,7 @@ import { ViewerShell } from '../../components/viewer/viewer-shell'
 import {
   VIEWER_SETTINGS_STORAGE_KEY,
   readViewerSettings,
+  writeViewerSettings,
 } from '../../lib/viewer/settings'
 
 describe('ViewerShell settings integration', () => {
@@ -363,6 +364,71 @@ describe('ViewerShell settings integration', () => {
 
     expect(settings.scopeModeEnabled).toBe(false)
     expect(settings.scope.verticalFovDeg).toBe(12)
+  })
+
+  it('prefers canonical magnification over legacy scope vertical FOV when both are present', () => {
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabledLayers: {
+          aircraft: false,
+          satellites: true,
+          planets: true,
+          stars: true,
+          constellations: true,
+        },
+        likelyVisibleOnly: false,
+        labelDisplayMode: 'on_objects',
+        motionQuality: 'balanced',
+        verticalFovAdjustmentDeg: 6,
+        scope: {
+          verticalFovDeg: 20,
+        },
+        scopeOptics: {
+          apertureMm: 120,
+          magnificationX: 100,
+          transparencyPct: 85,
+        },
+        onboardingCompleted: false,
+      }),
+    )
+
+    const settings = readViewerSettings()
+
+    expect(settings.scopeOptics.magnificationX).toBe(100)
+    expect(settings.scope.verticalFovDeg).toBe(5)
+  })
+
+  it('writes the compatibility scope FOV from canonical magnification', () => {
+    const defaults = readViewerSettings()
+
+    writeViewerSettings({
+      ...defaults,
+      scope: {
+        verticalFovDeg: 20,
+      },
+      scopeOptics: {
+        ...defaults.scopeOptics,
+        magnificationX: 100,
+      },
+    })
+
+    const persistedRawValue = window.localStorage.getItem(VIEWER_SETTINGS_STORAGE_KEY)
+
+    expect(persistedRawValue).not.toBeNull()
+
+    const persisted = JSON.parse(persistedRawValue as string) as {
+      scope: {
+        verticalFovDeg: number
+      }
+      scopeOptics: {
+        magnificationX: number
+      }
+    }
+
+    expect(persisted.scopeOptics.magnificationX).toBe(100)
+    expect(persisted.scope.verticalFovDeg).toBe(5)
+    expect(readViewerSettings().scope.verticalFovDeg).toBe(5)
   })
 
   it('sanitizes malformed persisted scope fields without discarding unrelated viewer settings', () => {
@@ -682,21 +748,17 @@ describe('ViewerShell settings integration', () => {
     const scopeToggle = container.querySelector(
       'input[aria-label="Scope mode"]',
     ) as HTMLInputElement | null
-    const scopeFovSlider = container.querySelector(
-      'input[aria-label="Scope field of view"]',
-    ) as HTMLInputElement | null
 
     expect(scopeToggle?.checked).toBe(true)
-    expect(scopeFovSlider?.value).toBe('10')
+    expect(container.querySelector('input[aria-label="Scope field of view"]')).toBeNull()
 
     await act(async () => {
       scopeToggle?.click()
-      setInputValue(scopeFovSlider!, '12.5')
     })
 
     expect(readViewerSettings().scopeModeEnabled).toBe(false)
     expect(readViewerSettings().scope).toEqual({
-      verticalFovDeg: 12.5,
+      verticalFovDeg: 10,
     })
 
     expect(
@@ -704,7 +766,7 @@ describe('ViewerShell settings integration', () => {
         ?.getAttribute('aria-pressed'),
     ).toBe('false')
     expect(container.querySelector('[data-testid="desktop-scope-action"]')?.textContent).toContain(
-      '12.5° lens',
+      '10° lens',
     )
   })
 

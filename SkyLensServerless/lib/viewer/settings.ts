@@ -8,14 +8,17 @@ import {
   type PoseCalibration,
 } from '../sensors/orientation'
 import {
+  SCOPE_VERTICAL_FOV_RANGE,
+  magnificationToScopeVerticalFovDeg,
   normalizeScopeOptics,
+  scopeVerticalFovDegToMagnificationX,
   type ScopeOptics,
 } from './scope-optics'
 
 export const VIEWER_SETTINGS_STORAGE_KEY = 'skylens-serverless.viewer-settings.v1'
-export const SCOPE_VERTICAL_FOV_MIN_DEG = 3
-export const SCOPE_VERTICAL_FOV_MAX_DEG = 20
-export const SCOPE_VERTICAL_FOV_DEFAULT_DEG = 10
+export const SCOPE_VERTICAL_FOV_MIN_DEG = SCOPE_VERTICAL_FOV_RANGE.min
+export const SCOPE_VERTICAL_FOV_MAX_DEG = SCOPE_VERTICAL_FOV_RANGE.max
+export const SCOPE_VERTICAL_FOV_DEFAULT_DEG = SCOPE_VERTICAL_FOV_RANGE.defaultValue
 
 export type LabelDisplayMode = 'center_only' | 'on_objects' | 'top_list'
 export type MotionQuality = 'low' | 'balanced' | 'high'
@@ -100,6 +103,7 @@ const SettingsSchema = z.object({
 
 export function getDefaultViewerSettings(): ViewerSettings {
   const config = getPublicConfig()
+  const defaultScopeOptics = normalizeScopeOptics(undefined)
 
   return {
     enabledLayers: {
@@ -118,9 +122,9 @@ export function getDefaultViewerSettings(): ViewerSettings {
     verticalFovAdjustmentDeg: 0,
     scopeModeEnabled: false,
     scope: {
-      verticalFovDeg: SCOPE_VERTICAL_FOV_DEFAULT_DEG,
+      verticalFovDeg: magnificationToScopeVerticalFovDeg(defaultScopeOptics.magnificationX),
     },
-    scopeOptics: normalizeScopeOptics(undefined),
+    scopeOptics: defaultScopeOptics,
     selectedCameraDeviceId: null,
     manualObserver: null,
     onboardingCompleted: false,
@@ -150,6 +154,8 @@ export function readViewerSettings(storage = getBrowserStorage()): ViewerSetting
     } = parsed
     const scopeInput = getSettingsObject(rawScopeInput)
     const scopeOpticsInput = getSettingsObject(rawScopeOpticsInput)
+    const legacyScopeVerticalFovDeg = readNumberSetting(scopeInput.verticalFovDeg)
+    const storedScopeMagnificationX = readNumberSetting(scopeOpticsInput.magnificationX)
     const scopeModeEnabled =
       readBooleanSetting(rawScopeModeEnabled) ??
       readBooleanSetting(scopeInput.enabled) ??
@@ -165,13 +171,16 @@ export function readViewerSettings(storage = getBrowserStorage()): ViewerSetting
       },
       scope: {
         ...defaults.scope,
-        verticalFovDeg:
-          readNumberSetting(scopeInput.verticalFovDeg) ?? defaults.scope.verticalFovDeg,
+        verticalFovDeg: legacyScopeVerticalFovDeg ?? defaults.scope.verticalFovDeg,
       },
       scopeOptics: normalizeScopeOptics({
         ...defaults.scopeOptics,
         apertureMm: readNumberSetting(scopeOpticsInput.apertureMm),
-        magnificationX: readNumberSetting(scopeOpticsInput.magnificationX),
+        magnificationX:
+          storedScopeMagnificationX ??
+          (legacyScopeVerticalFovDeg === undefined
+            ? undefined
+            : scopeVerticalFovDegToMagnificationX(legacyScopeVerticalFovDeg)),
         transparencyPct: readNumberSetting(scopeOpticsInput.transparencyPct),
       }),
     })
@@ -211,6 +220,8 @@ export function markViewerOnboardingCompleted(storage = getBrowserStorage()) {
 }
 
 export function normalizeViewerSettings(settings: ViewerSettings): ViewerSettings {
+  const scopeOptics = normalizeScopeOptics(settings.scopeOptics)
+
   return {
     enabledLayers: {
       aircraft: settings.enabledLayers.aircraft,
@@ -229,8 +240,8 @@ export function normalizeViewerSettings(settings: ViewerSettings): ViewerSetting
     ),
     verticalFovAdjustmentDeg: clamp(settings.verticalFovAdjustmentDeg, -30, 30),
     scopeModeEnabled: settings.scopeModeEnabled === true,
-    scope: normalizeScopeSettings(settings.scope),
-    scopeOptics: normalizeScopeOptics(settings.scopeOptics),
+    scope: normalizeScopeSettings(settings.scope, scopeOptics),
+    scopeOptics,
     selectedCameraDeviceId:
       typeof settings.selectedCameraDeviceId === 'string' &&
       settings.selectedCameraDeviceId.length > 0
@@ -256,10 +267,11 @@ function normalizeManualObserver(
 }
 
 function normalizeScopeSettings(
-  scopeSettings: ScopeSettings | null | undefined,
+  _scopeSettings: ScopeSettings | null | undefined,
+  scopeOptics: ScopeOptics,
 ): ScopeSettings {
   return {
-    verticalFovDeg: normalizeScopeVerticalFovDeg(scopeSettings?.verticalFovDeg),
+    verticalFovDeg: magnificationToScopeVerticalFovDeg(scopeOptics.magnificationX),
   }
 }
 
@@ -284,14 +296,6 @@ function readNumberSetting(value: unknown) {
         : Number.NaN
 
   return Number.isFinite(parsedValue) ? parsedValue : undefined
-}
-
-export function normalizeScopeVerticalFovDeg(value: number | null | undefined) {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    return SCOPE_VERTICAL_FOV_DEFAULT_DEG
-  }
-
-  return clamp(value, SCOPE_VERTICAL_FOV_MIN_DEG, SCOPE_VERTICAL_FOV_MAX_DEG)
 }
 
 function normalizeMotionQuality(

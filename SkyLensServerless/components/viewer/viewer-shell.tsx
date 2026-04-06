@@ -158,6 +158,9 @@ import {
 } from '../../lib/viewer/settings'
 import {
   SCOPE_OPTICS_RANGES,
+  computeScopeRenderProfile,
+  magnificationToScopeVerticalFovDeg,
+  passesScopeLimitingMagnitude,
   type ScopeOptics,
   type ScopeRenderProfile,
 } from '../../lib/viewer/scope-optics'
@@ -759,18 +762,21 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   )
   const scopeLensDiameterPx = getScopeLensDiameterPx(viewport)
   const scopeLensRadiusPx = scopeLensDiameterPx / 2
+  const scopeEffectiveVerticalFovDeg = magnificationToScopeVerticalFovDeg(
+    viewerSettings.scopeOptics.magnificationX,
+  )
   const scopeProjectionProfile = createProjectionProfile({
-    verticalFovDeg: viewerSettings.scope.verticalFovDeg,
+    verticalFovDeg: scopeEffectiveVerticalFovDeg,
   })
   const scopeLensVisualScale = clampNumber(
-    baseEffectiveVerticalFovDeg / viewerSettings.scope.verticalFovDeg,
+    baseEffectiveVerticalFovDeg / scopeEffectiveVerticalFovDeg,
     1,
     12,
   )
   const scopeModeActive =
     scopeControlsAvailable && viewerSettings.scopeModeEnabled && !isMobileAlignmentFocusActive
   const hydratedScopeEnabled = hasMounted ? viewerSettings.scopeModeEnabled : false
-  const hydratedScopeVerticalFovDeg = hasMounted ? viewerSettings.scope.verticalFovDeg : 10
+  const hydratedScopeVerticalFovDeg = hasMounted ? scopeEffectiveVerticalFovDeg : 10
   const blockingCopy = getBlockingCopy(state, startupState)
   const locationStatusValue =
     state.entry === 'demo'
@@ -798,7 +804,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       ? null
       : Math.max(0, orientationDiagnosticsNowMs - latestOrientationSample.timestampMs)
   const scopeActiveBand = selectScopeBand({
-    scopeVerticalFovDeg: viewerSettings.scope.verticalFovDeg,
+    scopeVerticalFovDeg: scopeEffectiveVerticalFovDeg,
     cameraMode: cameraPose.mode,
     orientationStatus: state.orientation,
     latestOrientationSampleAgeMs: orientationSampleAgeMs,
@@ -826,7 +832,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const scopeSelectionRadiusDeg =
     scopeDeepStarsEnabled && scopeEquatorialCenter
       ? getScopeTileSelectionRadiusDeg({
-          verticalFovDeg: viewerSettings.scope.verticalFovDeg,
+          verticalFovDeg: scopeEffectiveVerticalFovDeg,
           viewportWidth: scopeLensDiameterPx,
           viewportHeight: scopeLensDiameterPx,
         })
@@ -935,13 +941,31 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const observationJulianYear = getObservationJulianYear(sceneTimeMs)
   const scopeProjectedDeepStars: ScopeProjectedDeepStarObject[] =
     hasMounted && scopeDeepStarsEnabled && observer
-      ? scopeLoadedDeepStars.map((star) => {
+      ? scopeLoadedDeepStars.flatMap((star) => {
           const adjustedPosition = applyScopeProperMotion(star, observationJulianYear)
           const horizontalPosition = convertScopeEquatorialToHorizontal(
             adjustedPosition,
             observer,
             sceneTimeMs,
           )
+          if (horizontalPosition.elevationDeg < 0) {
+            return []
+          }
+
+          if (
+            !passesScopeLimitingMagnitude({
+              magnitude: star.vMag,
+              altitudeDeg: horizontalPosition.elevationDeg,
+              optics: viewerSettings.scopeOptics,
+            })
+          ) {
+            return []
+          }
+          const scopeRender = computeScopeRenderProfile({
+            magnitude: star.vMag,
+            altitudeDeg: horizontalPosition.elevationDeg,
+            optics: viewerSettings.scopeOptics,
+          })
           const scopeProjection = projectWorldPointToScreenWithProfile(
             cameraPose,
             horizontalPosition,
@@ -958,7 +982,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             scopeOffsetX * scopeOffsetX + scopeOffsetY * scopeOffsetY <=
               scopeLensRadiusPx * scopeLensRadiusPx
 
-          return {
+          return [{
             id: star.id,
             type: 'star' as const,
             label: star.displayName ?? 'Deep star',
@@ -975,12 +999,19 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                 elevationDeg: horizontalPosition.elevationDeg,
                 bMinusV: star.bMinusV,
               },
+              scopeRender: {
+                typeLabel: 'Scope render',
+                ...scopeRender,
+              },
+              scopeFilter: {
+                effectiveLimitMag: scopeRender.effectiveLimitMag,
+              },
             },
             projection: scopeProjection,
             scopeProjection,
             scopeInLensCircle,
             source: 'scope-deep-star' as const,
-          }
+          }]
         })
       : []
   const scopeCenterLockedCandidate = scopeModeActive
@@ -1094,13 +1125,19 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     hasMounted && scopeModeActive
       ? scopeProjectedDeepStars
           .filter((object) => object.scopeInLensCircle)
-          .map((object) => ({
-            id: object.id,
-            x: object.scopeProjection.x,
-            y: object.scopeProjection.y,
-            vMag: object.magnitude ?? 0,
-            bMinusV: object.bMinusV,
-          }))
+          .map((object) => {
+            const scopeRender = getScopeRenderProfile(object)
+
+            return {
+              id: object.id,
+              x: object.scopeProjection.x,
+              y: object.scopeProjection.y,
+              bMinusV: object.bMinusV,
+              intensity: scopeRender?.intensity ?? 0.5,
+              corePx: scopeRender?.corePx ?? 1.2,
+              haloPx: scopeRender?.haloPx ?? 2.4,
+            }
+          })
       : []
   const scopeLensObjects: ScopeLensOverlayObject[] =
     hasMounted && scopeModeActive
@@ -1112,7 +1149,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             y: object.scopeProjection.y,
             sizePx: getScopeMarkerSizePx(
               object,
-              viewerSettings.scope.verticalFovDeg,
+              scopeEffectiveVerticalFovDeg,
               viewerSettings.markerScale,
             ),
             opacity: getScopeMarkerOpacity(object),
@@ -3141,7 +3178,6 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     verticalFovAdjustmentDeg: viewerSettings.verticalFovAdjustmentDeg,
     showScopeControls: scopeControlsAvailable,
     scopeModeEnabled: viewerSettings.scopeModeEnabled,
-    scopeVerticalFovDeg: viewerSettings.scope.verticalFovDeg,
     transparencyPct: viewerSettings.scopeOptics.transparencyPct,
     markerScale: viewerSettings.markerScale,
     cameraDevices,
@@ -3193,15 +3229,6 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       setViewerSettings((current) => ({
         ...current,
         scopeModeEnabled: enabled,
-      }))
-    },
-    onScopeVerticalFovChange: (value: number) => {
-      setViewerSettings((current) => ({
-        ...current,
-        scope: {
-          ...current.scope,
-          verticalFovDeg: value,
-        },
       }))
     },
     onTransparencyChange: (value: number) => {

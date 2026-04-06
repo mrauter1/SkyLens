@@ -122,6 +122,16 @@ const TRACKER = {
   stop: vi.fn(),
 }
 
+type CanvasFillCall = {
+  x: number
+  y: number
+  radius: number
+  alpha: number
+  fillStyle: string
+}
+
+let canvasFillCalls: CanvasFillCall[] = []
+
 describe('ViewerShell scope runtime', () => {
   let container: HTMLDivElement
   let root: Root
@@ -194,6 +204,7 @@ describe('ViewerShell scope runtime', () => {
     })
     mockResolveAircraftMotionObjects.mockReturnValue([])
     mockResolveSatelliteMotionObjects.mockReturnValue([])
+    canvasFillCalls = []
 
     window.localStorage.clear()
     resetScopeCatalogSessionCacheForTests()
@@ -318,6 +329,174 @@ describe('ViewerShell scope runtime', () => {
     expect(dataset.requestedUrls.some((url) => url.endsWith(dataset.edgeTileFile))).toBe(true)
   })
 
+  it('rejects below-horizon deep stars while retaining optics-eligible stars', async () => {
+    const dataset = createMultiBandScopeDataset([
+      {
+        azimuthDeg: 0,
+        elevationDeg: getDemoScenario('tokyo-iss').initialPitchDeg,
+        vMag: 5.2,
+        nameId: 1,
+      },
+      {
+        azimuthDeg: 1.2,
+        elevationDeg: getDemoScenario('tokyo-iss').initialPitchDeg + 0.4,
+        vMag: 6.15,
+        nameId: 2,
+      },
+      {
+        azimuthDeg: 0.6,
+        elevationDeg: -4,
+        vMag: 1.8,
+        nameId: 3,
+      },
+    ])
+    global.fetch = vi.fn().mockImplementation(dataset.fetcher) as typeof fetch
+
+    setStoredViewerSettings({
+      scopeModeEnabled: true,
+      scopeOptics: {
+        apertureMm: 240,
+        magnificationX: 50,
+        transparencyPct: 85,
+      },
+      labelDisplayMode: 'center_only',
+    })
+
+    await renderViewer()
+
+    expect(getCanvasStars()).toHaveLength(2)
+  })
+
+  it('filters marginal deep stars at weak optics and brightens them under stronger optics', async () => {
+    const dataset = createMultiBandScopeDataset([
+      {
+        azimuthDeg: 0,
+        elevationDeg: getDemoScenario('tokyo-iss').initialPitchDeg,
+        vMag: 6.15,
+      },
+    ])
+    global.fetch = vi.fn().mockImplementation(dataset.fetcher) as typeof fetch
+
+    setStoredViewerSettings({
+      scopeModeEnabled: true,
+      scopeOptics: {
+        apertureMm: 40,
+        magnificationX: 50,
+        transparencyPct: 40,
+      },
+      labelDisplayMode: 'center_only',
+    })
+
+    await renderViewer()
+
+    expect(getCanvasStars()).toHaveLength(0)
+
+    await rerenderViewerWithSettings({
+      scopeModeEnabled: true,
+      scopeOptics: {
+        apertureMm: 240,
+        magnificationX: 120,
+        transparencyPct: 95,
+      },
+      labelDisplayMode: 'center_only',
+    })
+
+    const brightStars = getCanvasStars()
+
+    expect(brightStars).toHaveLength(1)
+    expect(Math.max(...brightStars[0].radii)).toBeGreaterThan(3)
+    expect(Math.max(...brightStars[0].alphas)).toBeGreaterThan(0.7)
+  })
+
+  it('widens deep-star spacing with magnification without scaling star size linearly', async () => {
+    const scenario = getDemoScenario('tokyo-iss')
+    const dataset = createMultiBandScopeDataset([
+      {
+        azimuthDeg: 0,
+        elevationDeg: scenario.initialPitchDeg,
+        vMag: 5.4,
+      },
+      {
+        azimuthDeg: 1.8,
+        elevationDeg: scenario.initialPitchDeg,
+        vMag: 5.8,
+      },
+    ])
+    global.fetch = vi.fn().mockImplementation(dataset.fetcher) as typeof fetch
+
+    setStoredViewerSettings({
+      scopeModeEnabled: true,
+      scopeOptics: {
+        apertureMm: 160,
+        magnificationX: 25,
+        transparencyPct: 85,
+      },
+      labelDisplayMode: 'center_only',
+    })
+
+    await renderViewer()
+
+    const lensCenterPx = 113.1
+    const lowMagnificationStars = getCanvasStars()
+    const lowFarthestStar = getFarthestCanvasStar(lowMagnificationStars, lensCenterPx, lensCenterPx)
+    const lowHaloRadius = Math.max(...(lowFarthestStar?.radii ?? [0]))
+
+    await rerenderViewerWithSettings({
+      scopeModeEnabled: true,
+      scopeOptics: {
+        apertureMm: 160,
+        magnificationX: 100,
+        transparencyPct: 85,
+      },
+      labelDisplayMode: 'center_only',
+    })
+
+    const highMagnificationStars = getCanvasStars()
+    const highFarthestStar = getFarthestCanvasStar(highMagnificationStars, lensCenterPx, lensCenterPx)
+    const highHaloRadius = Math.max(...(highFarthestStar?.radii ?? [0]))
+
+    expect(lowMagnificationStars).toHaveLength(2)
+    expect(highMagnificationStars).toHaveLength(2)
+    expect(highFarthestStar).not.toBeNull()
+    expect(lowFarthestStar).not.toBeNull()
+    expect(highFarthestStar!.distanceFromCenterPx).toBeGreaterThan(
+      lowFarthestStar!.distanceFromCenterPx,
+    )
+    expect(highHaloRadius).toBeGreaterThan(0)
+    expect(highHaloRadius).toBeLessThan(lowHaloRadius * 2)
+  })
+
+  it('keeps daylight suppression unchanged for scope deep-star tile fetches', async () => {
+    const dataset = createMultiBandScopeDataset([
+      {
+        azimuthDeg: 0,
+        elevationDeg: getDemoScenario('tokyo-iss').initialPitchDeg,
+        vMag: 5.2,
+      },
+    ])
+    global.fetch = vi.fn().mockImplementation(dataset.fetcher) as typeof fetch
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -2,
+      objects: [],
+    })
+
+    setStoredViewerSettings({
+      likelyVisibleOnly: true,
+      scopeModeEnabled: true,
+      scopeOptics: {
+        apertureMm: 160,
+        magnificationX: 50,
+        transparencyPct: 85,
+      },
+      labelDisplayMode: 'center_only',
+    })
+
+    await renderViewer()
+
+    expect(dataset.requestedUrls.some((url) => url.endsWith('.bin'))).toBe(false)
+    expect(getCanvasStars()).toHaveLength(0)
+  })
+
   async function renderViewer() {
     await act(async () => {
       root.render(
@@ -348,6 +527,16 @@ describe('ViewerShell scope runtime', () => {
     await act(async () => {
       await Promise.resolve()
     })
+  }
+
+  async function rerenderViewerWithSettings(settings: Record<string, unknown>) {
+    await act(async () => {
+      root.unmount()
+    })
+    root = createRoot(container)
+    canvasFillCalls = []
+    setStoredViewerSettings(settings)
+    await renderViewer()
   }
 })
 
@@ -426,7 +615,7 @@ function createScopeDataset(name: string, deferredTile?: ReturnType<typeof creat
     decMicroDeg: Math.round(centeredEquatorial.decDeg * 1_000_000),
     pmRaMasPerYear: 0,
     pmDecMasPerYear: 0,
-    vMagMilli: 7800,
+    vMagMilli: 5800,
     bMinusVMilli: 200,
     nameId: 1,
   })
@@ -463,6 +652,115 @@ function createScopeDataset(name: string, deferredTile?: ReturnType<typeof creat
         decStepDeg: 45,
         tiles: [],
       })
+    },
+  }
+}
+
+function createMultiBandScopeDataset(
+  rows: Array<{
+    azimuthDeg: number
+    elevationDeg: number
+    vMag: number
+    bMinusV?: number
+    nameId?: number
+  }>,
+) {
+  const scenario = getDemoScenario('tokyo-iss')
+  const centeredEquatorial = convertScopeHorizontalToEquatorial(
+    {
+      azimuthDeg: 0,
+      elevationDeg: scenario.initialPitchDeg,
+    },
+    scenario.observer,
+    scenario.observer.timestampMs,
+  )
+  const bandDefinitions = [
+    { bandDir: 'mag6p5', maxMagnitude: 6.5, raStepDeg: 90, decStepDeg: 45 },
+    { bandDir: 'mag8p0', maxMagnitude: 8, raStepDeg: 45, decStepDeg: 30 },
+    { bandDir: 'mag9p5', maxMagnitude: 9.5, raStepDeg: 22.5, decStepDeg: 22.5 },
+    { bandDir: 'mag10p5', maxMagnitude: 10.5, raStepDeg: 11.25, decStepDeg: 11.25 },
+  ] as const
+  const requestedUrls: string[] = []
+  const names: Record<string, string> = {}
+  const tileFile = 'r0_d0.bin'
+  const tileBytes = encodeScopeRows(
+    rows.map((row) => {
+      const equatorial = convertScopeHorizontalToEquatorial(
+        {
+          azimuthDeg: row.azimuthDeg,
+          elevationDeg: row.elevationDeg,
+        },
+        scenario.observer,
+        scenario.observer.timestampMs,
+      )
+
+      if (row.nameId) {
+        names[String(row.nameId)] = `Scope Star ${row.nameId}`
+      }
+
+      return {
+        raMicroDeg: Math.round(equatorial.raDeg * 1_000_000),
+        decMicroDeg: Math.round(equatorial.decDeg * 1_000_000),
+        pmRaMasPerYear: 0,
+        pmDecMasPerYear: 0,
+        vMagMilli: Math.round(row.vMag * 1_000),
+        bMinusVMilli: Math.round((row.bMinusV ?? 0.2) * 1_000),
+        nameId: row.nameId ?? 0,
+      }
+    }),
+  )
+
+  return {
+    requestedUrls,
+    fetcher: async (input: string | URL | Request) => {
+      const url = String(input)
+      requestedUrls.push(url)
+
+      if (url.endsWith('/manifest.json')) {
+        return jsonResponse({
+          version: 1,
+          kind: 'dev',
+          sourceCatalog: 'dev-synthetic-from-stars-200',
+          epoch: 'J2000',
+          rowFormat: 'scope-star-v2-le',
+          namesPath: 'names.json',
+          bands: bandDefinitions.map((band) => ({
+            ...band,
+            indexPath: `${band.bandDir}/index.json`,
+            totalRows: rows.length,
+            namedRows: Object.keys(names).length,
+          })),
+        })
+      }
+
+      if (url.endsWith('/names.json')) {
+        return jsonResponse(names)
+      }
+
+      for (const band of bandDefinitions) {
+        if (url.endsWith(`/${band.bandDir}/index.json`)) {
+          return jsonResponse({
+            bandDir: band.bandDir,
+            maxMagnitude: band.maxMagnitude,
+            raStepDeg: band.raStepDeg,
+            decStepDeg: band.decStepDeg,
+            tiles: [
+              {
+                raIndex: Math.floor(centeredEquatorial.raDeg / band.raStepDeg),
+                decIndex: Math.floor((centeredEquatorial.decDeg + 90) / band.decStepDeg),
+                file: tileFile,
+                count: rows.length,
+              },
+            ],
+          })
+        }
+
+        if (url.endsWith(`/${band.bandDir}/${tileFile}`)) {
+          return binaryResponse(tileBytes)
+        }
+      }
+
+      throw new Error(`Unhandled scope dataset request: ${url}`)
     },
   }
 }
@@ -616,6 +914,29 @@ function encodeScopeRow({
   return bytes
 }
 
+function encodeScopeRows(
+  rows: Array<{
+    raMicroDeg: number
+    decMicroDeg: number
+    pmRaMasPerYear: number
+    pmDecMasPerYear: number
+    vMagMilli: number
+    bMinusVMilli: number
+    nameId: number
+  }>,
+) {
+  const bytes = new Uint8Array(rows.length * 20)
+
+  rows.forEach((row, index) => {
+    bytes.set(
+      encodeScopeRow(row),
+      index * 20,
+    )
+  })
+
+  return bytes
+}
+
 function jsonResponse(payload: unknown) {
   return {
     ok: true,
@@ -646,16 +967,102 @@ function createDeferred<T>() {
 }
 
 function stubCanvasContext() {
+  let currentArc:
+    | {
+        x: number
+        y: number
+        radius: number
+      }
+    | null = null
+  const context = {
+    clearRect: vi.fn(() => {
+      canvasFillCalls = []
+      currentArc = null
+    }),
+    beginPath: vi.fn(() => {
+      currentArc = null
+    }),
+    arc: vi.fn((x: number, y: number, radius: number) => {
+      currentArc = { x, y, radius }
+    }),
+    fill: vi.fn(() => {
+      if (!currentArc) {
+        return
+      }
+
+      canvasFillCalls.push({
+        ...currentArc,
+        alpha: context.globalAlpha,
+        fillStyle: context.fillStyle,
+      })
+    }),
+    setTransform: vi.fn(),
+    globalAlpha: 1,
+    fillStyle: '',
+  }
+
   Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
     configurable: true,
-    value: () => ({
-      clearRect: vi.fn(),
-      beginPath: vi.fn(),
-      arc: vi.fn(),
-      fill: vi.fn(),
-      setTransform: vi.fn(),
-      globalAlpha: 1,
-      fillStyle: '',
-    }),
+    value: () => context,
   })
+}
+
+function getCanvasStars() {
+  const starsByPoint = new Map<
+    string,
+    {
+      x: number
+      y: number
+      radii: number[]
+      alphas: number[]
+    }
+  >()
+
+  for (const call of canvasFillCalls) {
+    const key = `${call.x.toFixed(3)}:${call.y.toFixed(3)}`
+    const existing = starsByPoint.get(key)
+
+    if (existing) {
+      existing.radii.push(call.radius)
+      existing.alphas.push(call.alpha)
+      continue
+    }
+
+    starsByPoint.set(key, {
+      x: call.x,
+      y: call.y,
+      radii: [call.radius],
+      alphas: [call.alpha],
+    })
+  }
+
+  return [...starsByPoint.values()]
+}
+
+function getFarthestCanvasStar(
+  stars: Array<{
+    x: number
+    y: number
+    radii: number[]
+    alphas: number[]
+  }>,
+  centerX: number,
+  centerY: number,
+) {
+  return stars
+    .map((star) => ({
+      ...star,
+      distanceFromCenterPx: Math.hypot(star.x - centerX, star.y - centerY),
+    }))
+    .sort((left, right) => right.distanceFromCenterPx - left.distanceFromCenterPx)[0] ?? null
+}
+
+function setStoredViewerSettings(overrides: Record<string, unknown>) {
+  window.localStorage.setItem(
+    VIEWER_SETTINGS_STORAGE_KEY,
+    JSON.stringify({
+      ...readViewerSettings(),
+      ...overrides,
+    }),
+  )
 }

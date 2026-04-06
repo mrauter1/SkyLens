@@ -4022,7 +4022,6 @@ describe('ViewerShell startup gating', () => {
         | {
             showScopeControls?: boolean
             scopeModeEnabled?: boolean
-            scopeVerticalFovDeg?: number
           }
         | undefined
 
@@ -4035,7 +4034,6 @@ describe('ViewerShell startup gating', () => {
 
     expect(latestSettingsProps()?.showScopeControls).toBe(true)
     expect(latestSettingsProps()?.scopeModeEnabled).toBe(false)
-    expect(latestSettingsProps()?.scopeVerticalFovDeg).toBe(10)
     expect(desktopScopeAction?.getAttribute('aria-pressed')).toBe('false')
     expect(mobileScopeAction?.getAttribute('aria-pressed')).toBe('false')
 

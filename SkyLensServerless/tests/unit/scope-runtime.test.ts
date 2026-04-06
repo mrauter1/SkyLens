@@ -21,6 +21,7 @@ import {
   getScopeTileSelectionRadiusDeg,
   selectScopeTilesForPointing,
 } from '../../lib/scope/position-tiles'
+import { magnificationToScopeVerticalFovDeg } from '../../lib/viewer/scope-optics'
 
 describe('scope runtime modules', () => {
   afterEach(() => {
@@ -73,6 +74,45 @@ describe('scope runtime modules', () => {
         alignmentHealth: 'good',
       }).bandDir,
     ).toBe('mag9p5')
+  })
+
+  it('keeps scope band selection deterministic when using magnification-derived FOV values', () => {
+    expect(
+      selectScopeBand({
+        scopeVerticalFovDeg: magnificationToScopeVerticalFovDeg(25),
+        cameraMode: 'sensor',
+        orientationStatus: 'granted',
+        latestOrientationSampleAgeMs: 120,
+        alignmentHealth: 'good',
+      }).bandDir,
+    ).toBe('mag6p5')
+    expect(
+      selectScopeBand({
+        scopeVerticalFovDeg: magnificationToScopeVerticalFovDeg(40),
+        cameraMode: 'sensor',
+        orientationStatus: 'granted',
+        latestOrientationSampleAgeMs: 120,
+        alignmentHealth: 'good',
+      }).bandDir,
+    ).toBe('mag8p0')
+    expect(
+      selectScopeBand({
+        scopeVerticalFovDeg: magnificationToScopeVerticalFovDeg(50),
+        cameraMode: 'sensor',
+        orientationStatus: 'granted',
+        latestOrientationSampleAgeMs: 120,
+        alignmentHealth: 'good',
+      }).bandDir,
+    ).toBe('mag9p5')
+    expect(
+      selectScopeBand({
+        scopeVerticalFovDeg: magnificationToScopeVerticalFovDeg(100),
+        cameraMode: 'sensor',
+        orientationStatus: 'granted',
+        latestOrientationSampleAgeMs: 120,
+        alignmentHealth: 'good',
+      }).bandDir,
+    ).toBe('mag10p5')
   })
 
   it('applies the shared likely-visible daylight suppression for deep stars', () => {
