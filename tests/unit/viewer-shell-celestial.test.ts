@@ -1356,7 +1356,7 @@ describe('ViewerShell celestial behavior', () => {
     expect(getMarkerVisualSizePx(farSatelliteMarker!)).toBe(6)
   })
 
-  it('applies the mobile marker scale slider live and persists the chosen scale', async () => {
+  it('applies settings-sheet marker scale changes live and persists the chosen scale', async () => {
     mockNormalizeCelestialObjects.mockReturnValue({
       sunAltitudeDeg: -12,
       objects: [
@@ -1386,29 +1386,27 @@ describe('ViewerShell celestial behavior', () => {
       orientation: 'denied',
     })
 
-    const slider = container.querySelector(
-      '[data-testid="mobile-marker-scale-slider"]',
-    ) as HTMLInputElement | null
-    const sliderValue = container.querySelector(
-      '[data-testid="mobile-marker-scale-value"]',
-    ) as HTMLElement | null
+    const latestSettingsProps = () =>
+      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+        | {
+            markerScale?: number
+            onMarkerScaleChange?: (value: number) => void
+          }
+        | undefined
     const dimStarMarker = container.querySelector(
       '[data-testid="sky-object-marker"][data-object-id="star-dim"]',
     ) as HTMLButtonElement | null
 
-    expect(slider).not.toBeNull()
-    expect(slider?.value).toBe('1')
-    expect(sliderValue?.textContent).toContain('1.0x')
+    expect(latestSettingsProps()?.markerScale).toBe(1)
     expect(dimStarMarker).not.toBeNull()
     expect(getMarkerVisualSizePx(dimStarMarker!)).toBe(1)
 
     await act(async () => {
-      setInputValue(slider!, '4')
+      latestSettingsProps()?.onMarkerScaleChange?.(4)
     })
     await flushEffects()
 
-    expect(slider?.value).toBe('4')
-    expect(sliderValue?.textContent).toContain('4.0x')
+    expect(latestSettingsProps()?.markerScale).toBe(4)
     expect(getMarkerVisualSizePx(dimStarMarker!)).toBe(4)
     expect(readViewerSettings().markerScale).toBe(4)
 
@@ -1425,20 +1423,111 @@ describe('ViewerShell celestial behavior', () => {
       orientation: 'denied',
     })
 
-    const reloadedSlider = container.querySelector(
-      '[data-testid="mobile-marker-scale-slider"]',
-    ) as HTMLInputElement | null
-    const reloadedSliderValue = container.querySelector(
-      '[data-testid="mobile-marker-scale-value"]',
-    ) as HTMLElement | null
+    const reloadedSettingsProps = () =>
+      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+        | {
+            markerScale?: number
+          }
+        | undefined
     const reloadedDimStarMarker = container.querySelector(
       '[data-testid="sky-object-marker"][data-object-id="star-dim"]',
     ) as HTMLButtonElement | null
 
-    expect(reloadedSlider?.value).toBe('4')
-    expect(reloadedSliderValue?.textContent).toContain('4.0x')
+    expect(reloadedSettingsProps()?.markerScale).toBe(4)
     expect(reloadedDimStarMarker).not.toBeNull()
     expect(getMarkerVisualSizePx(reloadedDimStarMarker!)).toBe(4)
+  })
+
+  it('renders scope photometry metadata directly and keeps scoped stars compact', async () => {
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -12,
+      objects: [],
+    })
+    mockNormalizeVisibleStars.mockReturnValue([
+      {
+        id: 'star-scoped',
+        name: 'Scoped Star',
+        raDeg: 0,
+        decDeg: 0,
+        magnitude: -1.2,
+        azimuthDeg: 4,
+        elevationDeg: 16,
+        constellationName: 'Lyra',
+        importance: 86,
+        object: {
+          id: 'star-scoped',
+          type: 'star',
+          label: 'Scoped Star',
+          azimuthDeg: 4,
+          elevationDeg: 16,
+          magnitude: -1.2,
+          importance: 86,
+          metadata: {
+            detail: {
+              typeLabel: 'Star',
+              magnitude: -1.2,
+              elevationDeg: 16,
+            },
+            scopeRender: {
+              displayIntensity: 0.86,
+              corePx: 1.7,
+              haloPx: 4.8,
+            },
+          },
+        },
+      },
+      {
+        id: 'star-legacy',
+        name: 'Legacy Star',
+        raDeg: 4,
+        decDeg: 2,
+        magnitude: -1.2,
+        azimuthDeg: 8,
+        elevationDeg: 16,
+        constellationName: 'Lyra',
+        importance: 86,
+        object: {
+          id: 'star-legacy',
+          type: 'star',
+          label: 'Legacy Star',
+          azimuthDeg: 8,
+          elevationDeg: 16,
+          magnitude: -1.2,
+          importance: 86,
+          metadata: {
+            detail: {
+              typeLabel: 'Star',
+              magnitude: -1.2,
+              elevationDeg: 16,
+            },
+          },
+        },
+      },
+    ])
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
+
+    const scopedMarker = container.querySelector(
+      '[data-testid="sky-object-marker"][data-object-id="star-scoped"]',
+    ) as HTMLButtonElement | null
+    const legacyMarker = container.querySelector(
+      '[data-testid="sky-object-marker"][data-object-id="star-legacy"]',
+    ) as HTMLButtonElement | null
+    const scopedWrapper = scopedMarker?.lastElementChild as HTMLElement | null
+    const scopedHalo = scopedWrapper?.children[0] as HTMLElement | null
+    const scopedCore = scopedWrapper?.children[1] as HTMLElement | null
+
+    expect(scopedMarker).not.toBeNull()
+    expect(legacyMarker).not.toBeNull()
+    expect(Number.parseFloat(scopedWrapper?.style.width ?? '0')).toBeCloseTo(4.8, 5)
+    expect(Number.parseFloat(scopedHalo?.style.width ?? '0')).toBeCloseTo(4.8, 5)
+    expect(Number.parseFloat(scopedCore?.style.width ?? '0')).toBeCloseTo(1.7, 5)
+    expect(getMarkerVisualSizePx(legacyMarker!)).toBeGreaterThan(6)
   })
 
   it('renders stable nearby labels when on-object mode is enabled', async () => {
@@ -1910,6 +1999,54 @@ describe('ViewerShell celestial behavior', () => {
 
     expect(container.querySelector('[data-testid="motion-affordance-vector"]')).not.toBeNull()
     expect(container.querySelector('[data-testid="motion-affordance-trail"]')).toBeNull()
+  })
+
+  it('forwards persisted scope settings into star normalization', async () => {
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabledLayers: {
+          aircraft: true,
+          satellites: true,
+          planets: true,
+          stars: true,
+          constellations: true,
+        },
+        likelyVisibleOnly: false,
+        scopeModeEnabled: true,
+        scopeOptics: {
+          apertureMm: 180,
+          magnificationX: 90,
+          transparencyPct: 70,
+        },
+        labelDisplayMode: 'center_only',
+        verticalFovAdjustmentDeg: 0,
+        onboardingCompleted: false,
+      }),
+    )
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -12,
+      objects: [],
+    })
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
+
+    expect(mockNormalizeVisibleStars).toHaveBeenCalled()
+    expect(mockNormalizeVisibleStars.mock.calls.at(-1)?.[0]).toMatchObject({
+      likelyVisibleOnly: false,
+      sunAltitudeDeg: -12,
+      scopeModeEnabled: true,
+      scopeOptics: {
+        apertureMm: 180,
+        magnificationX: 90,
+        transparencyPct: 70,
+      },
+    })
   })
 
   it('renders a trail for balanced motion quality', async () => {
@@ -2593,17 +2730,6 @@ function getMarkerVisualSizePx(markerButton: HTMLButtonElement) {
   const markerVisual = markerButton.lastElementChild as HTMLElement | null
 
   return Number.parseInt(markerVisual?.style.width ?? '0', 10)
-}
-
-function setInputValue(input: HTMLInputElement, value: string) {
-  const valueSetter = Object.getOwnPropertyDescriptor(
-    HTMLInputElement.prototype,
-    'value',
-  )?.set
-
-  valueSetter?.call(input, value)
-  input.dispatchEvent(new Event('input', { bubbles: true }))
-  input.dispatchEvent(new Event('change', { bubbles: true }))
 }
 
 function setMatchMediaMatches(matches: boolean) {

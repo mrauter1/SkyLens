@@ -4,12 +4,27 @@ import { z } from 'zod'
 import starsCatalogJson from '../../public/data/stars_200.json'
 import type { EnabledLayer } from '../config'
 import type { ObserverState, SkyObject, StarCatalogEntry } from '../viewer/contracts'
+import {
+  DEFAULT_SCOPE_OPTICS_SETTINGS,
+  normalizeScopeOpticsSettings,
+  type ScopeOpticsSettings,
+} from '../viewer/settings'
+import {
+  computeStarPhotometry,
+  isStarVisibleWithScopeOptics,
+  type ScopeRenderMetadata,
+} from '../viewer/scope-optics'
 
 export interface StarDetailMetadata {
   typeLabel: 'Star'
   magnitude: number
   elevationDeg: number
   constellationName?: string
+}
+
+export interface StarObjectMetadata extends Record<string, unknown> {
+  detail: StarDetailMetadata
+  scopeRender?: ScopeRenderMetadata
 }
 
 export interface VisibleStarEntry extends StarCatalogEntry {
@@ -26,6 +41,8 @@ export interface StarPipelineInput {
   enabledLayers: Readonly<Record<EnabledLayer, boolean>>
   likelyVisibleOnly: boolean
   sunAltitudeDeg: number
+  scopeModeEnabled?: boolean
+  scopeOptics?: ScopeOpticsSettings
 }
 
 const StarCatalogSchema = z.array(
@@ -50,6 +67,8 @@ export function normalizeVisibleStars({
   enabledLayers,
   likelyVisibleOnly,
   sunAltitudeDeg,
+  scopeModeEnabled = false,
+  scopeOptics = DEFAULT_SCOPE_OPTICS_SETTINGS,
 }: StarPipelineInput): VisibleStarEntry[] {
   if (!enabledLayers.stars) {
     return []
@@ -61,6 +80,7 @@ export function normalizeVisibleStars({
 
   const astronomyObserver = new Observer(observer.lat, observer.lon, observer.altMeters)
   const time = new Date(timeMs)
+  const normalizedScopeOptics = normalizeScopeOpticsSettings(scopeOptics)
 
   return STAR_CATALOG.flatMap((entry) => {
     const horizontal = Horizon(
@@ -75,11 +95,39 @@ export function normalizeVisibleStars({
       return []
     }
 
+    if (
+      scopeModeEnabled &&
+      !isStarVisibleWithScopeOptics(
+        entry.magnitude,
+        normalizedScopeOptics,
+        horizontal.altitude,
+      )
+    ) {
+      return []
+    }
+
     const constellationName = Constellation(
       normalizeRightAscensionHours(entry.raDeg),
       entry.decDeg,
     ).name
     const elevationDeg = roundAngle(horizontal.altitude)
+    const metadata: StarObjectMetadata = {
+      detail: {
+        typeLabel: 'Star',
+        magnitude: entry.magnitude,
+        elevationDeg,
+        constellationName,
+      },
+    }
+
+    if (scopeModeEnabled) {
+      metadata.scopeRender = computeStarPhotometry(
+        entry.magnitude,
+        normalizedScopeOptics,
+        horizontal.altitude,
+      )
+    }
+
     const object: SkyObject = {
       id: entry.id,
       type: 'star',
@@ -88,14 +136,7 @@ export function normalizeVisibleStars({
       elevationDeg,
       magnitude: entry.magnitude,
       importance: magnitudeToImportance(entry.magnitude),
-      metadata: {
-        detail: {
-          typeLabel: 'Star',
-          magnitude: entry.magnitude,
-          elevationDeg,
-          constellationName,
-        } satisfies StarDetailMetadata,
-      },
+      metadata,
     }
 
     return [

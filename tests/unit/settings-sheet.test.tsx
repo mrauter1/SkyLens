@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { SettingsSheet } from '../../components/settings/settings-sheet'
+import { SCOPE_OPTICS_RANGES } from '../../lib/viewer/settings'
 
 describe('SettingsSheet', () => {
   let container: HTMLDivElement
@@ -198,6 +199,79 @@ describe('SettingsSheet', () => {
     })
 
     expect(onOpenChange).toHaveBeenLastCalledWith(false)
+  })
+
+  it('keeps scope controls in Settings and excludes quick-only optics knobs', async () => {
+    const onScopeModeEnabledChange = vi.fn()
+    const onTransparencyPctChange = vi.fn()
+    const onMarkerScaleChange = vi.fn()
+
+    await act(async () => {
+      root.render(
+        React.createElement(SettingsSheet, {
+          onEnterDemoMode: vi.fn(),
+          layers: {
+            aircraft: true,
+            satellites: true,
+            planets: true,
+            stars: true,
+            constellations: true,
+          },
+          likelyVisibleOnly: true,
+          scopeModeEnabled: true,
+          transparencyPct: 72,
+          markerScale: 2.5,
+          labelDisplayMode: 'center_only',
+          motionQuality: 'balanced',
+          onLayerToggle: vi.fn(),
+          onLikelyVisibleOnlyChange: vi.fn(),
+          onLabelDisplayModeChange: vi.fn(),
+          onMotionQualityChange: vi.fn(),
+          onScopeModeEnabledChange,
+          onTransparencyPctChange,
+          onMarkerScaleChange,
+        }),
+      )
+    })
+
+    const settingsButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Settings'),
+    )
+
+    expect(settingsButton).toBeDefined()
+
+    await act(async () => {
+      settingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const scopeToggle = container.querySelector(
+      'input[aria-label="Scope mode"]',
+    ) as HTMLInputElement | null
+    const transparencySlider = container.querySelector(
+      'input[aria-label="Transparency"]',
+    ) as HTMLInputElement | null
+    const markerScaleSlider = container.querySelector(
+      'input[aria-label="Marker scale"]',
+    ) as HTMLInputElement | null
+
+    expect(scopeToggle?.checked).toBe(true)
+    expect(transparencySlider?.value).toBe('72')
+    expect(transparencySlider?.min).toBe(String(SCOPE_OPTICS_RANGES.transparencyPct.min))
+    expect(transparencySlider?.max).toBe(String(SCOPE_OPTICS_RANGES.transparencyPct.max))
+    expect(transparencySlider?.step).toBe(String(SCOPE_OPTICS_RANGES.transparencyPct.step))
+    expect(markerScaleSlider?.value).toBe('2.5')
+    expect(container.textContent).not.toContain('Aperture')
+    expect(container.textContent).not.toContain('Magnification')
+
+    await act(async () => {
+      scopeToggle?.click()
+      setInputValue(transparencySlider!, '88')
+      setInputValue(markerScaleSlider!, '3.4')
+    })
+
+    expect(onScopeModeEnabledChange).toHaveBeenCalledWith(false)
+    expect(onTransparencyPctChange).toHaveBeenCalledWith(88)
+    expect(onMarkerScaleChange).toHaveBeenCalledWith(3.4)
   })
 
   it('clears the reported open state when the sheet unmounts while open', async () => {
@@ -488,3 +562,14 @@ describe('SettingsSheet', () => {
     expect(settingsButton?.getAttribute('aria-expanded')).toBe('false')
   })
 })
+
+function setInputValue(input: HTMLInputElement, value: string) {
+  const valueSetter = Object.getOwnPropertyDescriptor(
+    HTMLInputElement.prototype,
+    'value',
+  )?.set
+
+  valueSetter?.call(input, value)
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  input.dispatchEvent(new Event('change', { bubbles: true }))
+}

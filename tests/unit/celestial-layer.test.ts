@@ -151,6 +151,61 @@ describe('celestial layer', () => {
     expect(constellations.lineSegments).toEqual([])
   })
 
+  it('keeps likely-visible daylight suppression upstream of scope filtering', () => {
+    const stars = normalizeVisibleStars({
+      observer: nyDayObserver as ObserverState,
+      timeMs: nyDayObserver.timestampMs,
+      enabledLayers: ENABLED_LAYERS,
+      likelyVisibleOnly: true,
+      sunAltitudeDeg: 12.61,
+      scopeModeEnabled: true,
+      scopeOptics: {
+        apertureMm: 400,
+        magnificationX: 400,
+        transparencyPct: 100,
+      },
+    })
+
+    expect(stars).toEqual([])
+  })
+
+  it('adds scope render metadata without changing bundled bright-star visibility', () => {
+    const baselineStars = normalizeVisibleStars({
+      observer: nyDayObserver as ObserverState,
+      timeMs: nyDayObserver.timestampMs,
+      enabledLayers: ENABLED_LAYERS,
+      likelyVisibleOnly: false,
+      sunAltitudeDeg: 12.61,
+    })
+    const scopeFilteredStars = normalizeVisibleStars({
+      observer: nyDayObserver as ObserverState,
+      timeMs: nyDayObserver.timestampMs,
+      enabledLayers: ENABLED_LAYERS,
+      likelyVisibleOnly: false,
+      sunAltitudeDeg: 12.61,
+      scopeModeEnabled: true,
+      scopeOptics: {
+        apertureMm: 50,
+        magnificationX: 10,
+        transparencyPct: 40,
+      },
+    })
+
+    expect(
+      baselineStars.every((entry) => entry.object.metadata.scopeRender === undefined),
+    ).toBe(true)
+    expect(scopeFilteredStars).toHaveLength(baselineStars.length)
+    expect(scopeFilteredStars.every((entry) => entry.elevationDeg >= 0)).toBe(true)
+    expect(
+      scopeFilteredStars.every((entry) => entry.object.metadata.scopeRender !== undefined),
+    ).toBe(true)
+    expect(
+      scopeFilteredStars.every((entry) =>
+        baselineStars.some((baselineEntry) => baselineEntry.id === entry.id),
+      ),
+    ).toBe(true)
+  })
+
   it('locks celestial, star, and constellation detail payload fields', () => {
     const celestial = normalizeCelestialObjects({
       observer: sfEveningObserver as ObserverState,

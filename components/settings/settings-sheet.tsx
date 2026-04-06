@@ -10,7 +10,11 @@ import {
 
 import type { EnabledLayer } from '../../lib/config'
 import type { DemoScenarioId } from '../../lib/demo/scenarios'
-import type { LabelDisplayMode, MotionQuality } from '../../lib/viewer/settings'
+import {
+  SCOPE_OPTICS_RANGES,
+  type LabelDisplayMode,
+  type MotionQuality,
+} from '../../lib/viewer/settings'
 import type { AlignmentTargetPreference } from '../../lib/viewer/alignment-tutorial'
 import { CompactMobilePanelShell } from '../ui/compact-mobile-panel-shell'
 
@@ -22,7 +26,19 @@ type SettingsSheetProps = {
   onRecenter?: () => void
   canFixAlignment?: boolean
   canRecenter?: boolean
+  alignmentTargetPreference?: AlignmentTargetPreference
+  alignmentTargetAvailability?: {
+    sun: boolean
+    moon: boolean
+  }
+  alignmentTargetFallbackLabel?: string | null
+  onAlignmentTargetPreferenceChange?: (target: AlignmentTargetPreference) => void
+  onResetCalibration?: () => void
+  onFineAdjustCalibration?: (adjustment: { axis: 'yaw' | 'pitch'; deltaDeg: number }) => void
   verticalFovAdjustmentDeg?: number
+  scopeModeEnabled?: boolean
+  transparencyPct?: number
+  markerScale?: number
   cameraDevices?: Array<{
     deviceId: string
     label: string
@@ -38,6 +54,9 @@ type SettingsSheetProps = {
   onLabelDisplayModeChange: (mode: LabelDisplayMode) => void
   onMotionQualityChange: (quality: MotionQuality) => void
   onVerticalFovAdjustmentChange?: (value: number) => void
+  onScopeModeEnabledChange?: (enabled: boolean) => void
+  onTransparencyPctChange?: (value: number) => void
+  onMarkerScaleChange?: (value: number) => void
   onSelectedCameraDeviceChange?: (deviceId: string) => void
   demoScenarioId?: DemoScenarioId
   demoScenarioOptions?: Array<{
@@ -106,7 +125,16 @@ export function SettingsSheet({
   onRecenter,
   canFixAlignment = false,
   canRecenter = false,
+  alignmentTargetPreference: _alignmentTargetPreference,
+  alignmentTargetAvailability: _alignmentTargetAvailability,
+  alignmentTargetFallbackLabel: _alignmentTargetFallbackLabel,
+  onAlignmentTargetPreferenceChange: _onAlignmentTargetPreferenceChange,
+  onResetCalibration: _onResetCalibration,
+  onFineAdjustCalibration: _onFineAdjustCalibration,
   verticalFovAdjustmentDeg = 0,
+  scopeModeEnabled = false,
+  transparencyPct = 80,
+  markerScale = 1,
   cameraDevices = [],
   selectedCameraDeviceId = null,
   layers,
@@ -119,10 +147,20 @@ export function SettingsSheet({
   onLabelDisplayModeChange,
   onMotionQualityChange,
   onVerticalFovAdjustmentChange,
+  onScopeModeEnabledChange,
+  onTransparencyPctChange,
+  onMarkerScaleChange,
   onSelectedCameraDeviceChange,
   demoScenarioId,
   demoScenarioOptions = [],
 }: SettingsSheetProps) {
+  void _alignmentTargetPreference
+  void _alignmentTargetAvailability
+  void _alignmentTargetFallbackLabel
+  void _onAlignmentTargetPreferenceChange
+  void _onResetCalibration
+  void _onFineAdjustCalibration
+
   const [isOpen, setIsOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const panelRef = useRef<HTMLElement | null>(null)
@@ -285,6 +323,42 @@ export function SettingsSheet({
                       onChange={(event) => onLikelyVisibleOnlyChange(event.target.checked)}
                     />
                   </label>
+                  <fieldset className="rounded-[1.5rem] border border-sky-100/10 bg-white/5 p-4">
+                    <legend className="px-1 text-xs uppercase tracking-[0.18em] text-sky-200/60">
+                      Scope realism
+                    </legend>
+                    <div className="mt-3 grid gap-3">
+                      <label className="flex items-center justify-between rounded-2xl border border-sky-100/10 bg-slate-950/30 px-4 py-3 text-sm text-sky-50">
+                        <span>Scope mode</span>
+                        <input
+                          type="checkbox"
+                          checked={scopeModeEnabled}
+                          onChange={(event) =>
+                            onScopeModeEnabledChange?.(event.target.checked)
+                          }
+                          aria-label="Scope mode"
+                        />
+                      </label>
+                      <RangeControl
+                        label="Transparency"
+                        min={SCOPE_OPTICS_RANGES.transparencyPct.min}
+                        max={SCOPE_OPTICS_RANGES.transparencyPct.max}
+                        step={SCOPE_OPTICS_RANGES.transparencyPct.step}
+                        value={transparencyPct}
+                        suffix="%"
+                        onChange={onTransparencyPctChange}
+                      />
+                      <RangeControl
+                        label="Marker scale"
+                        min={1}
+                        max={4}
+                        step={0.1}
+                        value={markerScale}
+                        suffix="x"
+                        onChange={onMarkerScaleChange}
+                      />
+                    </div>
+                  </fieldset>
                   <fieldset className="rounded-[1.5rem] border border-sky-100/10 bg-white/5 p-4">
                     <legend className="px-1 text-xs uppercase tracking-[0.18em] text-sky-200/60">
                       Label display
@@ -487,52 +561,5 @@ function RangeControl({
         onChange={(event) => onChange?.(Number(event.target.value))}
       />
     </label>
-  )
-}
-
-function AlignmentTargetButton({
-  label,
-  target,
-  selected,
-  onSelect,
-}: {
-  label: 'Sun' | 'Moon'
-  target: AlignmentTargetPreference
-  selected: boolean
-  available: boolean
-  onSelect?: (target: AlignmentTargetPreference) => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={() => onSelect?.(target)}
-      aria-pressed={selected}
-      aria-label={`Use ${label} for alignment`}
-      className={`flex min-h-11 items-center justify-center gap-2 rounded-2xl border px-3 py-3 text-sm ${
-        selected
-          ? 'border-amber-200/45 bg-amber-200/12 text-amber-50'
-          : 'border-sky-100/10 bg-white/5 text-sky-50'
-      }`}
-    >
-      <AlignmentTargetIcon target={target} />
-      <span>{label}</span>
-    </button>
-  )
-}
-
-function AlignmentTargetIcon({ target }: { target: AlignmentTargetPreference }) {
-  if (target === 'sun') {
-    return (
-      <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4 fill-current">
-        <circle cx="12" cy="12" r="4.5" />
-        <path d="M12 1.75a.75.75 0 0 1 .75.75v2.25a.75.75 0 0 1-1.5 0V2.5a.75.75 0 0 1 .75-.75Zm0 16.5a.75.75 0 0 1 .75.75v2.5a.75.75 0 0 1-1.5 0V19a.75.75 0 0 1 .75-.75Zm10.25-6.25a.75.75 0 0 1-.75.75h-2.25a.75.75 0 0 1 0-1.5h2.25a.75.75 0 0 1 .75.75ZM5.5 12a.75.75 0 0 1-.75.75H2.5a.75.75 0 0 1 0-1.5h2.25A.75.75 0 0 1 5.5 12Zm13.225-6.975a.75.75 0 0 1 1.06 1.06L18.19 7.68a.75.75 0 1 1-1.06-1.06l1.595-1.595Zm-11.845 11.845a.75.75 0 0 1 1.06 1.06l-1.595 1.595a.75.75 0 1 1-1.06-1.06L6.88 16.87Zm11.845 2.655a.75.75 0 0 1-1.06 0L16.07 17.93a.75.75 0 1 1 1.06-1.06l1.595 1.595a.75.75 0 0 1 0 1.06ZM7.94 7.68a.75.75 0 1 1-1.06-1.06L8.475 5.025a.75.75 0 0 1 1.06 1.06L7.94 7.68Z" />
-      </svg>
-    )
-  }
-
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4 fill-current">
-      <path d="M14.75 2.4a.75.75 0 0 1 .52 1.28 8 8 0 1 0 5.05 5.05.75.75 0 0 1 1.28.52A9.5 9.5 0 1 1 14.75 2.4Z" />
-    </svg>
   )
 }
