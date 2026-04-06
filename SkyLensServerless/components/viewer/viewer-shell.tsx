@@ -150,7 +150,9 @@ import {
   type AlignmentTutorialPrimaryStep,
 } from '../../lib/viewer/alignment-tutorial'
 import {
+  SCOPE_LENS_DIAMETER_PCT_RANGE,
   markViewerOnboardingCompleted,
+  normalizeScopeLensDiameterPct,
   readViewerSettings,
   writeViewerSettings,
   type ManualObserverSettings,
@@ -160,6 +162,8 @@ import {
   SCOPE_OPTICS_RANGES,
   computeScopeRenderProfile,
   magnificationToScopeVerticalFovDeg,
+  normalizeScopeOptics,
+  normalizeScopeOpticsValue,
   passesScopeLimitingMagnitude,
   type ScopeOptics,
   type ScopeRenderProfile,
@@ -320,6 +324,27 @@ const DEFAULT_VIEWPORT = {
   width: 390,
   height: 844,
 }
+const SCOPE_LENS_DIAMETER_PX_RANGE = {
+  min: 180,
+  max: 440,
+} as const
+const SCOPE_LENS_VIEWPORT_MARGIN_PX = 32
+const DEEP_STAR_ATTENUATION_APERTURE_MM_RANGE = {
+  min: 40,
+  max: 240,
+} as const
+const SCOPE_EXTENDED_OBJECT_BASELINE_ANGULAR_DIAMETER_DEG_BY_ID = {
+  sun: 0.533,
+  moon: 0.518,
+  'planet-mercury': 0.08,
+  'planet-venus': 0.16,
+  'planet-mars': 0.11,
+  'planet-jupiter': 0.22,
+  'planet-saturn': 0.19,
+  'planet-uranus': 0.07,
+  'planet-neptune': 0.06,
+} as const
+const DEFAULT_SCOPE_PLANET_BASELINE_ANGULAR_DIAMETER_DEG = 0.1
 
 const PUBLIC_CONFIG = getPublicConfig()
 const STAR_CATALOG = loadStarCatalog()
@@ -760,7 +785,10 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const baseEffectiveVerticalFovDeg = getEffectiveVerticalFovDeg(
     viewerSettings.verticalFovAdjustmentDeg,
   )
-  const scopeLensDiameterPx = getScopeLensDiameterPx(viewport)
+  const scopeLensDiameterPx = getScopeLensDiameterPx(
+    viewport,
+    viewerSettings.scopeLensDiameterPct,
+  )
   const scopeLensRadiusPx = scopeLensDiameterPx / 2
   const scopeEffectiveVerticalFovDeg = magnificationToScopeVerticalFovDeg(
     viewerSettings.scopeOptics.magnificationX,
@@ -1133,7 +1161,10 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
               x: object.scopeProjection.x,
               y: object.scopeProjection.y,
               bMinusV: object.bMinusV,
-              intensity: scopeRender?.intensity ?? 0.5,
+              intensity: getScopeDeepStarDisplayIntensity(
+                scopeRender?.intensity,
+                viewerSettings.scopeOptics.apertureMm,
+              ),
               corePx: scopeRender?.corePx ?? 1.2,
               haloPx: scopeRender?.haloPx ?? 2.4,
             }
@@ -1147,12 +1178,12 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             id: object.id,
             x: object.scopeProjection.x,
             y: object.scopeProjection.y,
-            sizePx: getScopeMarkerSizePx(
-              object,
-              scopeEffectiveVerticalFovDeg,
-              viewerSettings.markerScale,
-            ),
-            opacity: getScopeMarkerOpacity(object),
+            sizePx: getScopeMarkerSizePx(object, {
+              lensDiameterPx: scopeLensDiameterPx,
+              scopeVerticalFovDeg: scopeEffectiveVerticalFovDeg,
+              markerScale: viewerSettings.markerScale,
+            }),
+            opacity: getScopeMarkerOpacity(object, viewerSettings.scopeOptics),
             className: getMarkerVisualClassName(object, {
               centerLockedObjectId: scopeCenterLockedBrightObject?.id ?? null,
               selectedObjectId,
@@ -3178,6 +3209,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     verticalFovAdjustmentDeg: viewerSettings.verticalFovAdjustmentDeg,
     showScopeControls: scopeControlsAvailable,
     scopeModeEnabled: viewerSettings.scopeModeEnabled,
+    scopeLensDiameterPct: viewerSettings.scopeLensDiameterPct,
     transparencyPct: viewerSettings.scopeOptics.transparencyPct,
     markerScale: viewerSettings.markerScale,
     cameraDevices,
@@ -3229,6 +3261,12 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       setViewerSettings((current) => ({
         ...current,
         scopeModeEnabled: enabled,
+      }))
+    },
+    onScopeLensDiameterPctChange: (value: number) => {
+      setViewerSettings((current) => ({
+        ...current,
+        scopeLensDiameterPct: normalizeScopeLensDiameterPct(value),
       }))
     },
     onTransparencyChange: (value: number) => {
@@ -4939,13 +4977,28 @@ function getMarkerSizePx(
 
 function getScopeMarkerSizePx(
   object: SkyObject,
-  scopeVerticalFovDeg: number,
-  markerScale: number,
+  {
+    lensDiameterPx,
+    scopeVerticalFovDeg,
+    markerScale,
+  }: {
+    lensDiameterPx: number
+    scopeVerticalFovDeg: number
+    markerScale: number
+  },
 ) {
   const scopeRender = getScopeRenderProfile(object)
 
   if (object.type === 'star' && scopeRender) {
     return Math.max(1, Math.round(scopeRender.haloPx * markerScale))
+  }
+
+  if (isScopeExtendedObject(object)) {
+    return getScopeExtendedObjectSizePx(object, {
+      lensDiameterPx,
+      scopeVerticalFovDeg,
+      markerScale,
+    })
   }
 
   return getMarkerSizePxForEffectiveVerticalFovDeg(
@@ -4955,11 +5008,15 @@ function getScopeMarkerSizePx(
   )
 }
 
-function getScopeMarkerOpacity(object: SkyObject) {
+function getScopeMarkerOpacity(object: SkyObject, scopeOptics: ScopeOptics) {
   const scopeRender = getScopeRenderProfile(object)
 
   if (object.type === 'star' && scopeRender) {
     return clampNumber(scopeRender.intensity, 0.18, 1)
+  }
+
+  if (isScopeExtendedObject(object)) {
+    return getScopeExtendedObjectOpacity(object, scopeOptics)
   }
 
   return 1
@@ -5022,11 +5079,61 @@ function getMarkerSizePxForEffectiveVerticalFovDeg(
   return Math.max(1, Math.round(scaleOneSizePx * markerScale))
 }
 
-function getScopeLensDiameterPx(viewport: {
-  width: number
-  height: number
-}) {
-  return clampNumber(Math.min(viewport.width, viewport.height) * 0.58, 220, 320)
+function getScopeLensDiameterPx(
+  viewport: {
+    width: number
+    height: number
+  },
+  scopeLensDiameterPct: number,
+) {
+  const safeWidth = Number.isFinite(viewport.width) ? viewport.width : DEFAULT_VIEWPORT.width
+  const safeHeight = Number.isFinite(viewport.height) ? viewport.height : DEFAULT_VIEWPORT.height
+  const normalizedScopeLensDiameterPct = normalizeScopeLensDiameterPct(scopeLensDiameterPct)
+  const requestedDiameterPx = safeHeight * (normalizedScopeLensDiameterPct / 100)
+  const viewportSafeMaxPx = Math.max(
+    1,
+    Math.min(
+      safeWidth - SCOPE_LENS_VIEWPORT_MARGIN_PX,
+      safeHeight - SCOPE_LENS_VIEWPORT_MARGIN_PX,
+      SCOPE_LENS_DIAMETER_PX_RANGE.max,
+    ),
+  )
+  const viewportSafeMinPx = Math.min(SCOPE_LENS_DIAMETER_PX_RANGE.min, viewportSafeMaxPx)
+  const supportedRangeMinDiameterPx =
+    safeHeight * (SCOPE_LENS_DIAMETER_PCT_RANGE.min / 100)
+
+  if (
+    supportedRangeMinDiameterPx > viewportSafeMaxPx &&
+    viewportSafeMaxPx > viewportSafeMinPx
+  ) {
+    const normalizedPercentWithinRange =
+      (normalizedScopeLensDiameterPct - SCOPE_LENS_DIAMETER_PCT_RANGE.min) /
+      (SCOPE_LENS_DIAMETER_PCT_RANGE.max - SCOPE_LENS_DIAMETER_PCT_RANGE.min)
+
+    return clampNumber(
+      viewportSafeMinPx +
+        normalizedPercentWithinRange * (viewportSafeMaxPx - viewportSafeMinPx),
+      viewportSafeMinPx,
+      viewportSafeMaxPx,
+    )
+  }
+
+  return clampNumber(requestedDiameterPx, viewportSafeMinPx, viewportSafeMaxPx)
+}
+
+function getScopeDeepStarDisplayIntensity(intensity: unknown, apertureMm: unknown) {
+  const safeIntensity = typeof intensity === 'number' && Number.isFinite(intensity) ? intensity : 0.5
+  const apertureFactor = clampNumber(
+    (normalizeScopeOpticsValue('apertureMm', apertureMm) -
+      DEEP_STAR_ATTENUATION_APERTURE_MM_RANGE.min) /
+      (DEEP_STAR_ATTENUATION_APERTURE_MM_RANGE.max -
+        DEEP_STAR_ATTENUATION_APERTURE_MM_RANGE.min),
+    0,
+    1,
+  )
+  const deepStarAttenuation = 0.45 + 0.55 * apertureFactor
+
+  return clampNumber(safeIntensity * deepStarAttenuation, 0.08, 1)
 }
 
 function getScopeRenderProfile(object: SkyObject): ScopeRenderProfile | null {
@@ -5073,6 +5180,12 @@ function isFiniteScopeRenderValue(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
 }
 
+function isScopeExtendedObject(object: SkyObject): object is SkyObject & {
+  type: 'sun' | 'moon' | 'planet'
+} {
+  return object.type === 'sun' || object.type === 'moon' || object.type === 'planet'
+}
+
 function isScopeBrightObject(object: SkyObject) {
   return (
     object.type === 'sun' ||
@@ -5080,6 +5193,88 @@ function isScopeBrightObject(object: SkyObject) {
     object.type === 'planet' ||
     object.type === 'star'
   )
+}
+
+function getScopeExtendedObjectSizePx(
+  object: SkyObject & {
+    type: 'sun' | 'moon' | 'planet'
+  },
+  {
+    lensDiameterPx,
+    scopeVerticalFovDeg,
+    markerScale,
+  }: {
+    lensDiameterPx: number
+    scopeVerticalFovDeg: number
+    markerScale: number
+  },
+) {
+  const baselineAngularDiameterDeg = getScopeExtendedObjectBaselineAngularDiameterDeg(object)
+  const projectedDiameterPx =
+    lensDiameterPx * (baselineAngularDiameterDeg / Math.max(scopeVerticalFovDeg, 0.1))
+  const markerScaleFactor = 0.85 + clampNumber(markerScale, 1, 4) * 0.15
+  const scaledDiameterPx = projectedDiameterPx * markerScaleFactor
+
+  switch (object.type) {
+    case 'sun':
+      return Math.round(
+        clampNumber(scaledDiameterPx, 22, lensDiameterPx * 0.78),
+      )
+    case 'moon':
+      return Math.round(
+        clampNumber(scaledDiameterPx, 20, lensDiameterPx * 0.72),
+      )
+    case 'planet':
+      return Math.round(
+        clampNumber(scaledDiameterPx, 5, Math.min(34, lensDiameterPx * 0.22)),
+      )
+  }
+}
+
+function getScopeExtendedObjectOpacity(
+  object: SkyObject & {
+    type: 'sun' | 'moon' | 'planet'
+  },
+  scopeOptics: ScopeOptics,
+) {
+  const normalizedOptics = normalizeScopeOptics(scopeOptics)
+  const apertureFactor = clampNumber(
+    (normalizedOptics.apertureMm - SCOPE_OPTICS_RANGES.apertureMm.min) /
+      (240 - SCOPE_OPTICS_RANGES.apertureMm.min),
+    0,
+    1,
+  )
+  const magnificationFactor = clampNumber(
+    (normalizedOptics.magnificationX - SCOPE_OPTICS_RANGES.magnificationX.min) /
+      (160 - SCOPE_OPTICS_RANGES.magnificationX.min),
+    0,
+    1,
+  )
+
+  switch (object.type) {
+    case 'sun':
+      return clampNumber(0.78 + apertureFactor * 0.16 - magnificationFactor * 0.08, 0.72, 0.94)
+    case 'moon':
+      return clampNumber(0.7 + apertureFactor * 0.18 - magnificationFactor * 0.1, 0.62, 0.92)
+    case 'planet':
+      return clampNumber(0.46 + apertureFactor * 0.24 - magnificationFactor * 0.14, 0.34, 0.82)
+  }
+}
+
+function getScopeExtendedObjectBaselineAngularDiameterDeg(
+  object: SkyObject & {
+    type: 'sun' | 'moon' | 'planet'
+  },
+) {
+  if (object.type === 'planet') {
+    return (
+      SCOPE_EXTENDED_OBJECT_BASELINE_ANGULAR_DIAMETER_DEG_BY_ID[
+        object.id as keyof typeof SCOPE_EXTENDED_OBJECT_BASELINE_ANGULAR_DIAMETER_DEG_BY_ID
+      ] ?? DEFAULT_SCOPE_PLANET_BASELINE_ANGULAR_DIAMETER_DEG
+    )
+  }
+
+  return SCOPE_EXTENDED_OBJECT_BASELINE_ANGULAR_DIAMETER_DEG_BY_ID[object.type]
 }
 
 function getMagnitudeBoost(magnitude?: number) {

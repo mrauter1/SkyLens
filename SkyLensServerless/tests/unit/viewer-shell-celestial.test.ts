@@ -1697,6 +1697,7 @@ describe('ViewerShell celestial behavior', () => {
           headingOffsetDeg: 0,
           pitchOffsetDeg: 0,
           verticalFovAdjustmentDeg: 0,
+          motionQuality: 'low',
           onboardingCompleted: false,
         }),
       )
@@ -2152,73 +2153,106 @@ describe('ViewerShell celestial behavior', () => {
   it(
     'renders a trail for high motion quality',
     async () => {
-    window.localStorage.setItem(
-      VIEWER_SETTINGS_STORAGE_KEY,
-      JSON.stringify({
-        enabledLayers: {
-          aircraft: true,
-          satellites: true,
-          planets: true,
-          stars: true,
-          constellations: true,
-        },
-        likelyVisibleOnly: false,
-        labelDisplayMode: 'center_only',
-        headingOffsetDeg: 0,
-        pitchOffsetDeg: 0,
-        verticalFovAdjustmentDeg: 0,
-        motionQuality: 'high',
-        onboardingCompleted: false,
-      }),
-    )
+      const timerHarness = installWindowTimerHarness()
+      const originalRequestAnimationFrame = window.requestAnimationFrame
+      const originalCancelAnimationFrame = window.cancelAnimationFrame
+      Object.defineProperty(window, 'requestAnimationFrame', {
+        configurable: true,
+        writable: true,
+        value: undefined,
+      })
+      Object.defineProperty(window, 'cancelAnimationFrame', {
+        configurable: true,
+        writable: true,
+        value: undefined,
+      })
+      window.localStorage.setItem(
+        VIEWER_SETTINGS_STORAGE_KEY,
+        JSON.stringify({
+          enabledLayers: {
+            aircraft: true,
+            satellites: true,
+            planets: true,
+            stars: true,
+            constellations: true,
+          },
+          likelyVisibleOnly: false,
+          labelDisplayMode: 'center_only',
+          headingOffsetDeg: 0,
+          pitchOffsetDeg: 0,
+          verticalFovAdjustmentDeg: 0,
+          motionQuality: 'high',
+          onboardingCompleted: false,
+        }),
+      )
 
-    mockNormalizeCelestialObjects.mockReturnValue({
-      sunAltitudeDeg: -12,
-      objects: [],
-    })
-    mockResolveSatelliteMotionObjects.mockReturnValue([
-      {
-        confidence: 1,
-        motionState: 'propagated',
-        object: {
-          id: '25544',
-          type: 'satellite',
-          label: 'ISS (ZARYA)',
-          sublabel: 'Satellite',
-          azimuthDeg: 0,
-          elevationDeg: 16,
-          rangeKm: 420.7,
-          importance: 88,
-          metadata: {
-            isIss: true,
-            detail: {
-              typeLabel: 'Satellite',
-              noradId: 25544,
-              elevationDeg: 16,
-              azimuthDeg: 0,
-              rangeKm: 420.7,
+      mockNormalizeCelestialObjects.mockReturnValue({
+        sunAltitudeDeg: -12,
+        objects: [],
+      })
+      mockResolveSatelliteMotionObjects.mockReturnValue([
+        {
+          confidence: 1,
+          motionState: 'propagated',
+          object: {
+            id: '25544',
+            type: 'satellite',
+            label: 'ISS (ZARYA)',
+            sublabel: 'Satellite',
+            azimuthDeg: 0,
+            elevationDeg: 16,
+            rangeKm: 420.7,
+            importance: 88,
+            metadata: {
               isIss: true,
+              detail: {
+                typeLabel: 'Satellite',
+                noradId: 25544,
+                elevationDeg: 16,
+                azimuthDeg: 0,
+                rangeKm: 420.7,
+                isIss: true,
+              },
             },
           },
         },
-      },
-    ])
+      ])
 
-    await renderViewer({
-      entry: 'demo',
-      location: 'granted',
-      camera: 'denied',
-      orientation: 'denied',
-      demoScenarioId: 'tokyo-iss',
-    })
+      try {
+        await renderViewer({
+          entry: 'demo',
+          location: 'granted',
+          camera: 'denied',
+          orientation: 'denied',
+          demoScenarioId: 'tokyo-iss',
+        })
 
-    await act(async () => {
-      await new Promise((resolve) => window.setTimeout(resolve, 150))
-    })
-    await flushEffects()
+        const advanceSceneTime = timerHarness.getIntervalCallback(1_000)
 
-      expect(container.querySelector('[data-testid="motion-affordance-vector"]')).toBeNull()
-      expect(container.querySelector('[data-testid="motion-affordance-trail"]')).not.toBeNull()
+        await act(async () => {
+          advanceSceneTime()
+        })
+        await flushEffects()
+
+        await act(async () => {
+          advanceSceneTime()
+        })
+        await flushEffects()
+
+        expect(container.querySelector('[data-testid="motion-affordance-vector"]')).toBeNull()
+        expect(container.querySelector('[data-testid="motion-affordance-trail"]')).not.toBeNull()
+      } finally {
+        Object.defineProperty(window, 'requestAnimationFrame', {
+          configurable: true,
+          writable: true,
+          value: originalRequestAnimationFrame,
+        })
+        Object.defineProperty(window, 'cancelAnimationFrame', {
+          configurable: true,
+          writable: true,
+          value: originalCancelAnimationFrame,
+        })
+      }
     },
     10_000,
   )

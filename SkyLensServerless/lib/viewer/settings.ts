@@ -19,6 +19,12 @@ export const VIEWER_SETTINGS_STORAGE_KEY = 'skylens-serverless.viewer-settings.v
 export const SCOPE_VERTICAL_FOV_MIN_DEG = SCOPE_VERTICAL_FOV_RANGE.min
 export const SCOPE_VERTICAL_FOV_MAX_DEG = SCOPE_VERTICAL_FOV_RANGE.max
 export const SCOPE_VERTICAL_FOV_DEFAULT_DEG = SCOPE_VERTICAL_FOV_RANGE.defaultValue
+export const SCOPE_LENS_DIAMETER_PCT_RANGE = {
+  min: 50,
+  max: 90,
+  step: 1,
+  defaultValue: 75,
+} as const
 
 export type LabelDisplayMode = 'center_only' | 'on_objects' | 'top_list'
 export type MotionQuality = 'low' | 'balanced' | 'high'
@@ -39,6 +45,7 @@ export interface ViewerSettings {
   labelDisplayMode: LabelDisplayMode
   motionQuality: MotionQuality
   markerScale: number
+  scopeLensDiameterPct: number
   poseCalibration: PoseCalibration
   alignmentTargetPreference: AlignmentTargetPreference | null
   verticalFovAdjustmentDeg: number
@@ -67,6 +74,7 @@ const SettingsSchema = z.object({
   labelDisplayMode: z.enum(['center_only', 'on_objects', 'top_list']),
   motionQuality: z.enum(['low', 'balanced', 'high']).optional(),
   markerScale: z.number().optional(),
+  scopeLensDiameterPct: z.unknown().optional(),
   headingOffsetDeg: z.number().optional(),
   pitchOffsetDeg: z.number().optional(),
   alignmentTargetPreference: z.enum(['sun', 'moon']).nullable().optional(),
@@ -117,6 +125,7 @@ export function getDefaultViewerSettings(): ViewerSettings {
     labelDisplayMode: 'center_only',
     motionQuality: 'balanced',
     markerScale: 1,
+    scopeLensDiameterPct: SCOPE_LENS_DIAMETER_PCT_RANGE.defaultValue,
     poseCalibration: createIdentityPoseCalibration(),
     alignmentTargetPreference: null,
     verticalFovAdjustmentDeg: 0,
@@ -147,6 +156,7 @@ export function readViewerSettings(storage = getBrowserStorage()): ViewerSetting
 
     const parsed = SettingsSchema.partial().parse(JSON.parse(rawValue))
     const {
+      scopeLensDiameterPct: rawScopeLensDiameterPct,
       scope: rawScopeInput,
       scopeOptics: rawScopeOpticsInput,
       scopeModeEnabled: rawScopeModeEnabled,
@@ -164,6 +174,7 @@ export function readViewerSettings(storage = getBrowserStorage()): ViewerSetting
     return normalizeViewerSettings({
       ...defaults,
       ...parsedSettings,
+      scopeLensDiameterPct: normalizeScopeLensDiameterPct(rawScopeLensDiameterPct),
       scopeModeEnabled,
       enabledLayers: {
         ...defaults.enabledLayers,
@@ -234,6 +245,7 @@ export function normalizeViewerSettings(settings: ViewerSettings): ViewerSetting
     labelDisplayMode: settings.labelDisplayMode,
     motionQuality: normalizeMotionQuality(settings.motionQuality),
     markerScale: normalizeMarkerScale(settings.markerScale),
+    scopeLensDiameterPct: normalizeScopeLensDiameterPct(settings.scopeLensDiameterPct),
     poseCalibration: createPoseCalibration(settings.poseCalibration),
     alignmentTargetPreference: normalizeAlignmentTargetPreference(
       settings.alignmentTargetPreference,
@@ -316,6 +328,20 @@ function normalizeMarkerScale(markerScale: number | null | undefined) {
   }
 
   return clamp(markerScale, 1, 4)
+}
+
+export function normalizeScopeLensDiameterPct(value: unknown) {
+  const parsedValue = readNumberSetting(value)
+
+  if (parsedValue === undefined) {
+    return SCOPE_LENS_DIAMETER_PCT_RANGE.defaultValue
+  }
+
+  return clamp(
+    parsedValue,
+    SCOPE_LENS_DIAMETER_PCT_RANGE.min,
+    SCOPE_LENS_DIAMETER_PCT_RANGE.max,
+  )
 }
 
 function normalizeAlignmentTargetPreference(

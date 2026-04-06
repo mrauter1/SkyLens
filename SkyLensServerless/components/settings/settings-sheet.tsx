@@ -10,7 +10,11 @@ import {
 
 import type { EnabledLayer } from '../../lib/config'
 import type { DemoScenarioId } from '../../lib/demo/scenarios'
-import type { LabelDisplayMode, MotionQuality } from '../../lib/viewer/settings'
+import {
+  SCOPE_LENS_DIAMETER_PCT_RANGE,
+  type LabelDisplayMode,
+  type MotionQuality,
+} from '../../lib/viewer/settings'
 import { SCOPE_OPTICS_RANGES } from '../../lib/viewer/scope-optics'
 import { CompactMobilePanelShell } from '../ui/compact-mobile-panel-shell'
 
@@ -26,6 +30,7 @@ type SettingsSheetProps = {
   verticalFovAdjustmentDeg?: number
   showScopeControls?: boolean
   scopeModeEnabled?: boolean
+  scopeLensDiameterPct?: number
   transparencyPct?: number
   markerScale?: number
   cameraDevices?: Array<{
@@ -44,6 +49,7 @@ type SettingsSheetProps = {
   onMotionQualityChange: (quality: MotionQuality) => void
   onVerticalFovAdjustmentChange?: (value: number) => void
   onScopeModeEnabledChange?: (enabled: boolean) => void
+  onScopeLensDiameterPctChange?: (value: number) => void
   onTransparencyChange?: (value: number) => void
   onMarkerScaleChange?: (value: number) => void
   onSelectedCameraDeviceChange?: (deviceId: string) => void
@@ -118,6 +124,7 @@ export function SettingsSheet({
   verticalFovAdjustmentDeg = 0,
   showScopeControls = false,
   scopeModeEnabled = false,
+  scopeLensDiameterPct = SCOPE_LENS_DIAMETER_PCT_RANGE.defaultValue,
   transparencyPct = 85,
   markerScale = 1,
   cameraDevices = [],
@@ -133,6 +140,7 @@ export function SettingsSheet({
   onMotionQualityChange,
   onVerticalFovAdjustmentChange,
   onScopeModeEnabledChange,
+  onScopeLensDiameterPctChange,
   onTransparencyChange,
   onMarkerScaleChange,
   onSelectedCameraDeviceChange,
@@ -437,6 +445,7 @@ export function SettingsSheet({
                     step={1}
                     value={verticalFovAdjustmentDeg}
                     suffix="°"
+                    showPositiveSign
                     onChange={onVerticalFovAdjustmentChange}
                   />
                   <RangeControl
@@ -461,6 +470,16 @@ export function SettingsSheet({
                           aria-label="Scope mode"
                         />
                       </label>
+                      <RangeControl
+                        label="Telescope diameter"
+                        min={SCOPE_LENS_DIAMETER_PCT_RANGE.min}
+                        max={SCOPE_LENS_DIAMETER_PCT_RANGE.max}
+                        step={SCOPE_LENS_DIAMETER_PCT_RANGE.step}
+                        value={scopeLensDiameterPct}
+                        suffix="%"
+                        description="% of screen height"
+                        onChange={onScopeLensDiameterPctChange}
+                      />
                       <RangeControl
                         label="Transparency"
                         min={SCOPE_OPTICS_RANGES.transparencyPct.min}
@@ -524,6 +543,8 @@ function RangeControl({
   step,
   value,
   suffix,
+  description,
+  showPositiveSign = false,
   onChange,
 }: {
   label: string
@@ -532,14 +553,21 @@ function RangeControl({
   step: number
   value: number
   suffix: string
+  description?: string
+  showPositiveSign?: boolean
   onChange?: (value: number) => void
 }) {
   return (
     <label className="grid gap-2 text-sm text-sky-50">
       <span className="flex items-center justify-between gap-3">
-        <span>{label}</span>
+        <span>
+          <span className="block">{label}</span>
+          {description ? (
+            <span className="mt-1 block text-xs text-sky-100/70">{description}</span>
+          ) : null}
+        </span>
         <span className="text-xs uppercase tracking-[0.16em] text-sky-200/65">
-          {value > 0 ? '+' : ''}
+          {showPositiveSign && value > 0 ? '+' : ''}
           {value}
           {suffix}
         </span>
