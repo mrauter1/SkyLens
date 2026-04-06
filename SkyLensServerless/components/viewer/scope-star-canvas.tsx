@@ -112,8 +112,14 @@ function normalizeScopeStarRadiusPx(value: number, fallback: number) {
 
 function getLensCompressionFactor(diameterPx: number) {
   const safeDiameterPx = Number.isFinite(diameterPx) ? diameterPx : 240
+  const diameterRangePx = MAX_LENS_DIAMETER_PX - MIN_LENS_DIAMETER_PX
+
+  if (diameterRangePx <= 0) {
+    return MIN_LENS_COMPRESSION_FACTOR
+  }
+
   const normalizedDiameter =
-    (safeDiameterPx - MIN_LENS_DIAMETER_PX) / (MAX_LENS_DIAMETER_PX - MIN_LENS_DIAMETER_PX)
+    (safeDiameterPx - MIN_LENS_DIAMETER_PX) / diameterRangePx
   const unclampedFactor =
     MIN_LENS_COMPRESSION_FACTOR +
     normalizedDiameter * (MAX_LENS_COMPRESSION_FACTOR - MIN_LENS_COMPRESSION_FACTOR)
