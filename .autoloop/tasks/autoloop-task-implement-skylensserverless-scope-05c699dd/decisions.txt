@@ -1,0 +1,11 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260406T163205Z-1ddccc85" ts="2026-04-06T16:32:05.328609+00:00" />
+Keep deep-star size compression local to scope-star-canvas so computeScopeRenderProfile and magnificationX-driven runtime semantics remain canonical and unchanged.
+Treat viewer-shell runtime tests as invariant guards for gating order and magnification spacing, not as a place to re-encode renderer tuning.
+<autoloop-decisions-header version="1" block_seq="2" owner="planner" phase_id="task-global" pair="plan" turn_seq="2" run_id="run-20260406T163205Z-1ddccc85" ts="2026-04-06T16:34:18.756710+00:00" />
+Preserve the full deep-star gating order explicitly, including the likely-visible/daylight suppression gate ahead of horizon and optics filtering.
+This task's delivery contract includes a final non-amended commit containing the implementation and tests, not just updated files and passing validation.
+<autoloop-decisions-header version="1" block_seq="3" owner="implementer" phase_id="compact-deep-star-render-retune" pair="implement" turn_seq="1" run_id="run-20260406T163205Z-1ddccc85" ts="2026-04-06T16:35:31.435735+00:00" />
+Apply lens compression as a renderer-local linear interpolation from 180-400 px lens diameters into a 0.72-1.0 multiplier before clamping core and halo radii into compact envelopes.
+Gate halo drawing on the compressed core radius meeting a deterministic 1.15 px threshold so tiny stars remain crisp even when the incoming halo profile is large.
+<autoloop-decisions-header version="1" block_seq="4" owner="test_author" phase_id="compact-deep-star-render-retune" pair="test" turn_seq="1" run_id="run-20260406T163205Z-1ddccc85" ts="2026-04-06T16:43:39.974011+00:00" />
+Keep runtime invariant assertions renderer-agnostic, but expose `createRadialGradient` in the runtime canvas stub so those tests execute the production halo branch instead of depending on the solid fallback path.
