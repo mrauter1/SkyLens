@@ -165,13 +165,14 @@ export function readViewerSettings(storage = getBrowserStorage()): ViewerSetting
       },
       scope: {
         ...defaults.scope,
-        verticalFovDeg: scopeInput.verticalFovDeg,
+        verticalFovDeg:
+          readNumberSetting(scopeInput.verticalFovDeg) ?? defaults.scope.verticalFovDeg,
       },
       scopeOptics: normalizeScopeOptics({
         ...defaults.scopeOptics,
-        apertureMm: scopeOpticsInput.apertureMm,
-        magnificationX: scopeOpticsInput.magnificationX,
-        transparencyPct: scopeOpticsInput.transparencyPct,
+        apertureMm: readNumberSetting(scopeOpticsInput.apertureMm),
+        magnificationX: readNumberSetting(scopeOpticsInput.magnificationX),
+        transparencyPct: readNumberSetting(scopeOpticsInput.transparencyPct),
       }),
     })
   } catch {
@@ -272,6 +273,17 @@ function getSettingsObject(value: unknown): Record<string, unknown> {
 
 function readBooleanSetting(value: unknown) {
   return typeof value === 'boolean' ? value : undefined
+}
+
+function readNumberSetting(value: unknown) {
+  const parsedValue =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string' && value.trim().length > 0
+        ? Number(value)
+        : Number.NaN
+
+  return Number.isFinite(parsedValue) ? parsedValue : undefined
 }
 
 export function normalizeScopeVerticalFovDeg(value: number | null | undefined) {
