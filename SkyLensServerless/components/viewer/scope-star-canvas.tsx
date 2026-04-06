@@ -48,15 +48,14 @@ export function ScopeStarCanvas({
       const haloOpacity = getScopeStarHaloOpacity(star.intensity)
       const coreOpacity = getScopeStarCoreOpacity(star.intensity)
       const color = getScopeStarColor(star.bMinusV)
+      context.fillStyle = color
 
       context.beginPath()
-      context.fillStyle = color
       context.globalAlpha = haloOpacity
       context.arc(star.x, star.y, haloRadiusPx, 0, Math.PI * 2)
       context.fill()
 
       context.beginPath()
-      context.fillStyle = color
       context.globalAlpha = coreOpacity
       context.arc(star.x, star.y, coreRadiusPx, 0, Math.PI * 2)
       context.fill()
