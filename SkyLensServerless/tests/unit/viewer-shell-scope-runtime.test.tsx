@@ -127,7 +127,7 @@ type CanvasFillCall = {
   y: number
   radius: number
   alpha: number
-  fillStyle: string
+  fillStyle: unknown
 }
 
 let canvasFillCalls: CanvasFillCall[] = []
@@ -997,8 +997,11 @@ function stubCanvasContext() {
       })
     }),
     setTransform: vi.fn(),
+    createRadialGradient: vi.fn(() => ({
+      addColorStop: vi.fn(),
+    })),
     globalAlpha: 1,
-    fillStyle: '',
+    fillStyle: '' as unknown,
   }
 
   Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
