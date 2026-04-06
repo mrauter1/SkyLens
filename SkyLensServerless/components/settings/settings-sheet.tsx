@@ -26,7 +26,6 @@ type SettingsSheetProps = {
   verticalFovAdjustmentDeg?: number
   showScopeControls?: boolean
   scopeModeEnabled?: boolean
-  scopeVerticalFovDeg?: number
   transparencyPct?: number
   markerScale?: number
   cameraDevices?: Array<{
@@ -45,7 +44,6 @@ type SettingsSheetProps = {
   onMotionQualityChange: (quality: MotionQuality) => void
   onVerticalFovAdjustmentChange?: (value: number) => void
   onScopeModeEnabledChange?: (enabled: boolean) => void
-  onScopeVerticalFovChange?: (value: number) => void
   onTransparencyChange?: (value: number) => void
   onMarkerScaleChange?: (value: number) => void
   onSelectedCameraDeviceChange?: (deviceId: string) => void
@@ -120,7 +118,6 @@ export function SettingsSheet({
   verticalFovAdjustmentDeg = 0,
   showScopeControls = false,
   scopeModeEnabled = false,
-  scopeVerticalFovDeg = 10,
   transparencyPct = 85,
   markerScale = 1,
   cameraDevices = [],
@@ -136,7 +133,6 @@ export function SettingsSheet({
   onMotionQualityChange,
   onVerticalFovAdjustmentChange,
   onScopeModeEnabledChange,
-  onScopeVerticalFovChange,
   onTransparencyChange,
   onMarkerScaleChange,
   onSelectedCameraDeviceChange,
@@ -465,15 +461,6 @@ export function SettingsSheet({
                           aria-label="Scope mode"
                         />
                       </label>
-                      <RangeControl
-                        label="Scope field of view"
-                        min={3}
-                        max={20}
-                        step={0.5}
-                        value={scopeVerticalFovDeg}
-                        suffix="°"
-                        onChange={onScopeVerticalFovChange}
-                      />
                       <RangeControl
                         label="Transparency"
                         min={SCOPE_OPTICS_RANGES.transparencyPct.min}

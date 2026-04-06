@@ -1,0 +1,31 @@
+# Test Strategy
+
+- Task ID: scope-realism-v2
+- Pair: test
+- Phase ID: canonical-scope-optics-and-compatibility
+- Phase Directory Key: canonical-scope-optics-and-compatibility
+- Phase Title: Make magnification canonical for scope zoom and preserve legacy settings compatibility
+- Scope: phase-local producer artifact
+- Behaviors covered:
+  - `tests/unit/scope-optics.test.ts`: magnification→scope-FOV monotonic narrowing, clamp bounds, finite malformed-input fallback, and inverse legacy FOV→magnification round-trip with the shared default apparent-field constant.
+  - `tests/unit/scope-runtime.test.ts`: existing scope band thresholds plus deterministic band selection when fed magnification-derived FOV values.
+  - `tests/unit/viewer-settings.test.tsx`: legacy FOV-only payload migration, canonical magnification precedence over legacy FOV, write-path regeneration of compatibility `scope.verticalFovDeg`, malformed persisted scope fields, and real settings-sheet scope toggle sync after slider removal.
+  - `tests/unit/settings-sheet.test.tsx`: settings sheet no longer renders a scope FOV slider, but still delegates scope toggle, transparency, and marker-scale ownership.
+  - `tests/unit/viewer-shell.test.ts`: quick controls remain aperture + magnification, marker scale stays in settings, and desktop/mobile scope toggles remain synchronized.
+- Preserved invariants checked:
+  - Storage key and payload shape stay unchanged.
+  - `scopeModeEnabled` still prefers canonical field over legacy `scope.enabled`.
+  - Scope quick controls remain aperture + magnification only; settings retain toggle + transparency + marker scale.
+  - Derived compatibility FOV remains stable across read/write normalization.
+- Edge cases / failure paths:
+  - Non-finite optics and FOV inputs collapse to deterministic defaults.
+  - Legacy payloads with missing or malformed magnification fall back to inverse migration from legacy FOV or to defaults.
+  - Conflicting canonical magnification and legacy FOV values resolve in favor of magnification.
+- Stabilization approach:
+  - Use unit-level deterministic helpers and localStorage-backed integration tests instead of timing- or network-sensitive flows.
+  - Keep viewer-shell coverage on already mocked settings/canvas infrastructure; accept the existing jsdom canvas `getContext` warning as environmental noise because the scoped suites still pass deterministically.
+- Known gaps:
+  - This phase does not add deep-star render-profile or canvas-drawing assertions because those behaviors are explicitly out of scope.
+  - Broader `npm test` still has unrelated failures in `tests/unit/viewer-shell-celestial.test.ts`; scoped regression coverage relies on the targeted command below.
+- Validation run:
+  - `npm test -- tests/unit/scope-optics.test.ts tests/unit/scope-runtime.test.ts tests/unit/viewer-settings.test.tsx tests/unit/settings-sheet.test.tsx tests/unit/viewer-shell.test.ts`

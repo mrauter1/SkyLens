@@ -1,0 +1,51 @@
+{
+  "task_id": "scope-realism-v2",
+  "created_at": "2026-04-06T13:49:00.904497+00:00",
+  "request_text": "Implement AUTOLOOP_TASK_SCOPE_REALISM_V2.md exactly. Read the markdown file from repository root and execute it as the full standalone PRD+ARD for SkyLensServerless.",
+  "request_updated_at": "2026-04-06T13:49:00.904632+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/scope-realism-v2/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260406T134900Z-90d728e0",
+    "mode": "single",
+    "phase_ids": [
+      "canonical-scope-optics-and-compatibility",
+      "unify-scope-runtime-and-deep-star-optics"
+    ],
+    "explicit": true,
+    "current_phase_index": 2,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "canonical-scope-optics-and-compatibility": "completed",
+    "unify-scope-runtime-and-deep-star-optics": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "canonical-scope-optics-and-compatibility",
+      "run_id": "run-20260406T134900Z-90d728e0",
+      "status": "in_progress",
+      "ts": "2026-04-06T13:53:26.599619+00:00"
+    },
+    {
+      "phase_id": "canonical-scope-optics-and-compatibility",
+      "run_id": "run-20260406T134900Z-90d728e0",
+      "status": "completed",
+      "ts": "2026-04-06T14:07:20.788890+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "unify-scope-runtime-and-deep-star-optics",
+      "run_id": "run-20260406T134900Z-90d728e0",
+      "status": "in_progress",
+      "ts": "2026-04-06T14:07:20.790573+00:00"
+    },
+    {
+      "phase_id": "unify-scope-runtime-and-deep-star-optics",
+      "run_id": "run-20260406T134900Z-90d728e0",
+      "status": "completed",
+      "ts": "2026-04-06T14:20:17.611101+00:00",
+      "pair": "test"
+    }
+  ]
+}

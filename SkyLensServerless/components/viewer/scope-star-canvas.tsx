@@ -6,8 +6,10 @@ export type ScopeStarCanvasPoint = {
   id: string
   x: number
   y: number
-  vMag: number
   bMinusV: number
+  intensity: number
+  corePx: number
+  haloPx: number
 }
 
 type ScopeStarCanvasProps = {
@@ -41,11 +43,22 @@ export function ScopeStarCanvas({
     context.clearRect(0, 0, diameterPx, diameterPx)
 
     for (const star of stars) {
-      const radiusPx = getScopeStarRadiusPx(star.vMag)
+      const haloRadiusPx = normalizeScopeStarRadiusPx(star.haloPx, 2.1)
+      const coreRadiusPx = normalizeScopeStarRadiusPx(star.corePx, 1)
+      const haloOpacity = getScopeStarHaloOpacity(star.intensity)
+      const coreOpacity = getScopeStarCoreOpacity(star.intensity)
+      const color = getScopeStarColor(star.bMinusV)
+
       context.beginPath()
-      context.fillStyle = getScopeStarColor(star.bMinusV)
-      context.globalAlpha = getScopeStarOpacity(star.vMag)
-      context.arc(star.x, star.y, radiusPx, 0, Math.PI * 2)
+      context.fillStyle = color
+      context.globalAlpha = haloOpacity
+      context.arc(star.x, star.y, haloRadiusPx, 0, Math.PI * 2)
+      context.fill()
+
+      context.beginPath()
+      context.fillStyle = color
+      context.globalAlpha = coreOpacity
+      context.arc(star.x, star.y, coreRadiusPx, 0, Math.PI * 2)
       context.fill()
     }
 
@@ -66,36 +79,28 @@ export function ScopeStarCanvas({
   )
 }
 
-function getScopeStarRadiusPx(vMag: number) {
-  if (!Number.isFinite(vMag)) {
-    return 1
+function normalizeScopeStarRadiusPx(value: number, fallback: number) {
+  if (!Number.isFinite(value)) {
+    return fallback
   }
 
-  if (vMag <= 2) {
-    return 2.4
-  }
-
-  if (vMag <= 4) {
-    return 2
-  }
-
-  if (vMag <= 6.5) {
-    return 1.7
-  }
-
-  if (vMag <= 8.5) {
-    return 1.35
-  }
-
-  return 1.05
+  return Math.min(Math.max(value, 0.8), 6.2)
 }
 
-function getScopeStarOpacity(vMag: number) {
-  if (!Number.isFinite(vMag)) {
-    return 0.7
+function getScopeStarHaloOpacity(intensity: number) {
+  if (!Number.isFinite(intensity)) {
+    return 0.2
   }
 
-  return Math.min(Math.max(1.08 - vMag / 16, 0.32), 0.95)
+  return Math.min(Math.max(0.1 + intensity * 0.32, 0.1), 0.42)
+}
+
+function getScopeStarCoreOpacity(intensity: number) {
+  if (!Number.isFinite(intensity)) {
+    return 0.65
+  }
+
+  return Math.min(Math.max(0.32 + intensity * 0.68, 0.32), 0.98)
 }
 
 function getScopeStarColor(bMinusV: number) {

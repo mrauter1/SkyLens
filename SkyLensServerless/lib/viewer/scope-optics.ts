@@ -19,6 +19,19 @@ export const SCOPE_OPTICS_RANGES = {
   },
 } as const
 
+export const SCOPE_VERTICAL_FOV_RANGE = {
+  min: 3,
+  max: 20,
+  defaultValue: 10,
+} as const
+
+export const SCOPE_APPARENT_FIELD_DEG_RANGE = {
+  min: 10,
+  max: 5_000,
+  defaultValue:
+    SCOPE_OPTICS_RANGES.magnificationX.defaultValue * SCOPE_VERTICAL_FOV_RANGE.defaultValue,
+} as const
+
 export type ScopeOptics = {
   apertureMm: number
   magnificationX: number
@@ -68,6 +81,39 @@ export function normalizeScopeOpticsValue(
   }
 
   return clamp(parsedValue, range.min, range.max)
+}
+
+export function normalizeScopeVerticalFovDeg(value: unknown) {
+  const parsedValue = parseFiniteNumber(value)
+
+  if (!Number.isFinite(parsedValue)) {
+    return SCOPE_VERTICAL_FOV_RANGE.defaultValue
+  }
+
+  return clamp(parsedValue, SCOPE_VERTICAL_FOV_RANGE.min, SCOPE_VERTICAL_FOV_RANGE.max)
+}
+
+export function magnificationToScopeVerticalFovDeg(
+  magnificationX: unknown,
+  apparentFieldDeg: unknown = SCOPE_APPARENT_FIELD_DEG_RANGE.defaultValue,
+) {
+  const safeMagnificationX = normalizeScopeOpticsValue('magnificationX', magnificationX)
+  const safeApparentFieldDeg = normalizeScopeApparentFieldDeg(apparentFieldDeg)
+
+  return normalizeScopeVerticalFovDeg(safeApparentFieldDeg / safeMagnificationX)
+}
+
+export function scopeVerticalFovDegToMagnificationX(
+  scopeVerticalFovDeg: unknown,
+  apparentFieldDeg: unknown = SCOPE_APPARENT_FIELD_DEG_RANGE.defaultValue,
+) {
+  const safeScopeVerticalFovDeg = normalizeScopeVerticalFovDeg(scopeVerticalFovDeg)
+  const safeApparentFieldDeg = normalizeScopeApparentFieldDeg(apparentFieldDeg)
+
+  return normalizeScopeOpticsValue(
+    'magnificationX',
+    safeApparentFieldDeg / safeScopeVerticalFovDeg,
+  )
 }
 
 export function computeScopeLimitingMagnitude({
@@ -186,12 +232,34 @@ function normalizeAltitudeDeg(value: unknown) {
   return clamp(value, -90, 90)
 }
 
+function normalizeScopeApparentFieldDeg(value: unknown) {
+  const parsedValue = parseFiniteNumber(value)
+
+  if (!Number.isFinite(parsedValue)) {
+    return SCOPE_APPARENT_FIELD_DEG_RANGE.defaultValue
+  }
+
+  return clamp(parsedValue, SCOPE_APPARENT_FIELD_DEG_RANGE.min, SCOPE_APPARENT_FIELD_DEG_RANGE.max)
+}
+
 function normalizeMagnitude(value: unknown) {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return null
   }
 
   return clamp(value, -8, 30)
+}
+
+function parseFiniteNumber(value: unknown) {
+  if (typeof value === 'number') {
+    return value
+  }
+
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return Number(value)
+  }
+
+  return Number.NaN
 }
 
 function getAltitudePenalty(altitudeDeg: number) {

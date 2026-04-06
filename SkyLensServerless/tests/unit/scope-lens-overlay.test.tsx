@@ -31,6 +31,7 @@ describe('ScopeLensOverlay', () => {
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
+    stubCanvasContext()
   })
 
   afterEach(async () => {
@@ -54,8 +55,10 @@ describe('ScopeLensOverlay', () => {
               id: 'deep-star',
               x: 120,
               y: 118,
-              vMag: 8.9,
               bMinusV: 0.3,
+              intensity: 0.64,
+              corePx: 1.7,
+              haloPx: 3.8,
             },
           ]}
           objects={[
@@ -64,6 +67,7 @@ describe('ScopeLensOverlay', () => {
               x: 140,
               y: 140,
               sizePx: 8,
+              opacity: 0.9,
               className: 'rounded-full bg-white',
             },
           ]}
@@ -98,3 +102,18 @@ describe('ScopeLensOverlay', () => {
     expect(overlay?.querySelector(FOCUSABLE_SELECTOR)).toBeNull()
   })
 })
+
+function stubCanvasContext() {
+  Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+    configurable: true,
+    value: () => ({
+      clearRect: () => undefined,
+      beginPath: () => undefined,
+      arc: () => undefined,
+      fill: () => undefined,
+      setTransform: () => undefined,
+      globalAlpha: 1,
+      fillStyle: '',
+    }),
+  })
+}
