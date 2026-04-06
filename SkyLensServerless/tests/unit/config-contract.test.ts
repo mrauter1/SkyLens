@@ -35,7 +35,7 @@ describe('getPublicConfig', () => {
       ],
       scopeData: {
         remoteEnabled: true,
-        remoteBaseUrl: 'https://pub-566fb74233f3432ba4d47900577e552e.r2.dev',
+        remoteBaseUrl: 'https://pub-566fb74233f3432ba4d47900577e552e.r2.dev/scope/v1',
         localBasePath: '/data/scope/v1',
       },
     })
@@ -65,7 +65,7 @@ describe('getPublicConfig', () => {
 
     expect(getPublicConfig().scopeData).toEqual({
       remoteEnabled: false,
-      remoteBaseUrl: 'https://pub-566fb74233f3432ba4d47900577e552e.r2.dev',
+      remoteBaseUrl: 'https://pub-566fb74233f3432ba4d47900577e552e.r2.dev/scope/v1',
       localBasePath: '/data/scope/v1',
     })
   })
@@ -75,7 +75,7 @@ describe('getPublicConfig', () => {
 
     expect(getPublicConfig().scopeData).toEqual({
       remoteEnabled: true,
-      remoteBaseUrl: 'https://pub-566fb74233f3432ba4d47900577e552e.r2.dev',
+      remoteBaseUrl: 'https://pub-566fb74233f3432ba4d47900577e552e.r2.dev/scope/v1',
       localBasePath: '/data/scope/v1',
     })
   })

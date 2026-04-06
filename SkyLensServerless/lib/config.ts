@@ -4,7 +4,7 @@ export const DEFAULT_AIRCRAFT_RADIUS_KM = 180
 export const MIN_AIRCRAFT_ELEVATION_DEG = 2
 export const LOCAL_SCOPE_DATA_BASE_PATH = '/data/scope/v1' as const
 export const DEFAULT_SCOPE_REMOTE_BASE_URL =
-  'https://pub-566fb74233f3432ba4d47900577e552e.r2.dev'
+  'https://pub-566fb74233f3432ba4d47900577e552e.r2.dev/scope/v1'
 export const POLL_INTERVAL_MS_BY_QUALITY = {
   low: 30_000,
   balanced: 15_000,
