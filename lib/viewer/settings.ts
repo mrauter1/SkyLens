@@ -19,9 +19,23 @@ export interface ManualObserverSettings {
   altMeters: number
 }
 
+export interface ScopeOpticsSettings {
+  apertureMm: number
+  magnificationX: number
+  transparencyPct: number
+}
+
+export const DEFAULT_SCOPE_OPTICS_SETTINGS: ScopeOpticsSettings = {
+  apertureMm: 100,
+  magnificationX: 40,
+  transparencyPct: 80,
+}
+
 export interface ViewerSettings {
   enabledLayers: Record<EnabledLayer, boolean>
   likelyVisibleOnly: boolean
+  scopeModeEnabled: boolean
+  scopeOptics: ScopeOpticsSettings
   labelDisplayMode: LabelDisplayMode
   motionQuality: MotionQuality
   markerScale: number
@@ -38,6 +52,12 @@ interface StorageLike {
   setItem(key: string, value: string): void
 }
 
+const ScopeOpticsSettingsSchema = z.object({
+  apertureMm: z.number(),
+  magnificationX: z.number(),
+  transparencyPct: z.number(),
+})
+
 const SettingsSchema = z.object({
   enabledLayers: z.object({
     aircraft: z.boolean(),
@@ -47,6 +67,8 @@ const SettingsSchema = z.object({
     constellations: z.boolean(),
   }),
   likelyVisibleOnly: z.boolean(),
+  scopeModeEnabled: z.boolean().optional(),
+  scopeOptics: ScopeOpticsSettingsSchema.partial().optional(),
   labelDisplayMode: z.enum(['center_only', 'on_objects', 'top_list']),
   motionQuality: z.enum(['low', 'balanced', 'high']).optional(),
   markerScale: z.number().optional(),
@@ -92,6 +114,10 @@ export function getDefaultViewerSettings(): ViewerSettings {
       constellations: config.defaults.enabledLayers.includes('constellations'),
     },
     likelyVisibleOnly: config.defaults.likelyVisibleOnly,
+    scopeModeEnabled: false,
+    scopeOptics: {
+      ...DEFAULT_SCOPE_OPTICS_SETTINGS,
+    },
     labelDisplayMode: 'center_only',
     motionQuality: 'balanced',
     markerScale: 1,
@@ -126,6 +152,10 @@ export function readViewerSettings(storage = getBrowserStorage()): ViewerSetting
       enabledLayers: {
         ...defaults.enabledLayers,
         ...parsed.enabledLayers,
+      },
+      scopeOptics: {
+        ...defaults.scopeOptics,
+        ...parsed.scopeOptics,
       },
     })
   } catch {
@@ -173,6 +203,8 @@ export function normalizeViewerSettings(settings: ViewerSettings): ViewerSetting
       constellations: settings.enabledLayers.constellations,
     },
     likelyVisibleOnly: settings.likelyVisibleOnly,
+    scopeModeEnabled: settings.scopeModeEnabled === true,
+    scopeOptics: normalizeScopeOpticsSettings(settings.scopeOptics),
     labelDisplayMode: settings.labelDisplayMode,
     motionQuality: normalizeMotionQuality(settings.motionQuality),
     markerScale: normalizeMarkerScale(settings.markerScale),
@@ -217,6 +249,31 @@ function normalizeMotionQuality(
   }
 }
 
+export function normalizeScopeOpticsSettings(
+  scopeOptics: ScopeOpticsSettings | null | undefined,
+): ScopeOpticsSettings {
+  return {
+    apertureMm: normalizeFiniteNumber(
+      scopeOptics?.apertureMm,
+      DEFAULT_SCOPE_OPTICS_SETTINGS.apertureMm,
+      50,
+      400,
+    ),
+    magnificationX: normalizeFiniteNumber(
+      scopeOptics?.magnificationX,
+      DEFAULT_SCOPE_OPTICS_SETTINGS.magnificationX,
+      10,
+      400,
+    ),
+    transparencyPct: normalizeFiniteNumber(
+      scopeOptics?.transparencyPct,
+      DEFAULT_SCOPE_OPTICS_SETTINGS.transparencyPct,
+      40,
+      100,
+    ),
+  }
+}
+
 function normalizeMarkerScale(markerScale: number | null | undefined) {
   if (typeof markerScale !== 'number' || !Number.isFinite(markerScale)) {
     return 1
@@ -243,6 +300,19 @@ function getBrowserStorage(): StorageLike | null {
   }
 
   return window.localStorage
+}
+
+function normalizeFiniteNumber(
+  value: number | null | undefined,
+  fallback: number,
+  min: number,
+  max: number,
+) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return fallback
+  }
+
+  return clamp(value, min, max)
 }
 
 function clamp(value: number, min: number, max: number) {

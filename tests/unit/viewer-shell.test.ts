@@ -767,6 +767,89 @@ describe('ViewerShell startup gating', () => {
     expect(container.querySelector('[data-testid="mobile-viewer-overlay"]')).toBeNull()
   })
 
+  it('shows scope quick controls in the mobile strip and keeps the settings toggle synchronized', async () => {
+    await renderViewer({
+      entry: 'demo',
+      location: 'unavailable',
+      camera: 'unavailable',
+      orientation: 'unavailable',
+      demoScenarioId: 'sf-evening',
+    })
+
+    const latestSettingsProps = () =>
+      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+        | {
+            scopeModeEnabled?: boolean
+            transparencyPct?: number
+            markerScale?: number
+            onScopeModeEnabledChange?: (enabled: boolean) => void
+          }
+        | undefined
+
+    const quickActions = container.querySelector(
+      '[data-testid="mobile-viewer-quick-actions"]',
+    ) as HTMLElement | null
+    const scopeModeToggle = container.querySelector(
+      '[data-testid="mobile-scope-mode-toggle"]',
+    ) as HTMLInputElement | null
+
+    expect(quickActions).not.toBeNull()
+    expect(scopeModeToggle?.checked).toBe(false)
+    expect(container.querySelector('[data-testid="mobile-scope-aperture-slider"]')).toBeNull()
+    expect(container.querySelector('[data-testid="mobile-scope-magnification-slider"]')).toBeNull()
+    expect(container.querySelector('[data-testid="mobile-marker-scale-slider"]')).toBeNull()
+    expect(latestSettingsProps()).toMatchObject({
+      scopeModeEnabled: false,
+      transparencyPct: 80,
+      markerScale: 1,
+    })
+
+    await act(async () => {
+      scopeModeToggle?.click()
+    })
+    await flushEffects()
+
+    expect(readViewerSettings().scopeModeEnabled).toBe(true)
+    const apertureSlider = container.querySelector(
+      '[data-testid="mobile-scope-aperture-slider"]',
+    ) as HTMLInputElement | null
+    const magnificationSlider = container.querySelector(
+      '[data-testid="mobile-scope-magnification-slider"]',
+    ) as HTMLInputElement | null
+
+    expect(apertureSlider).not.toBeNull()
+    expect(magnificationSlider).not.toBeNull()
+    expect(latestSettingsProps()?.scopeModeEnabled).toBe(true)
+
+    await act(async () => {
+      setInputValue(apertureSlider!, '175')
+      setInputValue(magnificationSlider!, '120')
+    })
+    await flushEffects()
+
+    expect(readViewerSettings()).toMatchObject({
+      scopeModeEnabled: true,
+      scopeOptics: {
+        apertureMm: 175,
+        magnificationX: 120,
+        transparencyPct: 80,
+      },
+    })
+
+    await act(async () => {
+      latestSettingsProps()?.onScopeModeEnabledChange?.(false)
+    })
+    await flushEffects()
+
+    expect(readViewerSettings().scopeModeEnabled).toBe(false)
+    expect(
+      (container.querySelector('[data-testid="mobile-scope-mode-toggle"]') as HTMLInputElement)
+        .checked,
+    ).toBe(false)
+    expect(container.querySelector('[data-testid="mobile-scope-aperture-slider"]')).toBeNull()
+    expect(container.querySelector('[data-testid="mobile-scope-magnification-slider"]')).toBeNull()
+  })
+
   it('uses a camera-only recovery action when motion is already available', async () => {
     await renderViewer({
       entry: 'live',
@@ -3718,4 +3801,15 @@ function getLatestSceneTimeMs() {
     | undefined
 
   return latestCall?.timeMs ?? 0
+}
+
+function setInputValue(input: HTMLInputElement, value: string) {
+  const valueSetter = Object.getOwnPropertyDescriptor(
+    HTMLInputElement.prototype,
+    'value',
+  )?.set
+
+  valueSetter?.call(input, value)
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  input.dispatchEvent(new Event('change', { bubbles: true }))
 }
