@@ -1,0 +1,58 @@
+version: 1
+task_id: deep-star-magnitude-weighted-radius-progressive-52720def
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/deep-star-magnitude-weighted-radius-progressive-52720def/runs/run-20260407T021805Z-29be11aa/request.md
+phases:
+- phase_id: deep-star-progressive-emergence
+  title: Deep-Star Emergence And Radius Rework
+  objective: Preserve the existing physical scope-visibility gate while changing deep-star
+    rendering to use magnitude-based radius and progressive emergence alpha in the
+    core-only canvas path.
+  status: planned
+  in_scope:
+  - Verify and adjust the existing deep-star helpers in `SkyLensServerless/lib/viewer/scope-optics.ts`
+    without changing `passesScopeLimitingMagnitude` or the limiting-magnitude formulas,
+    keeping the request-default emergence and radius constants as the baseline contract.
+  - Verify and adjust the existing deep-star canvas mapping in `SkyLensServerless/components/viewer/viewer-shell.tsx`
+    so the current pass/fail visibility filter remains authoritative, canvas alpha continues
+    to come from emergence only, and radius continues to come from magnitude only.
+  - Keep `SkyLensServerless/components/viewer/scope-star-canvas.tsx` core-only, using the
+    current explicit `alpha` and `radius` fields with only broad finite-safe bounds and no halo path.
+  - Add or adjust unit tests for helper monotonicity/saturation, radius invariance across
+    aperture changes, runtime mapper behavior, and no-halo regressions while preserving
+    compatibility with shared `scopeRender` consumers.
+  out_of_scope:
+  - Scope control UI layout or control semantics changes.
+  - Halo reintroduction, low-altitude suppression changes, or daylight suppression
+    changes.
+  - Replacing the existing limiting-magnitude formulas or star tile-selection pipeline.
+  dependencies: []
+  acceptance_criteria:
+  - id: AC-1
+    text: Deep stars still use `passesScopeLimitingMagnitude` as the inclusion gate,
+      with no regression to existing visibility/filter logic.
+  - id: AC-2
+    text: Near-threshold deep stars receive smooth progressive alpha based on limiting-magnitude
+      delta using the default `[-0.35, +0.75]` emergence band and fully emerged stars
+      reach alpha 1 without extra aperture dimming.
+  - id: AC-3
+    text: Deep-star core radius is derived from magnitude using the default `1.0px`
+      to `2.5px` mapping baseline and remains stable for a fixed star when aperture
+      changes.
+  - id: AC-4
+    text: The scope canvas remains core-only, the existing `ScopeRenderProfile` compatibility
+      contract stays intact for shared consumers, and unit tests cover helper behavior,
+      canvas mapping, and no-halo rendering.
+  deliverables:
+  - Updated implementation plan aligned to the current repository starting point in the
+    optics helpers, viewer-shell mapping, canvas renderer, and directly impacted tests.
+  - Unit coverage that locks the emergence/radius behavior and protects existing scope
+    visibility behavior, including the request-default curves, fixed-radius aperture
+    changes, shared `scopeRender` compatibility, and no-halo canvas rendering.
+  risks:
+  - Shared `scopeRender` metadata consumers may regress if tuning narrows or removes legacy fields.
+  - Excessive canvas clamping may cancel the intended magnitude-weighted radius variation.
+  - Emergence tuning may visually under- or over-saturate stars near the limiting
+    threshold.
+  rollback:
+  - Revert only the deep-star helper, mapper, and canvas adjustments if regressions appear during testing.
+  - Keep the existing limiting-magnitude gate and full `scopeRender` metadata path intact as the fallback baseline.

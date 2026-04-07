@@ -1,0 +1,40 @@
+version: 1
+task_id: deep-star-magnitude-weighted-radius-progressive-v2
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/deep-star-magnitude-weighted-radius-progressive-v2/runs/run-20260407T022029Z-87a3e456/request.md
+phases:
+  - phase_id: deep-star-emergence-alignment
+    title: Deep Star Emergence Alignment
+    objective: Complete and verify the PRD-required deep-star emergence, magnitude-radius mapping, and core-only canvas rendering without changing the existing physical scope gate.
+    status: planned
+    in_scope:
+      - Finalize the deep-star emergence alpha helper in `SkyLensServerless/lib/viewer/scope-optics.ts` using the PRD thresholds and finite-safe guards.
+      - Finalize the magnitude-only deep-star core radius helper in `SkyLensServerless/lib/viewer/scope-optics.ts` with no aperture coupling.
+      - Ensure `SkyLensServerless/components/viewer/viewer-shell.tsx` emits explicit canvas `alpha` and `radius` fields from the new helpers while preserving the current limiting-magnitude selection path.
+      - Keep `SkyLensServerless/components/viewer/scope-star-canvas.tsx` core-only and render from supplied radius/alpha values without a halo path.
+      - Add or adjust focused tests for helper monotonicity/saturation, radius invariance, viewer-shell mapping, and no-halo canvas behavior.
+    out_of_scope:
+      - Scope control UI changes
+      - Halo rendering
+      - Aperture-based radius scaling
+      - Any relaxation of existing altitude or daylight suppression
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: Deep stars that pass the current limiting-magnitude gate fade in progressively near threshold, reach alpha 1 above the emergence band, and do not hard-pop under nominal aperture changes.
+      - id: AC-2
+        text: A star's deep-star canvas radius is determined only by magnitude and remains stable when aperture changes.
+      - id: AC-3
+        text: Fully emerged deep stars render with the existing color mapping, explicit core radius/alpha inputs, and no halo rendering path.
+      - id: AC-4
+        text: Focused unit/runtime tests cover emergence curve continuity and monotonicity, alpha saturation, aperture-invariant radius, viewer-shell field mapping, and no-halo canvas rendering.
+    deliverables:
+      - Updated deep-star optics helpers
+      - Updated viewer-shell deep-star canvas mapping
+      - Updated scope-star canvas renderer assertions
+      - Focused Vitest coverage for optics, runtime, and canvas behavior
+    risks:
+      - Existing deep-star pass/fail filtering could be accidentally weakened if emergence is treated as the new gate instead of a post-gate fade curve.
+      - Shared scope render-profile consumers could regress if deep-star-specific changes leak into bright-object marker sizing or detail metadata.
+    rollback:
+      - Revert helper, viewer-shell, canvas, and test updates together so deep-star behavior returns to the prior stable path in one step.
+      - Keep the current limiting-magnitude formulas and scope selection path untouched so rollback does not affect broader scope runtime behavior.

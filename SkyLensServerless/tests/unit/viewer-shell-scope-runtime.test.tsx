@@ -10,6 +10,11 @@ import {
   VIEWER_SETTINGS_STORAGE_KEY,
   readViewerSettings,
 } from '../../lib/viewer/settings'
+import {
+  computeScopeDeepStarCoreRadiusPx,
+  computeScopeDeepStarEmergenceAlpha,
+  computeScopeLimitingMagnitude,
+} from '../../lib/viewer/scope-optics'
 
 const {
   mockRouterReplace,
@@ -366,7 +371,37 @@ describe('ViewerShell scope runtime', () => {
     expect(getCanvasStars()).toHaveLength(2)
   })
 
-  it('dims deep-star display at smaller aperture without changing inclusion order', async () => {
+  it('keeps deep stars that fail the limiting-magnitude gate out of the canvas output', async () => {
+    const dataset = createMultiBandScopeDataset([
+      {
+        azimuthDeg: 0,
+        elevationDeg: getDemoScenario('tokyo-iss').initialPitchDeg,
+        vMag: 5.4,
+      },
+      {
+        azimuthDeg: 1.2,
+        elevationDeg: getDemoScenario('tokyo-iss').initialPitchDeg + 0.2,
+        vMag: 8,
+      },
+    ])
+    global.fetch = vi.fn().mockImplementation(dataset.fetcher) as typeof fetch
+
+    setStoredViewerSettings({
+      scopeModeEnabled: true,
+      scopeOptics: {
+        apertureMm: 240,
+        magnificationX: 50,
+        transparencyPct: 85,
+      },
+      labelDisplayMode: 'center_only',
+    })
+
+    await renderViewer()
+
+    expect(getCanvasStars()).toHaveLength(1)
+  })
+
+  it('progressively reveals deep stars as aperture increases while keeping radius fixed', async () => {
     const dataset = createMultiBandScopeDataset([
       {
         azimuthDeg: 0,
@@ -389,9 +424,21 @@ describe('ViewerShell scope runtime', () => {
     await renderViewer()
 
     const dimStars = getCanvasStars()
+    const expectedRadius = computeScopeDeepStarCoreRadiusPx(5.4)
+    const dimLimit = computeScopeLimitingMagnitude({
+      apertureMm: 40,
+      magnificationX: 50,
+      transparencyPct: 85,
+      altitudeDeg: getDemoScenario('tokyo-iss').initialPitchDeg,
+    })
+    const expectedDimAlpha = computeScopeDeepStarEmergenceAlpha(dimLimit - 5.4)
 
     expect(dimStars).toHaveLength(1)
     expect(dimStars[0]?.radii).toHaveLength(1)
+    expect(dimStars[0]?.radii[0]).toBeCloseTo(expectedRadius)
+    expect(dimStars[0]?.alphas[0]).toBeCloseTo(expectedDimAlpha)
+    expect(Math.max(...(dimStars[0]?.alphas ?? [0]))).toBeGreaterThan(0)
+    expect(Math.max(...(dimStars[0]?.alphas ?? [1]))).toBeLessThan(1)
 
     await rerenderViewerWithSettings({
       scopeModeEnabled: true,
@@ -404,9 +451,66 @@ describe('ViewerShell scope runtime', () => {
     })
 
     const brightStars = getCanvasStars()
+    const brightLimit = computeScopeLimitingMagnitude({
+      apertureMm: 240,
+      magnificationX: 50,
+      transparencyPct: 85,
+      altitudeDeg: getDemoScenario('tokyo-iss').initialPitchDeg,
+    })
+    const expectedBrightAlpha = computeScopeDeepStarEmergenceAlpha(brightLimit - 5.4)
 
     expect(brightStars).toHaveLength(1)
+    expect(brightStars[0]?.radii[0]).toBeCloseTo(expectedRadius)
+    expect(brightStars[0]?.alphas[0]).toBeCloseTo(expectedBrightAlpha)
     expect(Math.max(...brightStars[0].alphas)).toBeGreaterThan(Math.max(...dimStars[0].alphas))
+    expect(Math.max(...brightStars[0].alphas)).toBe(1)
+  })
+
+  it('renders brighter deep stars with larger canvas radii than dimmer deep stars', async () => {
+    const scenario = getDemoScenario('tokyo-iss')
+    const dataset = createMultiBandScopeDataset([
+      {
+        azimuthDeg: 0,
+        elevationDeg: scenario.initialPitchDeg,
+        vMag: 5.4,
+      },
+      {
+        azimuthDeg: 1.8,
+        elevationDeg: scenario.initialPitchDeg,
+        vMag: 6.9,
+      },
+    ])
+    global.fetch = vi.fn().mockImplementation(dataset.fetcher) as typeof fetch
+
+    setStoredViewerSettings({
+      scopeModeEnabled: true,
+      scopeOptics: {
+        apertureMm: 240,
+        magnificationX: 50,
+        transparencyPct: 85,
+      },
+      labelDisplayMode: 'center_only',
+    })
+
+    await renderViewer()
+
+    const lensCenterPx = getScopeLensRadiusPx()
+    const canvasStars = getCanvasStars()
+    const nearestCanvasStar =
+      canvasStars
+        .map((star) => ({
+          ...star,
+          distanceFromCenterPx: Math.hypot(star.x - lensCenterPx, star.y - lensCenterPx),
+        }))
+        .sort((left, right) => left.distanceFromCenterPx - right.distanceFromCenterPx)[0] ?? null
+    const farthestCanvasStar = getFarthestCanvasStar(canvasStars, lensCenterPx, lensCenterPx)
+
+    expect(canvasStars).toHaveLength(2)
+    expect(nearestCanvasStar).not.toBeNull()
+    expect(farthestCanvasStar).not.toBeNull()
+    expect(Math.max(...(nearestCanvasStar?.radii ?? [0]))).toBeGreaterThan(
+      Math.max(...(farthestCanvasStar?.radii ?? [0])),
+    )
   })
 
   it('widens deep-star spacing with magnification without scaling star size linearly', async () => {

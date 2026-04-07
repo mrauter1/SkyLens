@@ -56,9 +56,8 @@ describe('ScopeLensOverlay', () => {
               x: 120,
               y: 118,
               bMinusV: 0.3,
-              intensity: 0.64,
-              corePx: 1.7,
-              haloPx: 3.8,
+              alpha: 0.64,
+              radius: 1.7,
             },
           ]}
           objects={[
