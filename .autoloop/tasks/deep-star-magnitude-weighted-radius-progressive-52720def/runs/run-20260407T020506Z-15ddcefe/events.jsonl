@@ -1,0 +1,6 @@
+{"ts": "2026-04-07T02:05:06.322593+00:00", "run_id": "run-20260407T020506Z-15ddcefe", "seq": 1, "event_type": "run_started", "workspace": "/workspace/SkyLens", "pairs": ["plan", "implement", "test"], "max_iterations": 15, "use_git": true, "task_id": "deep-star-magnitude-weighted-radius-progressive-52720def", "task_root": ".autoloop/tasks/deep-star-magnitude-weighted-radius-progressive-52720def"}
+{"ts": "2026-04-07T02:05:06.324946+00:00", "run_id": "run-20260407T020506Z-15ddcefe", "seq": 2, "event_type": "pair_started", "pair": "plan", "phase_id": null}
+{"ts": "2026-04-07T02:05:06.325053+00:00", "run_id": "run-20260407T020506Z-15ddcefe", "seq": 3, "event_type": "cycle_started", "pair": "plan", "cycle": 1, "attempt": 1, "phase_id": null}
+{"ts": "2026-04-07T02:07:26.309470+00:00", "run_id": "run-20260407T020506Z-15ddcefe", "seq": 4, "event_type": "phase_finished", "pair": "plan", "phase": "producer", "cycle": 1, "attempt": 1, "empty_output": false, "phase_id": null}
+{"ts": "2026-04-07T02:07:43.545269+00:00", "run_id": "run-20260407T020506Z-15ddcefe", "seq": 5, "event_type": "phase_finished", "pair": "plan", "phase": "producer", "cycle": 1, "attempt": 1, "empty_output": false, "phase_id": null}
+{"ts": "2026-04-07T02:07:43.545561+00:00", "run_id": "run-20260407T020506Z-15ddcefe", "seq": 6, "event_type": "run_finished", "status": "fatal_error", "exit_code": 1}

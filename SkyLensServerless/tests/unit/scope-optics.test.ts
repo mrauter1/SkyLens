@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest'
 import {
   SCOPE_APPARENT_FIELD_DEG_RANGE,
   SCOPE_OPTICS_RANGES,
+  computeScopeDeepStarCoreRadiusPx,
+  computeScopeDeepStarEmergenceAlpha,
   computeScopeLimitingMagnitude,
   computeScopeRenderProfile,
   magnificationToScopeVerticalFovDeg,
@@ -45,6 +47,8 @@ describe('scope optics helpers', () => {
 
     expect(Number.isFinite(effectiveLimitMag)).toBe(true)
     expect(Object.values(renderProfile).every((value) => Number.isFinite(value))).toBe(true)
+    expect(computeScopeDeepStarEmergenceAlpha(Number.NaN)).toBe(0)
+    expect(computeScopeDeepStarCoreRadiusPx(Number.NaN)).toBe(1)
   })
 
   it('brightens the render profile and limiting magnitude under stronger optics and better conditions', () => {
@@ -131,6 +135,53 @@ describe('scope optics helpers', () => {
         },
       }),
     ).toBe(true)
+  })
+
+  it('progressively emerges deep stars with a monotonic smooth alpha curve', () => {
+    const deltas = [-1, -0.35, -0.2, 0, 0.35, 0.75, 1.5]
+    const alphas = deltas.map((delta) => computeScopeDeepStarEmergenceAlpha(delta))
+
+    expect(alphas[0]).toBe(0)
+    expect(alphas[1]).toBe(0)
+    expect(alphas[3]).toBeGreaterThan(0)
+    expect(alphas[3]).toBeLessThan(1)
+    expect(alphas[5]).toBe(1)
+    expect(alphas[6]).toBe(1)
+
+    for (let index = 1; index < alphas.length; index += 1) {
+      expect(alphas[index]).toBeGreaterThanOrEqual(alphas[index - 1])
+    }
+
+    expect(computeScopeDeepStarEmergenceAlpha(-0.3501)).toBe(0)
+    expect(computeScopeDeepStarEmergenceAlpha(-0.3499)).toBeGreaterThan(0)
+    expect(computeScopeDeepStarEmergenceAlpha(0.7499)).toBeLessThan(1)
+    expect(computeScopeDeepStarEmergenceAlpha(0.7501)).toBe(1)
+  })
+
+  it('maps deep-star core radius from magnitude without aperture coupling', () => {
+    const brightRadius = computeScopeDeepStarCoreRadiusPx(1.5)
+    const midRadius = computeScopeDeepStarCoreRadiusPx(6)
+    const faintRadius = computeScopeDeepStarCoreRadiusPx(10.5)
+    const sampledMagnitudes = [-4, 1.5, 3, 6, 8, 10.5, 18]
+    const sampledRadii = sampledMagnitudes.map((magnitude) =>
+      computeScopeDeepStarCoreRadiusPx(magnitude),
+    )
+
+    expect(brightRadius).toBe(2.5)
+    expect(faintRadius).toBe(1)
+    expect(midRadius).toBeGreaterThan(faintRadius)
+    expect(midRadius).toBeLessThan(brightRadius)
+    expect(computeScopeDeepStarCoreRadiusPx(-4)).toBe(2.5)
+    expect(computeScopeDeepStarCoreRadiusPx(18)).toBe(1)
+
+    for (let index = 1; index < sampledRadii.length; index += 1) {
+      expect(sampledRadii[index]).toBeLessThanOrEqual(sampledRadii[index - 1])
+    }
+
+    for (const radius of sampledRadii) {
+      expect(radius).toBeGreaterThanOrEqual(1)
+      expect(radius).toBeLessThanOrEqual(2.5)
+    }
   })
 
   it('derives a deterministic, finite, and monotonically narrower scope FOV from magnification', () => {

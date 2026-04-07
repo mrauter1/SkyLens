@@ -65,18 +65,16 @@ describe('ScopeStarCanvas', () => {
               x: 120,
               y: 118,
               bMinusV: -0.2,
-              intensity: 0.75,
-              corePx: 1.5,
-              haloPx: 4.2,
+              alpha: 0.75,
+              radius: 1.5,
             },
             {
               id: 'warm-star',
               x: 96,
               y: 102,
               bMinusV: 0.95,
-              intensity: 0.32,
-              corePx: 1.6,
-              haloPx: 2.8,
+              alpha: 0.32,
+              radius: 1.6,
             },
           ]}
         />,
@@ -87,17 +85,17 @@ describe('ScopeStarCanvas', () => {
     expect(gradientCalls).toHaveLength(0)
     expect(fillCalls[0]?.x).toBe(120)
     expect(fillCalls[0]?.y).toBe(118)
-    expect(fillCalls[0]?.radius).toBeCloseTo(1.1945454545454544)
-    expect(fillCalls[0]?.alpha).toBeCloseTo(0.8300000000000001)
+    expect(fillCalls[0]?.radius).toBe(1.5)
+    expect(fillCalls[0]?.alpha).toBe(0.75)
     expect(fillCalls[0]?.fillStyle).toBe('rgba(192, 228, 255, 0.9)')
     expect(fillCalls[1]?.x).toBe(96)
     expect(fillCalls[1]?.y).toBe(102)
-    expect(fillCalls[1]?.radius).toBeCloseTo(1.2741818181818183)
-    expect(fillCalls[1]?.alpha).toBeCloseTo(0.5376000000000001)
+    expect(fillCalls[1]?.radius).toBe(1.6)
+    expect(fillCalls[1]?.alpha).toBe(0.32)
     expect(fillCalls[1]?.fillStyle).toBe('rgba(255, 222, 186, 0.88)')
   })
 
-  it('compresses and clamps radii into compact envelopes', async () => {
+  it('clamps supplied radii into broad finite-safe bounds', async () => {
     await act(async () => {
       root.render(
         <ScopeStarCanvas
@@ -108,9 +106,8 @@ describe('ScopeStarCanvas', () => {
               x: 80,
               y: 76,
               bMinusV: 0.2,
-              intensity: 1,
-              corePx: 99,
-              haloPx: 99,
+              alpha: 1,
+              radius: 99,
             },
           ]}
         />,
@@ -119,11 +116,71 @@ describe('ScopeStarCanvas', () => {
 
     expect(fillCalls).toHaveLength(1)
     expect(gradientCalls).toHaveLength(0)
-    expect(fillCalls[0].radius).toBe(2.2)
-    expect(fillCalls[0].alpha).toBe(0.98)
+    expect(fillCalls[0].radius).toBe(6.2)
+    expect(fillCalls[0].alpha).toBe(1)
   })
 
-  it('ignores halo payload values and still renders a single fill pass', async () => {
+  it('falls back to a 1px core radius for invalid radius inputs without adding halos', async () => {
+    await act(async () => {
+      root.render(
+        <ScopeStarCanvas
+          diameterPx={180}
+          stars={[
+            {
+              id: 'fallback-radius-star',
+              x: 72,
+              y: 84,
+              bMinusV: 0.2,
+              alpha: 0.45,
+              radius: Number.NaN,
+            },
+          ]}
+        />,
+      )
+    })
+
+    expect(fillCalls).toHaveLength(1)
+    expect(gradientCalls).toHaveLength(0)
+    expect(fillCalls[0]).toMatchObject({
+      x: 72,
+      y: 84,
+      radius: 1,
+      alpha: 0.45,
+      fillStyle: 'rgba(226, 242, 255, 0.92)',
+    })
+  })
+
+  it('clamps undersized radii to the broad finite-safe lower bound without adding halos', async () => {
+    await act(async () => {
+      root.render(
+        <ScopeStarCanvas
+          diameterPx={180}
+          stars={[
+            {
+              id: 'undersized-radius-star',
+              x: 68,
+              y: 92,
+              bMinusV: 0.6,
+              alpha: 0.55,
+              radius: -4,
+            },
+          ]}
+        />,
+      )
+    })
+
+    expect(fillCalls).toHaveLength(1)
+    expect(gradientCalls).toHaveLength(0)
+    expect(fillCalls[0]).toMatchObject({
+      x: 68,
+      y: 92,
+      radius: 0.8,
+      alpha: 0.55,
+      fillStyle: 'rgba(255, 243, 214, 0.9)',
+    })
+  })
+
+  it('renders a single core fill pass from explicit radius and alpha', async () => {
     await act(async () => {
       root.render(
         <ScopeStarCanvas
@@ -134,9 +191,8 @@ describe('ScopeStarCanvas', () => {
               x: 70,
               y: 64,
               bMinusV: 0.4,
-              intensity: 0.5,
-              corePx: 1.1,
-              haloPx: 3.5,
+              alpha: 0.5,
+              radius: 1.1,
             },
           ]}
         />,
@@ -148,7 +204,8 @@ describe('ScopeStarCanvas', () => {
     expect(fillCalls[0]).toMatchObject({
       x: 70,
       y: 64,
-      radius: 0.9,
+      radius: 1.1,
+      alpha: 0.5,
       fillStyle: 'rgba(255, 243, 214, 0.9)',
     })
   })
@@ -164,18 +221,16 @@ describe('ScopeStarCanvas', () => {
               x: 88,
               y: 90,
               bMinusV: 0.1,
-              intensity: 99,
-              corePx: 1.8,
-              haloPx: 3.6,
+              alpha: 99,
+              radius: 1.8,
             },
             {
               id: 'fallback-star',
               x: 120,
               y: 90,
               bMinusV: 0.1,
-              intensity: Number.NaN,
-              corePx: 1.8,
-              haloPx: 3.6,
+              alpha: Number.NaN,
+              radius: 1.8,
             },
           ]}
         />,
@@ -187,15 +242,15 @@ describe('ScopeStarCanvas', () => {
     expect(fillCalls[0]).toMatchObject({
       x: 88,
       y: 90,
-      radius: 1.525090909090909,
-      alpha: 0.98,
+      radius: 1.8,
+      alpha: 1,
       fillStyle: 'rgba(226, 242, 255, 0.92)',
     })
     expect(fillCalls[1]).toMatchObject({
       x: 120,
       y: 90,
-      radius: 1.525090909090909,
-      alpha: 0.65,
+      radius: 1.8,
+      alpha: 0,
       fillStyle: 'rgba(226, 242, 255, 0.92)',
     })
   })
@@ -211,45 +266,40 @@ describe('ScopeStarCanvas', () => {
               x: 40,
               y: 44,
               bMinusV: -0.2,
-              intensity: 0.3,
-              corePx: 1,
-              haloPx: 1,
+              alpha: 0.3,
+              radius: 1,
             },
             {
               id: 'neutral-star',
               x: 64,
               y: 44,
               bMinusV: 0.2,
-              intensity: 0.3,
-              corePx: 1,
-              haloPx: 1,
+              alpha: 0.3,
+              radius: 1,
             },
             {
               id: 'warm-star',
               x: 88,
               y: 44,
               bMinusV: 0.6,
-              intensity: 0.3,
-              corePx: 1,
-              haloPx: 1,
+              alpha: 0.3,
+              radius: 1,
             },
             {
               id: 'red-star',
               x: 112,
               y: 44,
               bMinusV: 1,
-              intensity: 0.3,
-              corePx: 1,
-              haloPx: 1,
+              alpha: 0.3,
+              radius: 1,
             },
             {
               id: 'fallback-star',
               x: 136,
               y: 44,
               bMinusV: Number.NaN,
-              intensity: 0.3,
-              corePx: 1,
-              haloPx: 1,
+              alpha: 0.3,
+              radius: 1,
             },
           ]}
         />,

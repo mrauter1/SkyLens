@@ -1,0 +1,11 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260407T022029Z-87a3e456" ts="2026-04-07T02:20:29.761637+00:00" />
+Keep `passesScopeLimitingMagnitude` and the existing limiting-magnitude formulas as the physical gate; progressive emergence is a post-gate alpha model, not a replacement visibility filter.
+Deep-star core radius must come only from magnitude-based helper logic and must not read aperture or reuse render-profile sizing values.
+Deep stars remain canvas-only and core-only; named deep stars may still participate in center-lock/detail selection, but no halo or pointer interaction path is added for this task.
+<autoloop-decisions-header version="1" block_seq="2" owner="implementer" phase_id="deep-star-emergence-alignment" pair="implement" turn_seq="1" run_id="run-20260407T022029Z-87a3e456" ts="2026-04-07T02:23:12.067578+00:00" />
+Production deep-star optics/viewer/canvas code already satisfied the PRD scope in this turn; implementation work stayed phase-local by tightening focused regression coverage instead of changing runtime behavior.
+The runtime radius-comparison fixture uses `vMag 6.9` rather than `8.0` so both sample stars remain inside the preserved limiting-magnitude gate at `240mm / 50x / 85% transparency / 18deg altitude`.
+Viewer-shell deep-star runtime coverage now compares rendered canvas alpha/radius directly against `computeScopeLimitingMagnitude` + `computeScopeDeepStarEmergenceAlpha` and `computeScopeDeepStarCoreRadiusPx` to guard against reintroducing intensity-based alpha or aperture-coupled radius.
+<autoloop-decisions-header version="1" block_seq="3" owner="test_author" phase_id="deep-star-emergence-alignment" pair="test" turn_seq="1" run_id="run-20260407T022029Z-87a3e456" ts="2026-04-07T02:28:49.184615+00:00" />
+Runtime test coverage now explicitly asserts that over-limit deep stars are excluded before canvas emission so future changes cannot silently replace the preserved limiting-magnitude gate with alpha-only emergence.
+The test phase relies on deterministic `tokyo-iss` demo state plus synthetic scope-tile fixtures and stubbed canvas contexts to keep deep-star runtime/canvas checks stable without live network or timing variance.

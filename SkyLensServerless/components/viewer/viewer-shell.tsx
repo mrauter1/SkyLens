@@ -159,11 +159,12 @@ import {
   type MotionQuality,
 } from '../../lib/viewer/settings'
 import {
+  computeScopeDeepStarCoreRadiusPx,
+  computeScopeDeepStarEmergenceAlpha,
   SCOPE_OPTICS_RANGES,
   computeScopeRenderProfile,
   magnificationToScopeVerticalFovDeg,
   normalizeScopeOptics,
-  normalizeScopeOpticsValue,
   passesScopeLimitingMagnitude,
   type ScopeOptics,
   type ScopeRenderProfile,
@@ -352,10 +353,6 @@ const SCOPE_LENS_DIAMETER_PX_RANGE = {
   max: 440,
 } as const
 const SCOPE_LENS_VIEWPORT_MARGIN_PX = 32
-const DEEP_STAR_ATTENUATION_APERTURE_MM_RANGE = {
-  min: 40,
-  max: 240,
-} as const
 const SCOPE_EXTENDED_OBJECT_BASELINE_ANGULAR_DIAMETER_DEG_BY_ID = {
   sun: 0.533,
   moon: 0.518,
@@ -1183,18 +1180,16 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
           .filter((object) => object.scopeInLensCircle)
           .map((object) => {
             const scopeRender = getScopeRenderProfile(object)
+            const deltaMag =
+              (scopeRender?.effectiveLimitMag ?? object.magnitude) - object.magnitude
 
             return {
               id: object.id,
               x: object.scopeProjection.x,
               y: object.scopeProjection.y,
               bMinusV: object.bMinusV,
-              intensity: getScopeDeepStarDisplayIntensity(
-                scopeRender?.intensity,
-                viewerSettings.scopeOptics.apertureMm,
-              ),
-              corePx: scopeRender?.corePx ?? 1.2,
-              haloPx: scopeRender?.haloPx ?? 2.4,
+              alpha: computeScopeDeepStarEmergenceAlpha(deltaMag),
+              radius: computeScopeDeepStarCoreRadiusPx(object.magnitude),
             }
           })
       : []
@@ -5170,21 +5165,6 @@ function getScopeLensDiameterPx(
   }
 
   return clampNumber(requestedDiameterPx, viewportSafeMinPx, viewportSafeMaxPx)
-}
-
-function getScopeDeepStarDisplayIntensity(intensity: unknown, apertureMm: unknown) {
-  const safeIntensity = typeof intensity === 'number' && Number.isFinite(intensity) ? intensity : 0.5
-  const apertureFactor = clampNumber(
-    (normalizeScopeOpticsValue('apertureMm', apertureMm) -
-      DEEP_STAR_ATTENUATION_APERTURE_MM_RANGE.min) /
-      (DEEP_STAR_ATTENUATION_APERTURE_MM_RANGE.max -
-        DEEP_STAR_ATTENUATION_APERTURE_MM_RANGE.min),
-    0,
-    1,
-  )
-  const deepStarAttenuation = 0.45 + 0.55 * apertureFactor
-
-  return clampNumber(safeIntensity * deepStarAttenuation, 0.08, 1)
 }
 
 function getScopeRenderProfile(object: SkyObject): ScopeRenderProfile | null {
