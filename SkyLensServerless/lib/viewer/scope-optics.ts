@@ -48,6 +48,24 @@ export type ScopeRenderProfile = {
   haloPx: number
 }
 
+const DEEP_STAR_EMERGENCE_BAND = {
+  start: -0.35,
+  end: 0.75,
+} as const
+
+const DEEP_STAR_CORE_RADIUS_RANGE_PX = {
+  min: 1,
+  max: 2.5,
+} as const
+
+const DEEP_STAR_CORE_RADIUS_MAG_RANGE = {
+  bright: 1.5,
+  faint: 10.5,
+} as const
+
+const DEEP_STAR_CORE_RADIUS_CURVE = 0.85
+const DEEP_STAR_EMERGENCE_CURVE = 1.35
+
 export function normalizeScopeOptics(
   scopeOptics: Partial<ScopeOptics> | null | undefined,
 ): ScopeOptics {
@@ -224,6 +242,55 @@ export function computeScopeRenderProfile({
   }
 }
 
+export function computeScopeDeepStarEmergenceAlpha(deltaMag: unknown) {
+  if (typeof deltaMag !== 'number' || !Number.isFinite(deltaMag)) {
+    return 0
+  }
+
+  const emergenceRange =
+    DEEP_STAR_EMERGENCE_BAND.end - DEEP_STAR_EMERGENCE_BAND.start
+
+  if (emergenceRange <= 0) {
+    return deltaMag >= DEEP_STAR_EMERGENCE_BAND.end ? 1 : 0
+  }
+
+  const normalizedDelta = clamp(
+    (deltaMag - DEEP_STAR_EMERGENCE_BAND.start) / emergenceRange,
+    0,
+    1,
+  )
+  const smoothedDelta = smoothstep(normalizedDelta)
+
+  return clamp(Math.pow(smoothedDelta, DEEP_STAR_EMERGENCE_CURVE), 0, 1)
+}
+
+export function computeScopeDeepStarCoreRadiusPx(magnitude: unknown) {
+  const safeMagnitude =
+    typeof magnitude === 'number' && Number.isFinite(magnitude)
+      ? magnitude
+      : DEEP_STAR_CORE_RADIUS_MAG_RANGE.faint
+  const magnitudeRange =
+    DEEP_STAR_CORE_RADIUS_MAG_RANGE.faint - DEEP_STAR_CORE_RADIUS_MAG_RANGE.bright
+
+  if (magnitudeRange === 0) {
+    return DEEP_STAR_CORE_RADIUS_RANGE_PX.min
+  }
+
+  const normalizedBrightness = clamp(
+    (DEEP_STAR_CORE_RADIUS_MAG_RANGE.faint - safeMagnitude) / magnitudeRange,
+    0,
+    1,
+  )
+
+  return clamp(
+    DEEP_STAR_CORE_RADIUS_RANGE_PX.min +
+      (DEEP_STAR_CORE_RADIUS_RANGE_PX.max - DEEP_STAR_CORE_RADIUS_RANGE_PX.min) *
+        Math.pow(normalizedBrightness, DEEP_STAR_CORE_RADIUS_CURVE),
+    DEEP_STAR_CORE_RADIUS_RANGE_PX.min,
+    DEEP_STAR_CORE_RADIUS_RANGE_PX.max,
+  )
+}
+
 function normalizeAltitudeDeg(value: unknown) {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return 0
@@ -260,6 +327,10 @@ function parseFiniteNumber(value: unknown) {
   }
 
   return Number.NaN
+}
+
+function smoothstep(value: number) {
+  return value * value * (3 - 2 * value)
 }
 
 function getAltitudePenalty(altitudeDeg: number) {
