@@ -119,6 +119,7 @@ describe('SettingsSheet', () => {
 
     expect(onFixAlignment).toHaveBeenCalledTimes(1)
     expect(container.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.activeElement).not.toBe(settingsButton)
   })
 
   it('uses a fixed shell with an internal scroll region when open', async () => {
@@ -199,6 +200,71 @@ describe('SettingsSheet', () => {
     })
 
     expect(onOpenChange).toHaveBeenLastCalledWith(false)
+  })
+
+  it('uses a centered desktop dialog with an internal scroll region when requested', async () => {
+    const onOpenChange = vi.fn()
+
+    await act(async () => {
+      root.render(
+        React.createElement(SettingsSheet, {
+          presentation: 'desktop-dialog',
+          onEnterDemoMode: vi.fn(),
+          onOpenChange,
+          onFixAlignment: vi.fn(),
+          onRecenter: vi.fn(),
+          canFixAlignment: true,
+          canRecenter: true,
+          layers: {
+            aircraft: true,
+            satellites: true,
+            planets: true,
+            stars: true,
+            constellations: true,
+          },
+          likelyVisibleOnly: true,
+          labelDisplayMode: 'center_only',
+          motionQuality: 'balanced',
+          onLayerToggle: vi.fn(),
+          onLikelyVisibleOnlyChange: vi.fn(),
+          onLabelDisplayModeChange: vi.fn(),
+          onMotionQualityChange: vi.fn(),
+        }),
+      )
+    })
+
+    const settingsButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Settings'),
+    )
+
+    expect(settingsButton).toBeDefined()
+
+    await act(async () => {
+      settingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const shell = container.querySelector(
+      '[data-testid="settings-sheet-shell"]',
+    ) as HTMLElement | null
+    const panel = container.querySelector(
+      '[data-testid="settings-sheet-panel"]',
+    ) as HTMLElement | null
+    const scrollRegion = container.querySelector(
+      '[data-testid="settings-sheet-scroll-region"]',
+    ) as HTMLElement | null
+
+    expect(shell).not.toBeNull()
+    expect(shell?.className).toContain('fixed')
+    expect(shell?.className).toContain('items-center')
+    expect(shell?.className).toContain('justify-center')
+    expect(panel?.className).toContain('max-w-4xl')
+    expect(panel?.className).toContain('overflow-hidden')
+    expect(panel?.style.maxHeight).toBe('calc(100dvh - 3rem)')
+    expect(scrollRegion?.className).toContain('flex-1')
+    expect(scrollRegion?.className).toContain('overflow-y-auto')
+    expect(scrollRegion?.className).toContain('overscroll-contain')
+    expect(container.textContent).toContain('Enter demo mode')
+    expect(onOpenChange).toHaveBeenLastCalledWith(true)
   })
 
   it('shows scope controls only when the viewer marks them available', async () => {
@@ -617,6 +683,136 @@ describe('SettingsSheet', () => {
     expect(container.querySelector('[role="dialog"]')).toBeNull()
     expect(document.activeElement).toBe(settingsButton)
     expect(settingsButton?.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('closes the desktop dialog on Escape and restores focus to the trigger', async () => {
+    await act(async () => {
+      root.render(
+        React.createElement(SettingsSheet, {
+          presentation: 'desktop-dialog',
+          onEnterDemoMode: vi.fn(),
+          onFixAlignment: vi.fn(),
+          onRecenter: vi.fn(),
+          canFixAlignment: true,
+          canRecenter: true,
+          layers: {
+            aircraft: true,
+            satellites: true,
+            planets: true,
+            stars: true,
+            constellations: true,
+          },
+          likelyVisibleOnly: true,
+          labelDisplayMode: 'center_only',
+          motionQuality: 'balanced',
+          onLayerToggle: vi.fn(),
+          onLikelyVisibleOnlyChange: vi.fn(),
+          onLabelDisplayModeChange: vi.fn(),
+          onMotionQualityChange: vi.fn(),
+        }),
+      )
+    })
+
+    const settingsButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Settings'),
+    )
+
+    expect(settingsButton).toBeDefined()
+
+    settingsButton!.focus()
+    expect(document.activeElement).toBe(settingsButton)
+
+    await act(async () => {
+      settingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const panel = container.querySelector('[role="dialog"]') as HTMLElement | null
+
+    expect(panel).not.toBeNull()
+    expect(document.activeElement?.textContent).toContain('Close')
+
+    await act(async () => {
+      panel!.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'Escape',
+          bubbles: true,
+          cancelable: true,
+        }),
+      )
+    })
+
+    expect(container.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.activeElement).toBe(settingsButton)
+    expect(settingsButton?.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('closes the desktop dialog on backdrop click, ignores inner clicks, and restores focus', async () => {
+    const onLayerToggle = vi.fn()
+
+    await act(async () => {
+      root.render(
+        React.createElement(SettingsSheet, {
+          presentation: 'desktop-dialog',
+          onEnterDemoMode: vi.fn(),
+          onFixAlignment: vi.fn(),
+          onRecenter: vi.fn(),
+          canFixAlignment: true,
+          canRecenter: true,
+          layers: {
+            aircraft: true,
+            satellites: true,
+            planets: true,
+            stars: true,
+            constellations: true,
+          },
+          likelyVisibleOnly: true,
+          labelDisplayMode: 'center_only',
+          motionQuality: 'balanced',
+          onLayerToggle,
+          onLikelyVisibleOnlyChange: vi.fn(),
+          onLabelDisplayModeChange: vi.fn(),
+          onMotionQualityChange: vi.fn(),
+        }),
+      )
+    })
+
+    const settingsButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Settings'),
+    ) as HTMLButtonElement | undefined
+
+    expect(settingsButton).toBeDefined()
+
+    settingsButton!.focus()
+
+    await act(async () => {
+      settingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const planesToggle = container.querySelector(
+      'input[aria-label="Planes"]',
+    ) as HTMLInputElement | null
+
+    expect(planesToggle?.checked).toBe(true)
+
+    await act(async () => {
+      planesToggle?.click()
+    })
+
+    expect(onLayerToggle).toHaveBeenCalledWith('aircraft', false)
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull()
+
+    const backdrop = container.querySelector(
+      '[data-testid="settings-sheet-backdrop"]',
+    ) as HTMLButtonElement | null
+
+    expect(backdrop).not.toBeNull()
+
+    await act(async () => {
+      backdrop!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(container.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.activeElement).toBe(settingsButton)
   })
 
   it('closes on backdrop click, ignores inner clicks, and restores focus to the trigger', async () => {

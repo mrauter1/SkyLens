@@ -18,6 +18,7 @@ vi.mock('next/link', () => ({
 
 import {
   getPermissionRecoveryAction,
+  getPermissionRecoveryHandlerId,
   resolveViewerBannerFeed,
 } from '../../components/viewer/viewer-shell'
 
@@ -226,5 +227,53 @@ describe('getPermissionRecoveryAction', () => {
       label: 'Enable camera and motion',
       pendingLabel: 'Starting AR...',
     })
+  })
+
+  it('uses the motion-only recovery action when camera is already granted', () => {
+    expect(
+      getPermissionRecoveryAction({
+        entry: 'live',
+        location: 'granted',
+        camera: 'granted',
+        orientation: 'denied',
+      }),
+    ).toEqual({
+      kind: 'motion-only',
+      label: 'Enable motion',
+      pendingLabel: 'Retrying motion...',
+    })
+  })
+
+  it('returns a ready state when camera and motion are already granted', () => {
+    expect(
+      getPermissionRecoveryAction({
+        entry: 'live',
+        location: 'granted',
+        camera: 'granted',
+        orientation: 'granted',
+      }),
+    ).toEqual({
+      kind: 'none',
+      label: 'Enable AR',
+      pendingLabel: 'Starting AR...',
+    })
+  })
+})
+
+describe('getPermissionRecoveryHandlerId', () => {
+  it('maps camera-only recovery to the camera retry handler', () => {
+    expect(getPermissionRecoveryHandlerId('camera-only')).toBe('retry-camera')
+  })
+
+  it('maps motion-only recovery to the motion retry handler', () => {
+    expect(getPermissionRecoveryHandlerId('motion-only')).toBe('retry-motion')
+  })
+
+  it('maps combined recovery to the full startup retry handler', () => {
+    expect(getPermissionRecoveryHandlerId('camera-and-motion')).toBe('retry-all')
+  })
+
+  it('maps ready state to no recovery handler', () => {
+    expect(getPermissionRecoveryHandlerId('none')).toBe('none')
   })
 })

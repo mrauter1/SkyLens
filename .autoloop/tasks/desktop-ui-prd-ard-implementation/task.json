@@ -1,0 +1,96 @@
+{
+  "task_id": "desktop-ui-prd-ard-implementation",
+  "created_at": "2026-04-06T22:22:02.903458+00:00",
+  "request_text": "# Autoloop Task: SkyLensServerless Desktop UI Cleanup & Usability Overhaul (PRD+ARD Implementation)\n\nImplement the approved PRD+ARD for desktop UI cleanup and usability overhaul in SkyLensServerless.\n\n## Objective\nFix desktop UI breakage and deliver a significantly cleaner and more usable interface.\n\n## Required outcomes\n1. Desktop quick action row must only show: Open Viewer, Align, Enable AR, Scope.\n2. Remove persistent clutter beside quick actions; move secondary/advanced content into Open Viewer.\n3. Warning banners must be one-line high by default, with per-item expand and dismiss controls.\n4. Clicking outside should close modal/sheet/overlay surfaces consistently; Escape should also close; focus should restore.\n5. Desktop settings should no longer be clipped; implement desktop-optimized settings presentation with internal scroll.\n\n## Constraints\n- Use plan, implement, and test pairs.\n- Do not set max iterations.\n- Preserve existing core behavior for permission recovery and viewer operation.\n- Maintain or improve accessibility semantics (dialog roles, aria-expanded, keyboard support).\n- Update or add tests for changed behavior.\n\n## Plan/Implement/Test Pairs\n\n### Pair 1\n- Plan: Simplify desktop quick action row and unify Enable AR intent.\n- Implement: Replace split camera/motion entry points with a single Enable AR action resolver in desktop UI.\n- Test: Verify action visibility/order and permission-state routing.\n\n### Pair 2\n- Plan: Move non-essential clutter into Open Viewer.\n- Implement: Relocate advanced diagnostics/settings content to overlay sections.\n- Test: Validate quick row cleanliness and overlay content availability.\n\n### Pair 3\n- Plan: Refactor warning rail to compact one-line rows with expand/dismiss.\n- Implement: Add warning UI state model (collapsed/expanded/dismissed), with non-critical persistence for session if practical.\n- Test: Add interaction and accessibility coverage for warning behavior.\n\n### Pair 4\n- Plan: Standardize outside-click and Escape-close behavior.\n- Implement: Apply a consistent dismiss contract for overlay/sheet/dialog components; ensure inside-click containment and focus return.\n- Test: Backdrop close, Escape close, and focus restoration tests.\n\n### Pair 5\n- Plan: Fix desktop settings clipping via desktop-specific layout.\n- Implement: Provide desktop dialog variant (or equivalent responsive split), retaining mobile shell where appropriate.\n- Test: Verify no clipping and full content reachability at desktop sizes.\n\n## Completion criteria\n- All five outcomes implemented.\n- Relevant tests added/updated and passing.\n- Changes committed in git.",
+  "request_updated_at": "2026-04-06T22:22:02.903514+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/desktop-ui-prd-ard-implementation/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260406T222202Z-e34c14d5",
+    "mode": "single",
+    "phase_ids": [
+      "desktop-quick-actions",
+      "desktop-overlay-content-cleanup",
+      "compact-warning-rail",
+      "shared-dismiss-contract",
+      "desktop-settings-dialog"
+    ],
+    "explicit": true,
+    "current_phase_index": 5,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "desktop-quick-actions": "completed",
+    "desktop-overlay-content-cleanup": "completed",
+    "compact-warning-rail": "completed",
+    "shared-dismiss-contract": "completed",
+    "desktop-settings-dialog": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "desktop-quick-actions",
+      "run_id": "run-20260406T222202Z-e34c14d5",
+      "status": "in_progress",
+      "ts": "2026-04-06T22:27:29.533229+00:00"
+    },
+    {
+      "phase_id": "desktop-quick-actions",
+      "run_id": "run-20260406T222202Z-e34c14d5",
+      "status": "completed",
+      "ts": "2026-04-06T22:44:08.284156+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "desktop-overlay-content-cleanup",
+      "run_id": "run-20260406T222202Z-e34c14d5",
+      "status": "in_progress",
+      "ts": "2026-04-06T22:44:08.285336+00:00"
+    },
+    {
+      "phase_id": "desktop-overlay-content-cleanup",
+      "run_id": "run-20260406T222202Z-e34c14d5",
+      "status": "completed",
+      "ts": "2026-04-06T22:54:04.243447+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "compact-warning-rail",
+      "run_id": "run-20260406T222202Z-e34c14d5",
+      "status": "in_progress",
+      "ts": "2026-04-06T22:54:04.244782+00:00"
+    },
+    {
+      "phase_id": "compact-warning-rail",
+      "run_id": "run-20260406T222202Z-e34c14d5",
+      "status": "completed",
+      "ts": "2026-04-06T23:03:39.117397+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "shared-dismiss-contract",
+      "run_id": "run-20260406T222202Z-e34c14d5",
+      "status": "in_progress",
+      "ts": "2026-04-06T23:03:39.118759+00:00"
+    },
+    {
+      "phase_id": "shared-dismiss-contract",
+      "run_id": "run-20260406T222202Z-e34c14d5",
+      "status": "completed",
+      "ts": "2026-04-06T23:13:17.807873+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "desktop-settings-dialog",
+      "run_id": "run-20260406T222202Z-e34c14d5",
+      "status": "in_progress",
+      "ts": "2026-04-06T23:13:17.809234+00:00"
+    },
+    {
+      "phase_id": "desktop-settings-dialog",
+      "run_id": "run-20260406T222202Z-e34c14d5",
+      "status": "completed",
+      "ts": "2026-04-06T23:22:00.124076+00:00",
+      "pair": "test"
+    }
+  ]
+}
