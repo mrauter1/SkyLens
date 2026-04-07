@@ -61,7 +61,6 @@ import {
 } from '../../lib/viewer/motion'
 import {
   compareLabelCandidates,
-  getLabelRankScore,
   layoutLabels,
   type LabelCandidate,
   type RankedLabelPlacement,
@@ -159,13 +158,18 @@ import {
   type MotionQuality,
 } from '../../lib/viewer/settings'
 import {
+  MAIN_VIEW_OPTICS_RANGES,
   computeScopeDeepStarCoreRadiusPx,
   computeScopeDeepStarEmergenceAlpha,
   SCOPE_OPTICS_RANGES,
   computeScopeRenderProfile,
+  getDefaultMainViewOptics,
+  magnificationToMainViewVerticalFovDeg,
   magnificationToScopeVerticalFovDeg,
+  normalizeMainViewOptics,
   normalizeScopeOptics,
-  passesScopeLimitingMagnitude,
+  type ActiveOptics,
+  type MainViewOptics,
   type ScopeOptics,
   type ScopeRenderProfile,
 } from '../../lib/viewer/scope-optics'
@@ -196,11 +200,11 @@ type ScopeProjectedSkyObject = ProjectedSkyObject & {
   scopeInLensCircle: boolean
 }
 
-type ScopeProjectedDeepStarObject = SkyObject & {
+type ProjectedDeepStarObject = SkyObject & {
   bMinusV: number
   displayName?: string
   projection: ReturnType<typeof projectWorldPointToScreenWithProfile>
-  scopeProjection: ReturnType<typeof projectWorldPointToScreenWithProfile>
+  scopeProjection: ReturnType<typeof projectWorldPointToScreenWithProfile> | null
   scopeInLensCircle: boolean
   source: 'scope-deep-star'
 }
@@ -210,9 +214,10 @@ type ScopeLoadedDeepStar = ScopeDecodedTileRow & {
   displayName?: string
 }
 
-type SummarySkyObject = ProjectedSkyObject | ScopeProjectedDeepStarObject
+type ActiveProjectedSkyObject = ProjectedSkyObject | ProjectedDeepStarObject
+type SummarySkyObject = ActiveProjectedSkyObject
 
-type OnObjectLabel = RankedLabelPlacement<ProjectedSkyObject>
+type OnObjectLabel = RankedLabelPlacement<ActiveProjectedSkyObject>
 type MotionAffordanceSample = {
   id: string
   x: number
@@ -603,6 +608,9 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       : getCurrentTimestampMs(),
   )
   const [viewerSettings, setViewerSettings] = useState(persistedViewerSettings)
+  const [mainViewOptics, setMainViewOptics] = useState<MainViewOptics>(() =>
+    getDefaultMainViewOptics(),
+  )
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null)
   const [hoveredObjectId, setHoveredObjectId] = useState<string | null>(null)
   const [astronomyFailureBanner, setAstronomyFailureBanner] = useState<string | null>(null)
@@ -774,6 +782,11 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         : 'available'
   const activeSatelliteCatalog =
     state.entry === 'demo' ? demoScenario.satelliteCatalog : satelliteCatalog
+  const normalizedMainViewOptics = normalizeMainViewOptics(mainViewOptics)
+  const normalizedScopeOptics = normalizeScopeOptics(viewerSettings.scopeOptics)
+  const scopeModeRequested =
+    viewerSettings.scopeModeEnabled && !isMobileAlignmentFocusActive
+  const sceneOptics = scopeModeRequested ? normalizedScopeOptics : normalizedMainViewOptics
   const demoAircraftSeedTimeMs =
     Math.floor(sceneTimeMs / POLL_INTERVAL_MS_BY_QUALITY.high) * POLL_INTERVAL_MS_BY_QUALITY.high
   const sceneSnapshot = observer
@@ -782,8 +795,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         timeMs: sceneTimeMs,
         enabledLayers,
         likelyVisibleOnly,
-        scopeModeEnabled: viewerSettings.scopeModeEnabled,
-        scopeOptics: viewerSettings.scopeOptics,
+        activeOptics: sceneOptics,
         focusedObjectId: selectedObjectId,
         aircraftTracker: aircraftTrackerRef.current,
         aircraftRevision,
@@ -810,13 +822,25 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const baseEffectiveVerticalFovDeg = getEffectiveVerticalFovDeg(
     viewerSettings.verticalFovAdjustmentDeg,
   )
+  const wideProjectionProfile = createProjectionProfile({
+    verticalFovDeg: baseEffectiveVerticalFovDeg,
+  })
+  const mainEffectiveVerticalFovDeg = magnificationToMainViewVerticalFovDeg(
+    normalizedMainViewOptics.magnificationX,
+    baseEffectiveVerticalFovDeg,
+  )
+  const mainProjectionProfile = createProjectionProfile({
+    verticalFovDeg: mainEffectiveVerticalFovDeg,
+  })
   const scopeLensDiameterPx = getScopeLensDiameterPx(
     viewport,
     viewerSettings.scopeLensDiameterPct,
   )
   const scopeLensRadiusPx = scopeLensDiameterPx / 2
+  const scopeLensOffsetX = (viewport.width - scopeLensDiameterPx) / 2
+  const scopeLensOffsetY = (viewport.height - scopeLensDiameterPx) / 2
   const scopeEffectiveVerticalFovDeg = magnificationToScopeVerticalFovDeg(
-    viewerSettings.scopeOptics.magnificationX,
+    normalizedScopeOptics.magnificationX,
   )
   const scopeProjectionProfile = createProjectionProfile({
     verticalFovDeg: scopeEffectiveVerticalFovDeg,
@@ -827,7 +851,19 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     12,
   )
   const scopeModeActive =
-    scopeControlsAvailable && viewerSettings.scopeModeEnabled && !isMobileAlignmentFocusActive
+    scopeControlsAvailable && scopeModeRequested
+  const activeOptics: ActiveOptics = scopeModeActive
+    ? normalizedScopeOptics
+    : normalizedMainViewOptics
+  const activeEffectiveVerticalFovDeg = scopeModeActive
+    ? scopeEffectiveVerticalFovDeg
+    : mainEffectiveVerticalFovDeg
+  const activeProjectionProfile = scopeModeActive
+    ? scopeProjectionProfile
+    : mainProjectionProfile
+  const stageProjectionProfile = scopeModeActive
+    ? wideProjectionProfile
+    : mainProjectionProfile
   const hydratedScopeEnabled = hasMounted ? viewerSettings.scopeModeEnabled : false
   const hydratedScopeVerticalFovDeg = hasMounted ? scopeEffectiveVerticalFovDeg : 10
   const blockingCopy = getBlockingCopy(state, startupState)
@@ -857,7 +893,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       ? null
       : Math.max(0, orientationDiagnosticsNowMs - latestOrientationSample.timestampMs)
   const scopeActiveBand = selectScopeBand({
-    scopeVerticalFovDeg: scopeEffectiveVerticalFovDeg,
+    scopeVerticalFovDeg: activeEffectiveVerticalFovDeg,
     cameraMode: cameraPose.mode,
     orientationStatus: state.orientation,
     latestOrientationSampleAgeMs: orientationSampleAgeMs,
@@ -868,7 +904,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     sunAltitudeDeg: sceneSnapshot.sunAltitudeDeg,
   })
   const scopeDeepStarsEnabled =
-    scopeModeActive && observer !== null && !scopeDeepStarsDaylightSuppressed
+    observer !== null && enabledLayers.stars && !scopeDeepStarsDaylightSuppressed
   const activeScopeBandIndex =
     scopeBandIndexState?.bandDir === scopeActiveBand.bandDir ? scopeBandIndexState.index : null
   const scopeEquatorialCenter =
@@ -885,9 +921,9 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const scopeSelectionRadiusDeg =
     scopeDeepStarsEnabled && scopeEquatorialCenter
       ? getScopeTileSelectionRadiusDeg({
-          verticalFovDeg: scopeEffectiveVerticalFovDeg,
-          viewportWidth: scopeLensDiameterPx,
-          viewportHeight: scopeLensDiameterPx,
+          verticalFovDeg: activeEffectiveVerticalFovDeg,
+          viewportWidth: scopeModeActive ? scopeLensDiameterPx : viewport.width,
+          viewportHeight: scopeModeActive ? scopeLensDiameterPx : viewport.height,
         })
       : null
   const scopeSelectedTiles =
@@ -903,12 +939,44 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         }).sort((left, right) => left.file.localeCompare(right.file))
       : []
   const scopeSelectedTileKey = scopeSelectedTiles.map((tile) => tile.file).join('|')
+  const useStageProfileProjection =
+    !scopeModeActive &&
+    normalizedMainViewOptics.magnificationX !==
+      MAIN_VIEW_OPTICS_RANGES.magnificationX.defaultValue
+  const stageProjectionViewport = {
+    width: viewport.width,
+    height: viewport.height,
+    sourceWidth: cameraFrameLayout?.sourceWidth,
+    sourceHeight: cameraFrameLayout?.sourceHeight,
+  }
+  const projectStageWorldPoint = (worldPoint: {
+    azimuthDeg: number
+    elevationDeg: number
+  }) =>
+    useStageProfileProjection
+      ? projectWorldPointToScreenWithProfile(
+          cameraPose,
+          worldPoint,
+          stageProjectionViewport,
+          stageProjectionProfile,
+        )
+      : projectWorldPointToScreen(
+          cameraPose,
+          worldPoint,
+          stageProjectionViewport,
+          viewerSettings.verticalFovAdjustmentDeg,
+        )
   const constellationScene =
     observer && sceneSnapshot.error === null
       ? buildVisibleConstellations({
           cameraPose,
           viewport,
           verticalFovAdjustmentDeg: viewerSettings.verticalFovAdjustmentDeg,
+          ...(useStageProfileProjection
+            ? {
+                projectLinePoint: projectStageWorldPoint,
+              }
+            : {}),
           enabledLayers,
           likelyVisibleOnly,
           sunAltitudeDeg: sceneSnapshot.sunAltitudeDeg,
@@ -927,36 +995,15 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     viewerSettings.alignmentTargetPreference ?? defaultAlignmentTargetPreference
   const projectedObjects: ProjectedSkyObject[] = sceneObjects.map((object) => ({
     ...object,
-    projection: projectWorldPointToScreen(
-      cameraPose,
-      {
-        azimuthDeg: object.azimuthDeg,
-        elevationDeg: object.elevationDeg,
-      },
-      {
-        ...viewport,
-        sourceWidth: cameraFrameLayout?.sourceWidth,
-        sourceHeight: cameraFrameLayout?.sourceHeight,
-      },
-      viewerSettings.verticalFovAdjustmentDeg,
-    ),
+    projection: projectStageWorldPoint({
+      azimuthDeg: object.azimuthDeg,
+      elevationDeg: object.elevationDeg,
+    }),
   }))
   const wideCenterLockedCandidate = pickCenterLockedCandidate(
     projectedObjects
       .filter((object) => object.projection.visible)
-      .map((object) => ({
-        id: object.id,
-        rankScore: getLabelRankScore(
-          {
-            object,
-            projection: object.projection,
-          },
-          {
-            centerLockedObjectId: null,
-          },
-        ),
-        angularDistanceDeg: object.projection.angularDistanceDeg,
-      })),
+      .map((object) => toCenterLockCandidate(object)),
   )
   const wideCenterLockedObject =
     projectedObjects.find((object) => object.id === wideCenterLockedCandidate?.id) ?? null
@@ -991,8 +1038,18 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             scopeLensRadiusPx * scopeLensRadiusPx,
       }
     })
+  const scopeActiveBrightObjects: ScopeProjectedSkyObject[] = scopeProjectedBrightObjects
+    .filter((object) => object.scopeInLensCircle)
+    .map((object) => ({
+      ...object,
+      projection: offsetScopeProjectionToStage(
+        object.scopeProjection,
+        scopeLensOffsetX,
+        scopeLensOffsetY,
+      ),
+    }))
   const observationJulianYear = getObservationJulianYear(sceneTimeMs)
-  const scopeProjectedDeepStars: ScopeProjectedDeepStarObject[] =
+  const projectedDeepStars: ProjectedDeepStarObject[] =
     hasMounted && scopeDeepStarsEnabled && observer
       ? scopeLoadedDeepStars.flatMap((star) => {
           const adjustedPosition = applyScopeProperMotion(star, observationJulianYear)
@@ -1005,35 +1062,45 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             return []
           }
 
-          if (
-            !passesScopeLimitingMagnitude({
-              magnitude: star.vMag,
-              altitudeDeg: horizontalPosition.elevationDeg,
-              optics: viewerSettings.scopeOptics,
-            })
-          ) {
-            return []
-          }
           const scopeRender = computeScopeRenderProfile({
             magnitude: star.vMag,
             altitudeDeg: horizontalPosition.elevationDeg,
-            optics: viewerSettings.scopeOptics,
+            optics: activeOptics,
           })
-          const scopeProjection = projectWorldPointToScreenWithProfile(
-            cameraPose,
-            horizontalPosition,
-            {
-              width: scopeLensDiameterPx,
-              height: scopeLensDiameterPx,
-            },
-            scopeProjectionProfile,
+          const emergenceAlpha = computeScopeDeepStarEmergenceAlpha(
+            scopeRender.effectiveLimitMag - star.vMag,
           )
-          const scopeOffsetX = scopeProjection.x - scopeLensRadiusPx
-          const scopeOffsetY = scopeProjection.y - scopeLensRadiusPx
+
+          if (emergenceAlpha <= 0) {
+            return []
+          }
+          const activeProjection = scopeModeActive
+            ? projectWorldPointToScreenWithProfile(
+                cameraPose,
+                horizontalPosition,
+                {
+                  width: scopeLensDiameterPx,
+                  height: scopeLensDiameterPx,
+                },
+                activeProjectionProfile,
+              )
+            : projectStageWorldPoint(horizontalPosition)
+          const scopeProjection = scopeModeActive ? activeProjection : null
+          const scopeOffsetX = (scopeProjection?.x ?? 0) - scopeLensRadiusPx
+          const scopeOffsetY = (scopeProjection?.y ?? 0) - scopeLensRadiusPx
           const scopeInLensCircle =
+            scopeProjection !== null &&
             scopeProjection.visible &&
             scopeOffsetX * scopeOffsetX + scopeOffsetY * scopeOffsetY <=
               scopeLensRadiusPx * scopeLensRadiusPx
+          const projection =
+            scopeProjection === null
+              ? activeProjection
+              : offsetScopeProjectionToStage(
+                  scopeProjection,
+                  scopeLensOffsetX,
+                  scopeLensOffsetY,
+                )
 
           return [{
             id: star.id,
@@ -1060,7 +1127,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                 effectiveLimitMag: scopeRender.effectiveLimitMag,
               },
             },
-            projection: scopeProjection,
+            projection,
             scopeProjection,
             scopeInLensCircle,
             source: 'scope-deep-star' as const,
@@ -1069,74 +1136,56 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       : []
   const scopeCenterLockedCandidate = scopeModeActive
     ? pickCenterLockedCandidate(
-        scopeProjectedBrightObjects
-          .filter((object) => object.scopeInLensCircle)
-          .map((object) => ({
-            id: object.id,
-            rankScore: getLabelRankScore(
-              {
-                object,
-                projection: object.scopeProjection,
-              },
-              {
-                centerLockedObjectId: null,
-              },
-            ),
-            angularDistanceDeg: object.scopeProjection.angularDistanceDeg,
-          })),
+        [...scopeActiveBrightObjects, ...projectedDeepStars.filter((object) => object.scopeInLensCircle)]
+          .map((object) => toCenterLockCandidate(object)),
       )
     : null
-  const scopeCenterLockedBrightObject =
+  const scopeCenterLockedObject =
     scopeModeActive
-      ? scopeProjectedBrightObjects.find((object) => object.id === scopeCenterLockedCandidate?.id) ??
+      ? [...scopeActiveBrightObjects, ...projectedDeepStars].find(
+          (object) => object.id === scopeCenterLockedCandidate?.id,
+        ) ??
         null
       : null
-  const scopeNamedDeepCenterLockedCandidate = scopeModeActive
-    ? pickCenterLockedCandidate(
-        scopeProjectedDeepStars
-          .filter((object) => object.scopeInLensCircle && Boolean(object.displayName))
-          .map((object) => ({
-            id: object.id,
-            rankScore: getLabelRankScore(
-              {
-                object,
-                projection: object.scopeProjection,
-              },
-              {
-                centerLockedObjectId: null,
-              },
-            ),
-            angularDistanceDeg: object.scopeProjection.angularDistanceDeg,
-          })),
-      )
-    : null
-  const scopeCenterLockedDeepStar =
-    scopeModeActive
-      ? scopeProjectedDeepStars.find((object) => object.id === scopeNamedDeepCenterLockedCandidate?.id) ??
-        null
-      : null
-  const wideSceneCenterLockedObject = wideCenterLockedObject
+  const mainCenterLockedCandidate = pickCenterLockedCandidate(
+    [...projectedObjects, ...projectedDeepStars]
+      .filter((object) => object.projection.visible)
+      .map((object) => toCenterLockCandidate(object)),
+  )
+  const mainCenterLockedObject =
+    [...projectedObjects, ...projectedDeepStars].find(
+      (object) => object.id === mainCenterLockedCandidate?.id,
+    ) ?? null
+  const wideSceneCenterLockedObject = scopeModeActive
+    ? wideCenterLockedObject
+    : mainCenterLockedObject
   const centerLockedObject: SummarySkyObject | null = scopeModeActive
-    ? scopeCenterLockedBrightObject ?? scopeCenterLockedDeepStar
-    : wideSceneCenterLockedObject
-  const markerObjects = projectedObjects.filter(
+    ? scopeCenterLockedObject
+    : mainCenterLockedObject
+  const markerObjects: ActiveProjectedSkyObject[] = [
+    ...projectedObjects,
+    ...(scopeModeActive ? [] : projectedDeepStars),
+  ].filter(
     (object) =>
       object.projection.visible &&
       (!isCelestialDaylightLabelSuppressed(object) ||
         object.id === wideSceneCenterLockedObject?.id ||
         object.id === selectedObjectId),
   )
-  const markerLabelCandidates = markerObjects.map((object) => ({
+  const labelObjects: ActiveProjectedSkyObject[] = scopeModeActive
+    ? [...scopeActiveBrightObjects, ...projectedDeepStars.filter((object) => object.scopeInLensCircle)]
+    : markerObjects
+  const markerLabelCandidates = labelObjects.map((object) => ({
     object,
     projection: object.projection,
     secondaryLabel: formatSkyObjectSublabel(object),
-  })) satisfies LabelCandidate<ProjectedSkyObject>[]
+  })) satisfies LabelCandidate<ActiveProjectedSkyObject>[]
   const onObjectLabels: OnObjectLabel[] =
     viewerSettings.labelDisplayMode === 'on_objects'
       ? layoutLabels(markerLabelCandidates, {
           viewport,
           maxLabels: PUBLIC_CONFIG.defaults.maxLabels,
-          centerLockedObjectId: wideSceneCenterLockedObject?.id ?? null,
+          centerLockedObjectId: centerLockedObject?.id ?? null,
         })
       : []
   const topListObjects =
@@ -1144,15 +1193,16 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       ? [...markerLabelCandidates]
           .sort((left, right) =>
             compareLabelCandidates(left, right, {
-              centerLockedObjectId: wideSceneCenterLockedObject?.id ?? null,
+              centerLockedObjectId: centerLockedObject?.id ?? null,
             }),
           )
           .map((candidate) => candidate.object)
       : []
   const selectedObject =
-    projectedObjects.find((object) => object.id === selectedObjectId) ?? null
+    [...projectedObjects, ...projectedDeepStars].find((object) => object.id === selectedObjectId) ??
+    null
   const hoveredObject =
-    projectedObjects.find(
+    [...projectedObjects, ...projectedDeepStars].find(
       (object) => object.id === hoveredObjectId && object.projection.visible,
     ) ?? null
   const selectedDetailObject = selectedObject ?? hoveredObject
@@ -1176,7 +1226,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       : []
   const scopeStarCanvasPoints: ScopeStarCanvasPoint[] =
     hasMounted && scopeModeActive
-      ? scopeProjectedDeepStars
+      ? projectedDeepStars
           .filter((object) => object.scopeInLensCircle)
           .map((object) => {
             const scopeRender = getScopeRenderProfile(object)
@@ -1189,8 +1239,8 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
 
             return {
               id: object.id,
-              x: object.scopeProjection.x,
-              y: object.scopeProjection.y,
+              x: object.scopeProjection?.x ?? 0,
+              y: object.scopeProjection?.y ?? 0,
               bMinusV: object.bMinusV,
               alpha: computeScopeDeepStarEmergenceAlpha(deltaMag),
               radius: computeScopeDeepStarCoreRadiusPx(safeMagnitude),
@@ -1210,9 +1260,12 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
               scopeVerticalFovDeg: scopeEffectiveVerticalFovDeg,
               markerScale: viewerSettings.markerScale,
             }),
-            opacity: getScopeMarkerOpacity(object, viewerSettings.scopeOptics),
+            opacity: getScopeMarkerOpacity(object, normalizedScopeOptics),
             className: getMarkerVisualClassName(object, {
-              centerLockedObjectId: scopeCenterLockedBrightObject?.id ?? null,
+              centerLockedObjectId:
+                scopeCenterLockedObject && isScopeBrightObject(scopeCenterLockedObject)
+                  ? scopeCenterLockedObject.id
+                  : null,
               selectedObjectId,
             }),
           }))
@@ -1241,19 +1294,10 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                 nowMs: sceneTimeMs,
               })
               .map((point) =>
-                projectWorldPointToScreen(
-                  cameraPose,
-                  {
-                    azimuthDeg: point.azimuthDeg,
-                    elevationDeg: point.elevationDeg,
-                  },
-                  {
-                    ...viewport,
-                    sourceWidth: cameraFrameLayout?.sourceWidth,
-                    sourceHeight: cameraFrameLayout?.sourceHeight,
-                  },
-                  viewerSettings.verticalFovAdjustmentDeg,
-                ),
+                projectStageWorldPoint({
+                  azimuthDeg: point.azimuthDeg,
+                  elevationDeg: point.elevationDeg,
+                }),
               )
               .filter((projection) => projection.visible)
               .map((projection) => `${projection.x},${projection.y}`),
@@ -2001,8 +2045,10 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   }, [viewerSettings])
 
   useEffect(() => {
-    if (!scopeModeActive) {
+    if (!scopeDeepStarsEnabled) {
       scopeCatalogRequestTrackerRef.current.invalidate()
+      setScopeBandIndexState(null)
+      setScopeNamesTable({})
       return
     }
 
@@ -2038,7 +2084,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     return () => {
       cancelled = true
     }
-  }, [scopeActiveBand.bandDir, scopeModeActive])
+  }, [scopeActiveBand.bandDir, scopeDeepStarsEnabled])
 
   useEffect(() => {
     if (
@@ -2100,13 +2146,13 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   useEffect(() => {
     if (
       hoveredObjectId !== null &&
-      !projectedObjects.some(
+      !markerObjects.some(
         (object) => object.id === hoveredObjectId && object.projection.visible,
       )
     ) {
       setHoveredObjectId(null)
     }
-  }, [hoveredObjectId, projectedObjects])
+  }, [hoveredObjectId, markerObjects])
 
   useEffect(() => {
     liveObserverRef.current = liveObserver
@@ -3220,6 +3266,48 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     canStartAlignment: canAlignCalibration,
     showStartAlignmentAction: usesCameraStageAlignmentFocus,
   }
+  const activeQuickOptics = scopeModeActive ? normalizedScopeOptics : normalizedMainViewOptics
+  const activeMagnificationRange = scopeModeActive
+    ? SCOPE_OPTICS_RANGES.magnificationX
+    : MAIN_VIEW_OPTICS_RANGES.magnificationX
+  const updateActiveAperture = (value: number) => {
+    if (scopeModeActive) {
+      setViewerSettings((current) => ({
+        ...current,
+        scopeOptics: {
+          ...current.scopeOptics,
+          apertureMm: value,
+        },
+      }))
+      return
+    }
+
+    setMainViewOptics((current) =>
+      normalizeMainViewOptics({
+        ...current,
+        apertureMm: value,
+      }),
+    )
+  }
+  const updateActiveMagnification = (value: number) => {
+    if (scopeModeActive) {
+      setViewerSettings((current) => ({
+        ...current,
+        scopeOptics: {
+          ...current.scopeOptics,
+          magnificationX: value,
+        },
+      }))
+      return
+    }
+
+    setMainViewOptics((current) =>
+      normalizeMainViewOptics({
+        ...current,
+        magnificationX: value,
+      }),
+    )
+  }
 
   const settingsSheetProps = {
     onEnterDemoMode: handleEnterDemoMode,
@@ -3822,9 +3910,9 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
           </div>
         ) : null}
         {renderedMarkerObjects.map((object) => {
-          const markerSizePx = getMarkerSizePx(
+          const markerSizePx = getMarkerSizePxForEffectiveVerticalFovDeg(
             object,
-            viewerSettings.verticalFovAdjustmentDeg,
+            scopeModeActive ? baseEffectiveVerticalFovDeg : mainEffectiveVerticalFovDeg,
             viewerSettings.markerScale,
           )
 
@@ -4217,7 +4305,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                         <p>Yaw {Math.round(cameraPose.yawDeg)}°</p>
                         <p>Pitch {Math.round(cameraPose.pitchDeg)}°</p>
                         <p>
-                          FOV {getEffectiveVerticalFovDeg(viewerSettings.verticalFovAdjustmentDeg)}°
+                          FOV {activeEffectiveVerticalFovDeg.toFixed(1)}°
                           {' '}vertical
                         </p>
                         <p>Target {calibrationTarget.label}</p>
@@ -4230,7 +4318,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                       </div>
                     </div>
                   </section>
-                  {scopeControlsAvailable && hydratedScopeEnabled ? (
+                  {scopeControlsAvailable ? (
                     <section
                       className="pointer-events-auto shell-panel rounded-[1.75rem] p-5"
                       data-testid="desktop-scope-quick-controls"
@@ -4252,41 +4340,25 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                       <div className="mt-4 grid gap-3 sm:grid-cols-2">
                         <QuickRangeSlider
                           label="Scope aperture"
-                          value={viewerSettings.scopeOptics.apertureMm}
+                          value={activeQuickOptics.apertureMm}
                           suffix=" mm"
                           min={SCOPE_OPTICS_RANGES.apertureMm.min}
                           max={SCOPE_OPTICS_RANGES.apertureMm.max}
                           step={SCOPE_OPTICS_RANGES.apertureMm.step}
                           valueTestId="desktop-scope-aperture-value"
                           sliderTestId="desktop-scope-aperture-slider"
-                          onChange={(value) =>
-                            setViewerSettings((current) => ({
-                              ...current,
-                              scopeOptics: {
-                                ...current.scopeOptics,
-                                apertureMm: value,
-                              },
-                            }))
-                          }
+                          onChange={updateActiveAperture}
                         />
                         <QuickRangeSlider
                           label="Scope magnification"
-                          value={viewerSettings.scopeOptics.magnificationX}
+                          value={activeQuickOptics.magnificationX}
                           suffix="x"
-                          min={SCOPE_OPTICS_RANGES.magnificationX.min}
-                          max={SCOPE_OPTICS_RANGES.magnificationX.max}
-                          step={SCOPE_OPTICS_RANGES.magnificationX.step}
+                          min={activeMagnificationRange.min}
+                          max={activeMagnificationRange.max}
+                          step={activeMagnificationRange.step}
                           valueTestId="desktop-scope-magnification-value"
                           sliderTestId="desktop-scope-magnification-slider"
-                          onChange={(value) =>
-                            setViewerSettings((current) => ({
-                              ...current,
-                              scopeOptics: {
-                                ...current.scopeOptics,
-                                magnificationX: value,
-                              },
-                            }))
-                          }
+                          onChange={updateActiveMagnification}
                         />
                       </div>
                     </section>
@@ -4581,7 +4653,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                         Pitch {Math.round(cameraPose.pitchDeg)}°
                       </div>
                       <div className="rounded-2xl border border-sky-100/10 bg-slate-950/35 px-4 py-3">
-                        FOV {getEffectiveVerticalFovDeg(viewerSettings.verticalFovAdjustmentDeg)}°
+                        FOV {activeEffectiveVerticalFovDeg.toFixed(1)}°
                       </div>
                       <div className="rounded-2xl border border-sky-100/10 bg-slate-950/35 px-4 py-3">
                         Visible markers {renderedMarkerObjects.length}
@@ -4665,7 +4737,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                             <p>Yaw {Math.round(cameraPose.yawDeg)}°</p>
                             <p>Pitch {Math.round(cameraPose.pitchDeg)}°</p>
                             <p>
-                              FOV {getEffectiveVerticalFovDeg(viewerSettings.verticalFovAdjustmentDeg)}
+                              FOV {activeEffectiveVerticalFovDeg.toFixed(1)}
                               ° vertical
                             </p>
                             <p>Sensor {sensorStatusValue}</p>
@@ -4769,48 +4841,32 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         ) : (
           <>
             <div className="grid justify-center gap-3" data-testid="mobile-viewer-quick-actions">
-              {!isMobileAlignmentFocusActive && hydratedScopeEnabled ? (
+              {!isMobileAlignmentFocusActive ? (
                 <div
                   className="grid gap-3"
                   data-testid="mobile-scope-quick-controls"
                 >
                   <QuickRangeSlider
                     label="Scope aperture"
-                    value={viewerSettings.scopeOptics.apertureMm}
+                    value={activeQuickOptics.apertureMm}
                     suffix=" mm"
                     min={SCOPE_OPTICS_RANGES.apertureMm.min}
                     max={SCOPE_OPTICS_RANGES.apertureMm.max}
                     step={SCOPE_OPTICS_RANGES.apertureMm.step}
                     valueTestId="mobile-scope-aperture-value"
                     sliderTestId="mobile-scope-aperture-slider"
-                    onChange={(value) =>
-                      setViewerSettings((current) => ({
-                        ...current,
-                        scopeOptics: {
-                          ...current.scopeOptics,
-                          apertureMm: value,
-                        },
-                      }))
-                    }
+                    onChange={updateActiveAperture}
                   />
                   <QuickRangeSlider
                     label="Scope magnification"
-                    value={viewerSettings.scopeOptics.magnificationX}
+                    value={activeQuickOptics.magnificationX}
                     suffix="x"
-                    min={SCOPE_OPTICS_RANGES.magnificationX.min}
-                    max={SCOPE_OPTICS_RANGES.magnificationX.max}
-                    step={SCOPE_OPTICS_RANGES.magnificationX.step}
+                    min={activeMagnificationRange.min}
+                    max={activeMagnificationRange.max}
+                    step={activeMagnificationRange.step}
                     valueTestId="mobile-scope-magnification-value"
                     sliderTestId="mobile-scope-magnification-slider"
-                    onChange={(value) =>
-                      setViewerSettings((current) => ({
-                        ...current,
-                        scopeOptics: {
-                          ...current.scopeOptics,
-                          magnificationX: value,
-                        },
-                      }))
-                    }
+                    onChange={updateActiveMagnification}
                   />
                 </div>
               ) : null}
@@ -5013,16 +5069,33 @@ function getMovingObjectMarkerStateClassName(object: SkyObject) {
   }
 }
 
-function getMarkerSizePx(
-  object: SkyObject,
-  verticalFovAdjustmentDeg: number,
-  markerScale: number,
+function toCenterLockCandidate(object: SummarySkyObject) {
+  return {
+    id: object.id,
+    angularDistanceDeg: object.projection.angularDistanceDeg,
+    brightnessScore: getCenterLockBrightnessScore(object),
+  }
+}
+
+function getCenterLockBrightnessScore(object: SkyObject) {
+  if (typeof object.magnitude === 'number' && Number.isFinite(object.magnitude)) {
+    return -object.magnitude
+  }
+
+  return object.importance
+}
+
+function offsetScopeProjectionToStage(
+  projection: ReturnType<typeof projectWorldPointToScreenWithProfile>,
+  offsetX: number,
+  offsetY: number,
 ) {
-  return getMarkerSizePxForEffectiveVerticalFovDeg(
-    object,
-    getEffectiveVerticalFovDeg(verticalFovAdjustmentDeg),
-    markerScale,
-  )
+  return {
+    ...projection,
+    x: projection.x + offsetX,
+    y: projection.y + offsetY,
+    inViewport: projection.inViewport,
+  }
 }
 
 function getScopeMarkerSizePx(
@@ -5279,20 +5352,14 @@ function getScopeExtendedObjectOpacity(
     0,
     1,
   )
-  const magnificationFactor = clampNumber(
-    (normalizedOptics.magnificationX - SCOPE_OPTICS_RANGES.magnificationX.min) /
-      (160 - SCOPE_OPTICS_RANGES.magnificationX.min),
-    0,
-    1,
-  )
 
   switch (object.type) {
     case 'sun':
-      return clampNumber(0.78 + apertureFactor * 0.16 - magnificationFactor * 0.08, 0.72, 0.94)
+      return clampNumber(0.74 + apertureFactor * 0.2, 0.72, 0.94)
     case 'moon':
-      return clampNumber(0.7 + apertureFactor * 0.18 - magnificationFactor * 0.1, 0.62, 0.92)
+      return clampNumber(0.66 + apertureFactor * 0.22, 0.62, 0.92)
     case 'planet':
-      return clampNumber(0.46 + apertureFactor * 0.24 - magnificationFactor * 0.14, 0.34, 0.82)
+      return clampNumber(0.4 + apertureFactor * 0.28, 0.34, 0.82)
   }
 }
 
@@ -6441,8 +6508,7 @@ function buildSceneSnapshot({
   timeMs,
   enabledLayers,
   likelyVisibleOnly,
-  scopeModeEnabled,
-  scopeOptics,
+  activeOptics,
   focusedObjectId,
   aircraftTracker,
   aircraftRevision: _aircraftRevision,
@@ -6452,8 +6518,7 @@ function buildSceneSnapshot({
   timeMs: number
   enabledLayers: Record<EnabledLayer, boolean>
   likelyVisibleOnly: boolean
-  scopeModeEnabled: boolean
-  scopeOptics: ScopeOptics
+  activeOptics: ActiveOptics
   focusedObjectId: string | null
   aircraftTracker: AircraftTracker | null
   aircraftRevision: number
@@ -6475,8 +6540,7 @@ function buildSceneSnapshot({
       enabledLayers,
       likelyVisibleOnly,
       sunAltitudeDeg: celestial.sunAltitudeDeg,
-      scopeModeEnabled,
-      scopeOptics,
+      activeOptics,
     })
     let aircraft: SkyObject[] = []
     let satellites: SkyObject[] = []

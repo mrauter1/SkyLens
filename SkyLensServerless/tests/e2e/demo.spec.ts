@@ -89,6 +89,75 @@ test('scope mode enables and persists across reload in demo mode', async ({ page
   })
 })
 
+test('main-view optics reset on reload while scope optics stay persisted', async ({ page }) => {
+  await page.goto(SF_DEMO_ROUTE)
+  await ensureMobileViewerOverlayOpen(page)
+
+  const mobileOverlay = page.getByTestId('mobile-viewer-overlay')
+  const mainApertureSlider = page.getByTestId('mobile-scope-aperture-slider')
+  const mainMagnificationSlider = page.getByTestId('mobile-scope-magnification-slider')
+
+  await expect(mainApertureSlider).toHaveValue('120')
+  await expect(mainMagnificationSlider).toHaveValue('1')
+  await mainApertureSlider.evaluate((element) => {
+    const input = element as HTMLInputElement
+    input.value = '180'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await mainMagnificationSlider.evaluate((element) => {
+    const input = element as HTMLInputElement
+    input.value = '2'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await expect(mainApertureSlider).toHaveValue('180')
+  await expect(mainMagnificationSlider).toHaveValue('2')
+
+  await mobileOverlay.getByRole('button', { name: 'Settings' }).click()
+  await page.getByRole('dialog', { name: 'Settings' }).getByRole('checkbox', { name: 'Scope mode' }).click()
+  await expect(page.getByTestId('scope-lens-overlay')).toBeVisible()
+
+  const scopeApertureSlider = page.getByTestId('mobile-scope-aperture-slider')
+  const scopeMagnificationSlider = page.getByTestId('mobile-scope-magnification-slider')
+
+  await expect(scopeApertureSlider).toHaveValue('120')
+  await expect(scopeMagnificationSlider).toHaveValue('50')
+  await scopeApertureSlider.evaluate((element) => {
+    const input = element as HTMLInputElement
+    input.value = '240'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await scopeMagnificationSlider.evaluate((element) => {
+    const input = element as HTMLInputElement
+    input.value = '75'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await expect(scopeApertureSlider).toHaveValue('240')
+  await expect(scopeMagnificationSlider).toHaveValue('75')
+
+  await page.reload()
+  await ensureMobileViewerOverlayOpen(page)
+
+  await expect(page.getByTestId('mobile-scope-aperture-slider')).toHaveValue('240')
+  await expect(page.getByTestId('mobile-scope-magnification-slider')).toHaveValue('75')
+  await page.getByTestId('mobile-viewer-overlay').getByRole('button', { name: 'Settings' }).click()
+  const scopeToggle = page.getByRole('dialog', { name: 'Settings' }).getByRole('checkbox', {
+    name: 'Scope mode',
+  })
+  await expect(scopeToggle).toBeChecked()
+  await scopeToggle.click()
+  await expect(page.getByTestId('scope-lens-overlay')).toHaveCount(0)
+  await expect(page.getByTestId('mobile-scope-aperture-slider')).toHaveValue('120')
+  await expect(page.getByTestId('mobile-scope-magnification-slider')).toHaveValue('1')
+
+  await page.evaluate(() => {
+    window.localStorage.clear()
+  })
+})
+
 test('settings sheet closes from its backdrop and restores focus to Settings', async ({ page }) => {
   await page.goto(SF_DEMO_ROUTE)
 

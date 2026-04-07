@@ -18,6 +18,8 @@ const {
   mockFetchSatelliteCatalog,
   mockResolveAircraftMotionObjects,
   mockResolveSatelliteMotionObjects,
+  mockAircraftTrackerGetTrail,
+  mockCreateAircraftTracker,
 } = vi.hoisted(() => ({
   mockRouterReplace: vi.fn(),
   mockSettingsSheetProps: vi.fn(),
@@ -32,6 +34,8 @@ const {
   mockFetchSatelliteCatalog: vi.fn(),
   mockResolveAircraftMotionObjects: vi.fn(),
   mockResolveSatelliteMotionObjects: vi.fn(),
+  mockAircraftTrackerGetTrail: vi.fn(),
+  mockCreateAircraftTracker: vi.fn(),
 }))
 
 vi.mock('next/navigation', () => ({
@@ -98,6 +102,10 @@ vi.mock('../../lib/astronomy/constellations', () => ({
 vi.mock('../../lib/aircraft/client', () => ({
   fetchAircraftSnapshot: mockFetchAircraftSnapshot,
   getAircraftAvailabilityMessage: mockGetAircraftAvailabilityMessage,
+}))
+
+vi.mock('../../lib/aircraft/tracker', () => ({
+  createAircraftTracker: mockCreateAircraftTracker,
 }))
 
 vi.mock('../../lib/satellites/client', () => ({
@@ -195,6 +203,8 @@ describe('ViewerShell celestial behavior', () => {
     mockFetchSatelliteCatalog.mockReset()
     mockResolveAircraftMotionObjects.mockReset()
     mockResolveSatelliteMotionObjects.mockReset()
+    mockAircraftTrackerGetTrail.mockReset()
+    mockCreateAircraftTracker.mockReset()
     SENSOR_CONTROLLER.stop.mockReset()
     SENSOR_CONTROLLER.recenter.mockReset()
     TRACKER.stop.mockReset()
@@ -225,6 +235,14 @@ describe('ViewerShell celestial behavior', () => {
     })
     mockResolveAircraftMotionObjects.mockReturnValue([])
     mockResolveSatelliteMotionObjects.mockReturnValue([])
+    mockAircraftTrackerGetTrail.mockReturnValue([])
+    mockCreateAircraftTracker.mockImplementation(() => ({
+      ingest: vi.fn(),
+      resolve: vi.fn(() => []),
+      getTrail: mockAircraftTrackerGetTrail,
+      prune: vi.fn(),
+      reset: vi.fn(),
+    }))
     window.localStorage.clear()
     stubCanvasContext()
   })
@@ -474,9 +492,7 @@ describe('ViewerShell celestial behavior', () => {
 
     expect(activeSummary?.textContent).toContain('Sirius')
     expect(container.querySelectorAll('[data-testid="scope-bright-object-marker"]')).toHaveLength(1)
-    expect(aircraftLabel).not.toBeNull()
-    expect(aircraftLabel?.className).toContain('border-amber-200/70')
-    expect(aircraftLabel?.textContent).toContain('UAL123')
+    expect(aircraftLabel).toBeNull()
   })
 
   it('renders the scope overlay after wide lines, markers, and labels for lens occlusion ordering', async () => {
@@ -563,6 +579,146 @@ describe('ViewerShell celestial behavior', () => {
     expect(
       constellationLine!.compareDocumentPosition(overlay!) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).not.toBe(0)
+  })
+
+  it('keeps constellation line endpoints aligned with marker projections under main-view magnification', async () => {
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -18,
+      objects: [
+        {
+          id: 'star-sirius',
+          type: 'star',
+          label: 'Sirius',
+          azimuthDeg: 0,
+          elevationDeg: 16,
+          magnitude: -1.46,
+          importance: 74,
+          metadata: {
+            detail: {
+              typeLabel: 'Star',
+              magnitude: -1.46,
+              elevationDeg: 16,
+            },
+          },
+        },
+      ],
+    })
+    mockBuildVisibleConstellations.mockImplementation((input: {
+      projectLinePoint?: (worldPoint: { azimuthDeg: number; elevationDeg: number }) => {
+        x: number
+        y: number
+      }
+    }) => {
+      const projectLinePoint =
+        input.projectLinePoint ??
+        ((worldPoint: { azimuthDeg: number; elevationDeg: number }) => ({
+          x: worldPoint.azimuthDeg,
+          y: worldPoint.elevationDeg,
+        }))
+
+      return {
+        objects: [],
+        lineSegments: [
+          {
+            constellationId: 'orion',
+            start: projectLinePoint({ azimuthDeg: 0, elevationDeg: 16 }),
+            end: projectLinePoint({ azimuthDeg: 4, elevationDeg: 16 }),
+          },
+        ],
+      }
+    })
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
+    await setSliderValue('desktop-scope-magnification-slider', '2')
+
+    const marker = container.querySelector(
+      '[data-testid="sky-object-marker"][data-object-id="star-sirius"]',
+    ) as HTMLElement | null
+    const constellationLine = container.querySelector('svg line') as SVGLineElement | null
+
+    expect(marker).not.toBeNull()
+    expect(constellationLine).not.toBeNull()
+
+    const markerPosition = getAbsoluteMarkerPosition(marker!)
+    expect(Number(constellationLine?.getAttribute('x1'))).toBeCloseTo(markerPosition.x, 3)
+    expect(Number(constellationLine?.getAttribute('y1'))).toBeCloseTo(markerPosition.y, 3)
+  })
+
+  it('keeps focused aircraft trails aligned with aircraft markers under main-view magnification', async () => {
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -18,
+      objects: [],
+    })
+    mockResolveAircraftMotionObjects.mockReturnValue([
+      {
+        object: {
+          id: 'flight-1',
+          type: 'aircraft',
+          label: 'UAL123',
+          azimuthDeg: 0,
+          elevationDeg: 16,
+          rangeKm: 12.5,
+          importance: 92,
+          metadata: {
+            detail: {
+              typeLabel: 'Aircraft',
+              altitudeFeet: 32000,
+              altitudeMeters: 9754,
+              rangeKm: 12.5,
+            },
+          },
+        },
+      },
+    ])
+    mockAircraftTrackerGetTrail.mockReturnValue([
+      {
+        timestampMs: 0,
+        lat: 0,
+        lon: 0,
+        altitudeMeters: 9754,
+        azimuthDeg: 0,
+        elevationDeg: 16,
+        rangeKm: 12.5,
+      },
+      {
+        timestampMs: 1_000,
+        lat: 0,
+        lon: 0,
+        altitudeMeters: 9754,
+        azimuthDeg: 4,
+        elevationDeg: 16,
+        rangeKm: 12.6,
+      },
+    ])
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
+    await setSliderValue('desktop-scope-magnification-slider', '2')
+
+    const marker = container.querySelector(
+      '[data-testid="sky-object-marker"][data-object-id="flight-1"]',
+    ) as HTMLElement | null
+    const trail = container.querySelector(
+      '[data-testid="aircraft-trail"][data-object-id="flight-1"]',
+    ) as SVGPolylineElement | null
+
+    expect(marker).not.toBeNull()
+    expect(trail).not.toBeNull()
+
+    const markerPosition = getAbsoluteMarkerPosition(marker!)
+    const [trailStart] = getPolylinePoints(trail!)
+
+    expect(trailStart?.x).toBeCloseTo(markerPosition.x, 3)
+    expect(trailStart?.y).toBeCloseTo(markerPosition.y, 3)
   })
 
   it('defaults the selected alignment target to Sun when only Sun is visible', async () => {
@@ -2525,7 +2681,7 @@ describe('ViewerShell celestial behavior', () => {
     await flushEffects()
 
     expect(container.textContent).toContain('Astronomy fallback active.')
-    expect(container.textContent).toContain('Demo mode is active.')
+    expect(container.textContent).toContain('Demo viewer')
   })
 
   it('keeps the live viewer active when the satellite layer throws', async () => {
@@ -2671,6 +2827,23 @@ describe('ViewerShell celestial behavior', () => {
     await openDesktopViewerPanel()
   }
 
+  async function setSliderValue(testId: string, value: string) {
+    const slider = container.querySelector(`[data-testid="${testId}"]`) as HTMLInputElement | null
+
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        'value',
+      )?.set
+
+      valueSetter?.call(slider, value)
+      slider?.dispatchEvent(new Event('input', { bubbles: true }))
+      slider?.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    await flushEffects()
+  }
+
   async function openDesktopViewerPanel() {
     if (container.querySelector('[data-testid="desktop-viewer-panel"]')) {
       return
@@ -2716,6 +2889,24 @@ function stubCanvasContext() {
       fillStyle: '',
     }),
   })
+}
+
+function getAbsoluteMarkerPosition(marker: HTMLElement) {
+  return {
+    x: Number.parseFloat(marker.style.left),
+    y: Number.parseFloat(marker.style.top),
+  }
+}
+
+function getPolylinePoints(polyline: SVGPolylineElement) {
+  return (polyline.getAttribute('points') ?? '')
+    .split(' ')
+    .filter((point) => point.length > 0)
+    .map((point) => {
+      const [x, y] = point.split(',').map((value) => Number.parseFloat(value))
+
+      return { x, y }
+    })
 }
 
 function dispatchPointerEvent(

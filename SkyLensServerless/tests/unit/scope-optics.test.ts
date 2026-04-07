@@ -1,13 +1,17 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  MAIN_VIEW_OPTICS_RANGES,
   SCOPE_APPARENT_FIELD_DEG_RANGE,
   SCOPE_OPTICS_RANGES,
   computeScopeDeepStarCoreRadiusPx,
   computeScopeDeepStarEmergenceAlpha,
   computeScopeLimitingMagnitude,
   computeScopeRenderProfile,
+  getDefaultMainViewOptics,
+  magnificationToMainViewVerticalFovDeg,
   magnificationToScopeVerticalFovDeg,
+  normalizeMainViewOptics,
   normalizeScopeOptics,
   passesScopeLimitingMagnitude,
   scopeVerticalFovDegToMagnificationX,
@@ -51,7 +55,7 @@ describe('scope optics helpers', () => {
     expect(computeScopeDeepStarCoreRadiusPx(Number.NaN)).toBe(1)
   })
 
-  it('brightens the render profile and limiting magnitude under stronger optics and better conditions', () => {
+  it('brightens the render profile and limiting magnitude under stronger aperture and better altitude', () => {
     const dimProfile = computeScopeRenderProfile({
       magnitude: 8,
       altitudeDeg: 18,
@@ -66,7 +70,7 @@ describe('scope optics helpers', () => {
       altitudeDeg: 60,
       optics: {
         apertureMm: 240,
-        magnificationX: 120,
+        magnificationX: 20,
         transparencyPct: 95,
       },
     })
@@ -88,7 +92,45 @@ describe('scope optics helpers', () => {
     expect(brightProfile.haloPx).toBeGreaterThan(dimProfile.haloPx)
   })
 
-  it('retains threshold stars monotonically as aperture, transparency, and altitude improve', () => {
+  it('keeps deep-star emergence unchanged when magnification changes at fixed aperture', () => {
+    const lowMagnificationLimit = computeScopeLimitingMagnitude({
+      apertureMm: 160,
+      magnificationX: 10,
+      transparencyPct: 40,
+      altitudeDeg: 45,
+    })
+    const highMagnificationLimit = computeScopeLimitingMagnitude({
+      apertureMm: 160,
+      magnificationX: 200,
+      transparencyPct: 95,
+      altitudeDeg: 45,
+    })
+    const lowMagnificationProfile = computeScopeRenderProfile({
+      magnitude: 7.8,
+      altitudeDeg: 45,
+      optics: {
+        apertureMm: 160,
+        magnificationX: 10,
+        transparencyPct: 40,
+      },
+    })
+    const highMagnificationProfile = computeScopeRenderProfile({
+      magnitude: 7.8,
+      altitudeDeg: 45,
+      optics: {
+        apertureMm: 160,
+        magnificationX: 200,
+        transparencyPct: 95,
+      },
+    })
+
+    expect(highMagnificationLimit).toBe(lowMagnificationLimit)
+    expect(highMagnificationProfile.effectiveLimitMag).toBe(lowMagnificationProfile.effectiveLimitMag)
+    expect(highMagnificationProfile.intensity).toBeCloseTo(lowMagnificationProfile.intensity)
+    expect(highMagnificationProfile.haloPx).toBeCloseTo(lowMagnificationProfile.haloPx)
+  })
+
+  it('retains threshold stars monotonically as aperture and altitude improve', () => {
     const magnitude = 6.15
 
     expect(
@@ -118,9 +160,9 @@ describe('scope optics helpers', () => {
         magnitude,
         altitudeDeg: 18,
         optics: {
-          apertureMm: 120,
+          apertureMm: 160,
           magnificationX: 50,
-          transparencyPct: 85,
+          transparencyPct: 40,
         },
       }),
     ).toBe(true)
@@ -200,6 +242,25 @@ describe('scope optics helpers', () => {
     expect(narrowFovDeg).toBeGreaterThanOrEqual(clampedNarrowFovDeg)
     expect(malformedFovDeg).toBe(10)
     expect(Number.isFinite(malformedFovDeg)).toBe(true)
+  })
+
+  it('normalizes main-view optics defaults and maps 1.0x to the base viewer fov', () => {
+    expect(getDefaultMainViewOptics()).toEqual({
+      apertureMm: SCOPE_OPTICS_RANGES.apertureMm.defaultValue,
+      magnificationX: MAIN_VIEW_OPTICS_RANGES.magnificationX.defaultValue,
+    })
+    expect(
+      normalizeMainViewOptics({
+        apertureMm: Number.NaN,
+        magnificationX: Number.POSITIVE_INFINITY,
+      }),
+    ).toEqual({
+      apertureMm: SCOPE_OPTICS_RANGES.apertureMm.defaultValue,
+      magnificationX: MAIN_VIEW_OPTICS_RANGES.magnificationX.defaultValue,
+    })
+    expect(magnificationToMainViewVerticalFovDeg(1, 50)).toBe(50)
+    expect(magnificationToMainViewVerticalFovDeg(0.25, 50)).toBe(179)
+    expect(magnificationToMainViewVerticalFovDeg(2, 50)).toBe(25)
   })
 
   it('round-trips the shared default apparent-field conversion for legacy scope FOV migration', () => {

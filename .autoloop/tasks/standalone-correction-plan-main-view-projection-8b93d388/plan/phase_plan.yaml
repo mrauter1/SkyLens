@@ -1,0 +1,38 @@
+version: 1
+task_id: standalone-correction-plan-main-view-projection-8b93d388
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/standalone-correction-plan-main-view-projection-8b93d388/runs/run-20260407T170105Z-c216fa64/request.md
+phases:
+  - phase_id: main-view-projection-alignment
+    title: Main-View Projection Alignment
+    objective: Correct magnified non-scope main-view projection so objects, deep stars, constellation lines, and focused aircraft trails share the same camera-frame-aware mapping without changing scope behavior.
+    status: planned
+    in_scope:
+      - Add shared non-scope stage projection wiring in viewer-shell using camera-frame source dimensions when available.
+      - Apply the shared projector to main objects, non-scope deep stars, constellation overlays, and focused aircraft trails under main-view magnification.
+      - Add or extend targeted unit/runtime coverage for crop-mapped profile projection and overlay consistency.
+    out_of_scope:
+      - Scope lens overlay geometry or clipping changes.
+      - Persistence, optics ranges, or center-lock ranking rule changes.
+      - Broad constellation or motion-system refactors beyond the minimum hook needed for shared projection.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: Main-view profile projection for object markers uses viewport and camera source dimensions together, preserving crop mapping in live-style aspect-ratio mismatches.
+      - id: AC-2
+        text: Non-scope deep stars align with bright-object markers and center-lock candidates under the same magnified main-view profile.
+      - id: AC-3
+        text: Constellation line segments and focused aircraft trails follow the active non-scope main-view profile when magnification differs from 1x.
+      - id: AC-4
+        text: Scope-mode behavior, clipping, and existing runtime expectations remain unchanged.
+      - id: AC-5
+        text: Updated targeted tests pass for touched logic, with any blocked E2E limitation explicitly documented.
+    deliverables:
+      - Updated plan-aligned projection wiring in viewer-shell and any minimal supporting constellation hook.
+      - Targeted unit/runtime test coverage for crop mapping, deep-star alignment, and overlay consistency.
+    risks:
+      - Constellation line segments currently arrive preprojected from the celestial utility, so the fix may require a narrow backward-compatible utility seam.
+      - Live camera-frame metadata arrives asynchronously, so tests must intentionally establish source dimensions before asserting geometry.
+      - Shared projector changes must not leak into scope mode or alter center-lock ordering.
+    rollback:
+      - Revert the shared projector usage for main-view overlays and restore the prior direct projection calls.
+      - Remove any optional constellation projection seam if it causes regressions outside viewer-shell.

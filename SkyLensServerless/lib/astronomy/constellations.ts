@@ -1,7 +1,11 @@
 import { z } from 'zod'
 
 import constellationsCatalogJson from '../../public/data/constellations.json'
-import { projectWorldPointToScreen, type ProjectedWorldPoint } from '../projection/camera'
+import {
+  projectWorldPointToScreen,
+  type ProjectedWorldPoint,
+  type ProjectWorldPointInput,
+} from '../projection/camera'
 import type { EnabledLayer } from '../config'
 import type {
   CameraPose,
@@ -29,6 +33,7 @@ export interface ConstellationPipelineInput {
     height: number
   }
   verticalFovAdjustmentDeg?: number
+  projectLinePoint?: (worldPoint: ProjectWorldPointInput) => ProjectedWorldPoint
   enabledLayers: Readonly<Record<EnabledLayer, boolean>>
   likelyVisibleOnly: boolean
   sunAltitudeDeg: number
@@ -78,6 +83,7 @@ export function buildVisibleConstellations({
   cameraPose,
   viewport,
   verticalFovAdjustmentDeg = 0,
+  projectLinePoint,
   enabledLayers,
   likelyVisibleOnly,
   sunAltitudeDeg,
@@ -103,6 +109,15 @@ export function buildVisibleConstellations({
   const visibleStarMap = new Map(visibleStars.map((entry) => [entry.id, entry]))
   const objects: SkyObject[] = []
   const lineSegments: ProjectedConstellationSegment[] = []
+  const projectConstellationPoint =
+    projectLinePoint ??
+    ((worldPoint: ProjectWorldPointInput) =>
+      projectWorldPointToScreen(
+        cameraPose,
+        worldPoint,
+        viewport,
+        verticalFovAdjustmentDeg,
+      ))
 
   for (const constellation of CONSTELLATION_CATALOG) {
     const projectedSegments: ProjectedConstellationSegment[] = []
@@ -115,24 +130,14 @@ export function buildVisibleConstellations({
         continue
       }
 
-      const startProjection = projectWorldPointToScreen(
-        cameraPose,
-        {
-          azimuthDeg: startStar.azimuthDeg,
-          elevationDeg: startStar.elevationDeg,
-        },
-        viewport,
-        verticalFovAdjustmentDeg,
-      )
-      const endProjection = projectWorldPointToScreen(
-        cameraPose,
-        {
-          azimuthDeg: endStar.azimuthDeg,
-          elevationDeg: endStar.elevationDeg,
-        },
-        viewport,
-        verticalFovAdjustmentDeg,
-      )
+      const startProjection = projectConstellationPoint({
+        azimuthDeg: startStar.azimuthDeg,
+        elevationDeg: startStar.elevationDeg,
+      })
+      const endProjection = projectConstellationPoint({
+        azimuthDeg: endStar.azimuthDeg,
+        elevationDeg: endStar.elevationDeg,
+      })
 
       if (!startProjection.inOverscan || !endProjection.inOverscan) {
         continue

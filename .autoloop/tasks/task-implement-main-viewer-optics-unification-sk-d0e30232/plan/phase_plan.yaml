@@ -1,0 +1,77 @@
+version: 1
+task_id: task-implement-main-viewer-optics-unification-sk-d0e30232
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/task-implement-main-viewer-optics-unification-sk-d0e30232/runs/run-20260407T145243Z-0b7f6f0d/request.md
+phases:
+  - phase_id: unify-optics-runtime
+    title: Unify Active Optics Runtime
+    objective: Split main-view and scope-mode optics ownership while routing both modes through one shared optics, projection, and center-lock pipeline.
+    status: planned
+    in_scope:
+      - Add runtime-only main-view optics defaults and state management in the viewer shell.
+      - Keep persisted scope optics and scope overlay presentation state independent from main-view optics.
+      - Refactor shared optics helpers so magnification maps to FOV/projection only and aperture drives deep-star emergence.
+      - Decouple HYG deep-star request gating and tile-selection inputs from scope presentation so main view and scope mode share one request pipeline with mode-specific viewport/FOV inputs.
+      - Rewire viewer controls, deep-star participation, and deterministic center-lock selection around the active mode.
+      - Preserve HYG-only deep-star scope and current request invalidation/cancellation behavior.
+    out_of_scope:
+      - Removing scope mode or the lens overlay.
+      - Introducing new star catalogs beyond HYG deep stars.
+      - Renaming optics controls or redesigning settings UI copy.
+      - Unrelated camera, permission, or location workflow changes.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: Main view always runs optics behavior with visible sliders, default magnification 1.0x, minimum magnification 0.25x, and no persistence of main-view aperture or magnification.
+      - id: AC-2
+        text: Scope mode keeps persisted aperture and magnification values independent from main-view values while sharing the same control appearance and shared optics helpers.
+      - id: AC-3
+        text: Magnification affects projection/FOV only, aperture controls deep-star emergence, and deep stars remain HYG-only.
+      - id: AC-4
+        text: Center-lock and labels evaluate visible bright objects and deep stars together using distance first, then brightness, then stable object-id ordering.
+      - id: AC-5
+        text: HYG deep-star requests, tile selection, and projection operate outside scope mode using the main-view viewport/FOV inputs while preserving the existing request invalidation/cancellation contract.
+    deliverables:
+      - Updated viewer-shell runtime wiring for main-view optics state, active-optics selection, and mode-independent deep-star request context.
+      - Updated shared optics and star/deep-star helper contracts covering FOV-only magnification, aperture-driven emergence, and deterministic center-lock comparison.
+      - Updated control wiring in desktop/mobile quick controls and settings surfaces without changing existing labels.
+    risks:
+      - Existing scope optics helpers currently couple magnification into visibility math and must be untangled without breaking scope rendering.
+      - Deep-star loading currently depends on the square lens viewport and must be widened to main-view geometry without over-fetching or breaking request invalidation.
+      - Current center-lock reuse of label rank can mask ordering regressions if not explicitly replaced.
+      - Slider visibility and callback rewiring can drift between desktop and mobile surfaces if the active-mode selector is not centralized.
+    rollback:
+      - Restore scope-only optics activation while preserving storage compatibility.
+      - Revert center-lock comparator changes if lock stability degrades.
+      - Leave persisted scope settings schema unchanged so rollback requires no data migration.
+  - phase_id: validate-optics-regressions
+    title: Validate Coverage And Runtime Behavior
+    objective: Update automated coverage for the new optics contract and run the relevant test slices needed to catch persistence, ranking, and mode-switch regressions.
+    status: planned
+    in_scope:
+      - Update unit tests for optics ranges, persistence behavior, center-lock ordering, and shared star filtering/render metadata.
+      - Update viewer integration tests for quick controls, mode switching, main-view deep-star request/projection behavior, and deep-star participation in center-lock and labels.
+      - Extend e2e coverage for main-view defaults, main-view reset on reload, and scope-mode persistence on reload.
+      - Run the relevant Vitest and Playwright suites and report outcomes.
+    out_of_scope:
+      - Broad test-suite expansion unrelated to optics unification.
+      - New performance harnesses beyond existing regression checks.
+    dependencies:
+      - unify-optics-runtime
+    acceptance_criteria:
+      - id: AC-1
+        text: Automated tests cover main-view 1.0x default, 0.25x minimum, magnification-as-FOV-only behavior, aperture-driven emergence, main-view non-persistence, scope persistence, deterministic center-lock ordering, and mode-specific control wiring.
+      - id: AC-2
+        text: Existing scope runtime and viewer interaction tests are updated rather than duplicated, preserving DRY validation alongside the shared implementation paths.
+      - id: AC-3
+        text: Relevant test commands are executed after implementation and their results are captured for the task report.
+      - id: AC-4
+        text: Automated coverage proves HYG deep stars load and participate in main view without scope mode, and that scope-mode request cancellation/invalidation behavior remains intact.
+    deliverables:
+      - Updated Vitest coverage across optics, settings, viewer-shell, and center-lock behavior.
+      - Updated Playwright coverage for reload and mode-switch persistence behavior.
+      - Reported test execution outcomes for the implementation turn.
+    risks:
+      - Existing assertions encode old scope-only defaults and rankScore-based center-lock behavior and will fail until updated deliberately.
+      - E2E coverage may need targeted fixtures or deterministic scenes to make deep-star overlap assertions stable.
+    rollback:
+      - Keep focused test changes small so outdated assertions can be reverted independently if implementation direction changes.

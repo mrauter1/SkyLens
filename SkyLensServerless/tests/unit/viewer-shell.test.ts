@@ -9,7 +9,10 @@ import {
   readViewerSettings,
   writeViewerSettings,
 } from '../../lib/viewer/settings'
-import { SCOPE_OPTICS_RANGES } from '../../lib/viewer/scope-optics'
+import {
+  MAIN_VIEW_OPTICS_RANGES,
+  SCOPE_OPTICS_RANGES,
+} from '../../lib/viewer/scope-optics'
 
 const {
   mockRouterReplace,
@@ -4361,17 +4364,10 @@ describe('ViewerShell startup gating', () => {
         | undefined
 
     expect(container.querySelector('[data-testid="desktop-scope-quick-controls"]')).toBeNull()
-    expect(container.querySelector('[data-testid="mobile-scope-quick-controls"]')).toBeNull()
+    expect(container.querySelector('[data-testid="mobile-scope-quick-controls"]')).not.toBeNull()
     expect(container.querySelector('[data-testid="mobile-marker-scale-slider"]')).toBeNull()
     expect(latestSettingsProps()?.markerScale).toBe(1)
     expect(latestSettingsProps()?.transparencyPct).toBe(85)
-
-    await act(async () => {
-      ;(
-        container.querySelector('[data-testid="desktop-scope-action"]') as HTMLButtonElement | null
-      )?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-    await flushEffects()
     await openDesktopViewerPanel()
 
     const desktopAperture = container.querySelector(
@@ -4388,16 +4384,36 @@ describe('ViewerShell startup gating', () => {
     ) as HTMLInputElement | null
 
     expect(desktopAperture?.value).toBe('120')
-    expect(desktopMagnification?.value).toBe('50')
+    expect(desktopMagnification?.value).toBe('1')
     expect(mobileAperture?.value).toBe('120')
-    expect(mobileMagnification?.value).toBe('50')
+    expect(mobileMagnification?.value).toBe('1')
     expect(desktopAperture?.min).toBe(String(SCOPE_OPTICS_RANGES.apertureMm.min))
     expect(desktopAperture?.max).toBe(String(SCOPE_OPTICS_RANGES.apertureMm.max))
     expect(desktopAperture?.step).toBe(String(SCOPE_OPTICS_RANGES.apertureMm.step))
-    expect(mobileMagnification?.min).toBe(String(SCOPE_OPTICS_RANGES.magnificationX.min))
-    expect(mobileMagnification?.max).toBe(String(SCOPE_OPTICS_RANGES.magnificationX.max))
-    expect(mobileMagnification?.step).toBe(String(SCOPE_OPTICS_RANGES.magnificationX.step))
+    expect(mobileMagnification?.min).toBe(String(MAIN_VIEW_OPTICS_RANGES.magnificationX.min))
+    expect(mobileMagnification?.max).toBe(String(MAIN_VIEW_OPTICS_RANGES.magnificationX.max))
+    expect(mobileMagnification?.step).toBe(String(MAIN_VIEW_OPTICS_RANGES.magnificationX.step))
     expect(container.querySelector('[data-testid="mobile-marker-scale-slider"]')).toBeNull()
+
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        'value',
+      )?.set
+
+      valueSetter?.call(desktopMagnification, '2')
+      desktopMagnification?.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(readViewerSettings().scopeOptics.magnificationX).toBe(50)
+
+    await act(async () => {
+      ;(
+        container.querySelector('[data-testid="desktop-scope-action"]') as HTMLButtonElement | null
+      )?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
 
     await act(async () => {
       latestSettingsProps()?.onMarkerScaleChange?.(2.5)
@@ -4407,6 +4423,116 @@ describe('ViewerShell startup gating', () => {
 
     expect(readViewerSettings().markerScale).toBe(2.5)
     expect(readViewerSettings().scopeOptics.transparencyPct).toBe(72)
+
+    await act(async () => {
+      ;(
+        container.querySelector('[data-testid="desktop-scope-action"]') as HTMLButtonElement | null
+      )?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    await act(async () => {
+      root.unmount()
+    })
+    root = createRoot(container)
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'unavailable',
+      camera: 'unavailable',
+      orientation: 'unavailable',
+      demoScenarioId: 'sf-evening',
+    })
+    await openDesktopViewerPanel()
+
+    const reloadedDesktopMagnification = container.querySelector(
+      '[data-testid="desktop-scope-magnification-slider"]',
+    ) as HTMLInputElement | null
+
+    expect(reloadedDesktopMagnification?.value).toBe('1')
+    expect(readViewerSettings().scopeOptics.magnificationX).toBe(50)
+  })
+
+  it('rebinds the shared quick controls between runtime main optics and persisted scope optics', async () => {
+    await renderViewer({
+      entry: 'demo',
+      location: 'unavailable',
+      camera: 'unavailable',
+      orientation: 'unavailable',
+      demoScenarioId: 'sf-evening',
+    })
+    await openDesktopViewerPanel()
+
+    const setSliderValue = async (testId: string, value: string) => {
+      const slider = container.querySelector(`[data-testid="${testId}"]`) as HTMLInputElement | null
+
+      await act(async () => {
+        const valueSetter = Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          'value',
+        )?.set
+
+        valueSetter?.call(slider, value)
+        slider?.dispatchEvent(new Event('input', { bubbles: true }))
+        slider?.dispatchEvent(new Event('change', { bubbles: true }))
+      })
+      await flushEffects()
+    }
+
+    const desktopScopeAction = container.querySelector(
+      '[data-testid="desktop-scope-action"]',
+    ) as HTMLButtonElement | null
+    const currentApertureValue = () =>
+      (
+        container.querySelector('[data-testid="desktop-scope-aperture-value"]') as HTMLElement | null
+      )?.textContent
+    const currentMagnificationValue = () =>
+      (
+        container.querySelector('[data-testid="desktop-scope-magnification-value"]') as
+          | HTMLElement
+          | null
+      )?.textContent
+
+    expect(currentApertureValue()).toBe('120 mm')
+    expect(currentMagnificationValue()).toBe('1x')
+
+    await setSliderValue('desktop-scope-aperture-slider', '180')
+    await setSliderValue('desktop-scope-magnification-slider', '2')
+
+    expect(currentApertureValue()).toBe('180 mm')
+    expect(currentMagnificationValue()).toBe('2x')
+    expect(readViewerSettings().scopeOptics).toMatchObject({
+      apertureMm: 120,
+      magnificationX: 50,
+    })
+
+    await act(async () => {
+      desktopScopeAction?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(currentApertureValue()).toBe('120 mm')
+    expect(currentMagnificationValue()).toBe('50x')
+
+    await setSliderValue('desktop-scope-aperture-slider', '240')
+    await setSliderValue('desktop-scope-magnification-slider', '75')
+
+    expect(readViewerSettings().scopeOptics).toMatchObject({
+      apertureMm: 240,
+      magnificationX: 75,
+    })
+
+    await act(async () => {
+      desktopScopeAction?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(currentApertureValue()).toBe('180 mm')
+    expect(currentMagnificationValue()).toBe('2x')
+    expect(readViewerSettings().scopeOptics).toMatchObject({
+      apertureMm: 240,
+      magnificationX: 75,
+    })
   })
 
   it('renders the centered scope lens and suppresses it during mobile alignment focus', async () => {

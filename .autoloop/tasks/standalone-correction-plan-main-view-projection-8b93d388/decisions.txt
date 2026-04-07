@@ -1,0 +1,7 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260407T170105Z-c216fa64" ts="2026-04-07T17:01:05.873599+00:00" />
+Main-view overlay fixes must share one non-scope projector across markers, deep stars, constellation segments, and focused aircraft trails instead of adding separate FOV branches per overlay type.
+If constellation line segments need new inputs, prefer one backward-compatible optional projection hook in `buildVisibleConstellations(...)` over duplicating constellation catalog traversal inside `viewer-shell.tsx`.
+<autoloop-decisions-header version="1" block_seq="2" owner="implementer" phase_id="main-view-projection-alignment" pair="implement" turn_seq="1" run_id="run-20260407T170105Z-c216fa64" ts="2026-04-07T17:05:09.342629+00:00" />
+Non-scope main-view projection now flows through one local `projectStageWorldPoint` helper in `viewer-shell.tsx`, and constellation segments consume it via an optional `buildVisibleConstellations(...)` hook so scope-only geometry and clipping remain untouched.
+<autoloop-decisions-header version="1" block_seq="3" owner="test_author" phase_id="main-view-projection-alignment" pair="test" turn_seq="1" run_id="run-20260407T170105Z-c216fa64" ts="2026-04-07T17:23:00.704524+00:00" />
+Serverless runtime alignment assertions compare projected marker positions with an explicit subpixel epsilon instead of `toBeCloseTo` decimal precision so DOM float jitter does not create flaky false negatives.
