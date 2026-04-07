@@ -1,0 +1,39 @@
+# Test Strategy
+
+- Task ID: desktop-ui-prd-ard-implementation
+- Pair: test
+- Phase ID: compact-warning-rail
+- Phase Directory Key: compact-warning-rail
+- Phase Title: Refactor warning rail to compact expandable rows
+- Scope: phase-local producer artifact
+- Behavior-to-test coverage map:
+  - Desktop warning ordering remains resolver-driven:
+    - `SkyLensServerless/tests/unit/viewer-shell-resolvers.test.ts`
+    - Verifies primary/overflow ordering and compact-notice selection remain deterministic.
+  - Desktop warnings are collapsed to compact rows by default:
+    - `SkyLensServerless/tests/unit/viewer-shell.test.ts`
+    - Verifies the desktop rail renders row items in order and hides detailed copy/action controls until expanded.
+  - Per-item expand behavior exposes accessible details/action content:
+    - `SkyLensServerless/tests/unit/viewer-shell.test.ts`
+    - Verifies `aria-expanded`, `aria-controls`, details-region presence, and expanded action visibility.
+  - Per-item dismiss behavior removes only the targeted row:
+    - `SkyLensServerless/tests/unit/viewer-shell.test.ts`
+    - Verifies dismissing `motion-recovery` leaves the sibling `camera-disabled` row intact.
+  - Existing warning-detail regression checks still work through the new collapsed UI:
+    - `SkyLensServerless/tests/unit/viewer-shell.test.ts`
+    - Expanded-row helper is used before asserting motion-recovery and relative-calibration detail copy.
+- Preserved invariants checked:
+  - `resolveViewerBannerFeed` still owns banner priority and ordering.
+  - Permission-recovery action labels/routing remain unchanged after moving desktop warning details behind expansion.
+  - Relative-calibration and motion-recovery details stay reachable without altering viewer diagnostics content.
+- Edge cases:
+  - Combined camera+motion loss still produces ordered desktop rows and the combined recovery CTA when expanded.
+  - Relative-calibration detail copy remains available after expansion even though the header row is collapsed by default.
+- Failure paths:
+  - Motion denial/unavailability retry copy remains asserted after explicitly expanding the warning row.
+  - Dismiss only hides the selected row, guarding against accidental whole-rail removal.
+- Flake risks / stabilization:
+  - Viewer tests still run under jsdom with expected canvas `getContext()` warnings; assertions avoid canvas output.
+  - The dedicated desktop multi-warning row test stubs `requestAnimationFrame` so the render loop does not create timing-sensitive test behavior.
+- Known gaps:
+  - No browser-storage persistence assertions are added because dismissal persistence is explicitly out of scope for this phase.

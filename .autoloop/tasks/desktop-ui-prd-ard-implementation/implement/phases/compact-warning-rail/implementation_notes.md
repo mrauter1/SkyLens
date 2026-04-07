@@ -1,0 +1,38 @@
+# Implementation Notes
+
+- Task ID: desktop-ui-prd-ard-implementation
+- Pair: implement
+- Phase ID: compact-warning-rail
+- Phase Directory Key: compact-warning-rail
+- Phase Title: Refactor warning rail to compact expandable rows
+- Scope: phase-local producer artifact
+- Files changed:
+  - `SkyLensServerless/components/viewer/viewer-shell.tsx`
+  - `SkyLensServerless/tests/unit/viewer-shell.test.ts`
+- Symbols touched:
+  - `ViewerShell`
+  - `CompactWarningRailRow`
+  - `resolveViewerBannerFeed` consumer path in desktop chrome
+- Checklist mapping:
+  - Pair 3 / warning UI state: added desktop warning-row `expanded` and `dismissed` state keyed by banner id inside `ViewerShell`.
+  - Pair 3 / warning UI: replaced the desktop primary-banner plus overflow disclosure stack with compact rows that expand and dismiss individually.
+  - Pair 3 / tests: added desktop warning-row interaction coverage and updated existing warning assertions to expand rows before checking detailed copy.
+- Assumptions:
+  - Session-scoped dismissal is satisfied by in-memory viewer state for the current mounted session; no storage schema changes were introduced.
+- Preserved invariants:
+  - `resolveViewerBannerFeed` remains the source of banner priority/order.
+  - Existing shared banner action handlers and permission-recovery routing stay unchanged.
+  - Mobile warning/banner presentation remains on the existing compact banner path.
+- Intended behavior changes:
+  - Desktop warnings now render as one-line rows by default, with per-row expand and dismiss controls.
+  - Expanded desktop rows reveal body/footer copy and any existing banner action button.
+- Known non-changes:
+  - No persistence added to viewer settings or browser storage for warning dismissal state.
+  - No banner business-priority changes beyond deduping the desktop compact notice against overflow rows by id.
+- Expected side effects:
+  - Desktop tests that assert warning detail copy must expand the relevant row first.
+- Validation performed:
+  - `npm test -- --run tests/unit/viewer-shell.test.ts tests/unit/viewer-shell-resolvers.test.ts` in `SkyLensServerless/`
+  - `npx tsc --noEmit` in `SkyLensServerless/` still reports pre-existing unrelated baseline errors in other test files/scripts; no new phase-local type errors were introduced by the targeted test run.
+- Deduplication / centralization decisions:
+  - Desktop rail composition reuses resolver output and filters duplicate ids instead of introducing a second banner-priority path.

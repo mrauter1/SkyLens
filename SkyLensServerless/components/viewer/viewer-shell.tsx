@@ -171,6 +171,12 @@ import {
 import { SettingsSheet } from '../settings/settings-sheet'
 import { CompactMobilePanelShell } from '../ui/compact-mobile-panel-shell'
 import {
+  canRestoreFocusTarget,
+  focusAfterDismiss,
+  resolveFocusRestoreTarget,
+  trapFocusWithinPanel,
+} from '../ui/dismissable-layer'
+import {
   ScopeLensOverlay,
   type ScopeLensOverlayObject,
 } from './scope-lens-overlay'
@@ -217,6 +223,18 @@ export type ViewerBannerActionId =
   | 'retry-camera'
   | 'retry-location'
 
+export type PermissionRecoveryActionKind =
+  | 'camera-and-motion'
+  | 'camera-only'
+  | 'motion-only'
+  | 'none'
+
+export type PermissionRecoveryHandlerId =
+  | 'retry-all'
+  | 'retry-camera'
+  | 'retry-motion'
+  | 'none'
+
 export type ViewerBannerItem = {
   id: string
   title: string
@@ -227,6 +245,11 @@ export type ViewerBannerItem = {
   actionLabel?: string
   actionDisabled?: boolean
   footer?: string | null
+}
+
+type ViewerBannerUiState = {
+  expanded: boolean
+  dismissed: boolean
 }
 
 type ViewerSurface = 'mobile' | 'desktop'
@@ -372,19 +395,6 @@ const MOTION_AFFORDANCE_SAMPLE_LIMITS: Record<MotionQuality, number> = {
   high: 16,
 }
 const COMPACT_MOTION_WARNING_IDS = ['motion-recovery', 'awaiting-orientation'] as const
-const FOCUSABLE_SELECTOR = [
-  'button:not([disabled])',
-  '[href]',
-  'input:not([disabled]):not([type="hidden"])',
-  'select:not([disabled])',
-  'textarea:not([disabled])',
-  'summary',
-  'iframe',
-  'audio[controls]',
-  'video[controls]',
-  '[contenteditable]:not([contenteditable="false"])',
-  '[tabindex]:not([tabindex="-1"])',
-].join(', ')
 
 export function resolveViewerBannerFeed({
   astronomyFailureBanner,
@@ -549,6 +559,21 @@ export function resolveViewerBannerFeed({
   }
 }
 
+export function getPermissionRecoveryHandlerId(
+  kind: PermissionRecoveryActionKind,
+): PermissionRecoveryHandlerId {
+  switch (kind) {
+    case 'motion-only':
+      return 'retry-motion'
+    case 'camera-only':
+      return 'retry-camera'
+    case 'camera-and-motion':
+      return 'retry-all'
+    default:
+      return 'none'
+  }
+}
+
 export function ViewerShell({ initialState }: ViewerShellProps) {
   const router = useRouter()
   const initialDemoScenario = getDemoScenario(initialState.demoScenarioId)
@@ -632,6 +657,9 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const [motionAffordanceSamples, setMotionAffordanceSamples] = useState<
     MotionAffordanceSample[]
   >([])
+  const [desktopWarningUiState, setDesktopWarningUiState] = useState<
+    Record<string, ViewerBannerUiState>
+  >({})
   const [isMobileOverlayOpen, setIsMobileOverlayOpen] = useState(false)
   const [isDesktopViewerPanelOpen, setIsDesktopViewerPanelOpen] = useState(false)
   const [isDesktopSettingsSheetOpen, setIsDesktopSettingsSheetOpen] = useState(false)
@@ -1289,6 +1317,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const showMobileAlignAction = state.entry === 'live' && !isMobileAlignmentFocusActive
   const showMobileScopeAction = scopeControlsAvailable && !isMobileAlignmentFocusActive
   const permissionRecoveryAction = getPermissionRecoveryAction(state)
+  const permissionRecoveryHandlerId = getPermissionRecoveryHandlerId(permissionRecoveryAction.kind)
   const activeLiveCameraStage = state.entry === 'live' && cameraStreamActive
   const isSettingsSheetOpen = isDesktopSettingsSheetOpen || isMobileSettingsSheetOpen
   const shouldLockViewerScroll =
@@ -1817,15 +1846,17 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   }
 
   const handlePermissionRecoveryAction = () => {
-    switch (permissionRecoveryAction.kind) {
-      case 'motion-only':
+    switch (permissionRecoveryHandlerId) {
+      case 'retry-motion':
         handleRetryMotionPermission()
         break
-      case 'camera-only':
+      case 'retry-camera':
         handleRetryCameraPermission()
         break
-      default:
+      case 'retry-all':
         handleRetryPermissions()
+        break
+      default:
         break
     }
   }
@@ -3294,11 +3325,13 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const desktopSettingsSheetProps = {
     ...settingsSheetProps,
     onOpenChange: setIsDesktopSettingsSheetOpen,
+    presentation: 'desktop-dialog' as const,
     triggerSurfaceId: 'desktop-settings-trigger',
   }
   const mobileSettingsSheetProps = {
     ...settingsSheetProps,
     onOpenChange: setIsMobileSettingsSheetOpen,
+    presentation: 'mobile-sheet' as const,
     triggerSurfaceId: 'mobile-settings-trigger',
   }
   const manualObserverPanel =
@@ -3369,12 +3402,39 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       canFixAlignment,
     manualMode,
   })
-  const desktopCameraActionDisabled =
-    isPending ||
-    (state.camera === 'granted' && cameraStreamActive) ||
+  const desktopWarningRailItems: ViewerBannerItem[] = []
+  const desktopWarningRailSeenIds = new Set<string>()
+  const appendDesktopWarningRailItem = (item: ViewerBannerItem | null) => {
+    if (
+      !item ||
+      desktopWarningRailSeenIds.has(item.id) ||
+      desktopWarningUiState[item.id]?.dismissed
+    ) {
+      return
+    }
+
+    desktopWarningRailSeenIds.add(item.id)
+    desktopWarningRailItems.push(item)
+  }
+  appendDesktopWarningRailItem(sharedBannerFeed.primary)
+  appendDesktopWarningRailItem(sharedBannerFeed.compactNotice)
+  sharedBannerFeed.overflow.forEach(appendDesktopWarningRailItem)
+  const desktopEnableArActionDisabled =
+    isPending || state.entry === 'demo' || permissionRecoveryAction.kind === 'none'
+  const desktopEnableArActionStatus =
     state.entry === 'demo'
-  const desktopMotionActionDisabled =
-    isPending || state.entry === 'demo' || state.orientation === 'granted'
+      ? 'Demo only'
+      : isPending
+        ? permissionRecoveryAction.pendingLabel
+        : permissionRecoveryAction.kind === 'camera-only'
+          ? 'Camera off'
+          : permissionRecoveryAction.kind === 'motion-only'
+            ? 'Motion off'
+            : permissionRecoveryAction.kind === 'camera-and-motion'
+              ? startupState === 'ready-to-request'
+                ? 'Start setup'
+                : 'Camera + motion'
+              : 'Ready'
   const canOpenDesktopAlignment =
     state.entry === 'live' &&
     !manualMode &&
@@ -3406,6 +3466,24 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       default:
         break
     }
+  }
+  const toggleDesktopWarningExpanded = (id: string) => {
+    setDesktopWarningUiState((current) => ({
+      ...current,
+      [id]: {
+        expanded: !current[id]?.expanded,
+        dismissed: current[id]?.dismissed ?? false,
+      },
+    }))
+  }
+  const dismissDesktopWarning = (id: string) => {
+    setDesktopWarningUiState((current) => ({
+      ...current,
+      [id]: {
+        expanded: false,
+        dismissed: true,
+      },
+    }))
   }
   const desktopStatusSummary = renderedActiveSummaryObject
     ? {
@@ -3440,6 +3518,27 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         ],
       }
   const sharedPrimaryBanner = sharedBannerFeed.primary
+  const desktopEnableArActionCopy =
+    permissionRecoveryAction.kind === 'camera-only'
+      ? {
+          title: 'Enable the live camera feed',
+          body: 'Retry the rear camera so the viewer can move beyond the fallback sky background.',
+        }
+      : permissionRecoveryAction.kind === 'motion-only'
+        ? {
+            title: 'Enable motion tracking',
+            body: 'Retry motion so the viewer can lock labels instead of staying in manual pan.',
+          }
+        : {
+            title:
+              startupState === 'ready-to-request'
+                ? 'Start the live AR viewer'
+                : 'Finish enabling AR',
+            body:
+              startupState === 'ready-to-request'
+                ? 'Request motion, camera, and location to move from the fallback sky into live AR.'
+                : 'Retry motion, camera, and location through the existing recovery flow so the live AR viewer can resume.',
+          }
   const desktopPrimaryAction =
     sharedPrimaryBanner?.actionLabel && sharedPrimaryBanner.actionId
     ? {
@@ -3478,40 +3577,29 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
           disabled: false,
           tone: 'success',
         }
-      : !isDesktopViewerPanelOpen
+        : !isDesktopViewerPanelOpen
         ? {
             kind: 'open-viewer',
             eyebrow: 'Next action',
             title: 'Open the viewer details',
             body: 'Inspect the current crosshair object, selected target, and fallback state without covering the stage.',
-            label: 'Open viewer',
+            label: 'Open Viewer',
             onClick: () => setIsDesktopViewerPanelOpen(true),
             disabled: false,
             tone: 'default',
           }
-        : !desktopCameraActionDisabled
+        : !desktopEnableArActionDisabled
           ? {
-              kind: 'retry-camera',
+              kind: 'enable-ar',
               eyebrow: 'Next action',
-              title: 'Enable the live camera feed',
-              body: 'Retry the rear camera so the viewer can move beyond the fallback sky background.',
-              label: 'Enable camera',
-              onClick: handleDesktopCameraAction,
+              title: desktopEnableArActionCopy.title,
+              body: desktopEnableArActionCopy.body,
+              label: 'Enable AR',
+              onClick: handleDesktopEnableArAction,
               disabled: false,
               tone: 'default',
             }
-          : !desktopMotionActionDisabled
-            ? {
-                kind: 'recover-motion',
-                eyebrow: 'Next action',
-                title: 'Enable motion tracking',
-                body: 'Retry motion so the viewer can lock labels instead of staying in manual pan.',
-                label: 'Enable motion',
-                onClick: handleDesktopMotionAction,
-                disabled: false,
-                tone: 'default',
-              }
-            : null
+          : null
 
   const handleStagePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!manualMode) {
@@ -3614,30 +3702,12 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     setManualPoseState((current) => applyManualPoseDrag(current, delta.x, delta.y))
   }
 
-  function handleDesktopCameraAction() {
-    if (state.entry === 'demo' || state.camera === 'granted') {
+  function handleDesktopEnableArAction() {
+    if (state.entry === 'demo' || permissionRecoveryAction.kind === 'none') {
       return
     }
 
-    if (permissionRecoveryAction.kind === 'camera-and-motion') {
-      handleRetryPermissions()
-      return
-    }
-
-    handleRetryCameraPermission()
-  }
-
-  function handleDesktopMotionAction() {
-    if (state.entry === 'demo' || state.orientation === 'granted') {
-      return
-    }
-
-    if (permissionRecoveryAction.kind === 'camera-and-motion') {
-      handleRetryPermissions()
-      return
-    }
-
-    handleRetryMotionPermission()
+    handlePermissionRecoveryAction()
   }
 
   return (
@@ -3883,43 +3953,34 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
 
       <div className="pointer-events-none relative z-10 flex min-h-screen flex-col justify-between px-4 pb-5 pt-4 sm:px-6 sm:pb-6">
         <div className="flex flex-col gap-3">
-          {sharedBannerFeed.primary ? (
+          {desktopWarningRailItems.length > 0 ? (
             <section
               className="pointer-events-auto mx-auto hidden w-full max-w-4xl flex-col gap-2 sm:flex"
               data-testid="viewer-top-warning-stack"
             >
-              <CompactTopBanner
-                title={sharedBannerFeed.primary.title}
-                body={sharedBannerFeed.primary.body}
-                critical={sharedBannerFeed.primary.critical}
-                tone={sharedBannerFeed.primary.tone}
-                actionLabel={sharedBannerFeed.primary.actionLabel}
-                onAction={
-                  sharedBannerFeed.primary.actionId
-                    ? (event) =>
-                        handleSharedBannerAction(sharedBannerFeed.primary?.actionId, {
-                          opener: event.currentTarget,
-                          surface: 'desktop',
-                        })
-                    : undefined
-                }
-                actionDisabled={sharedBannerFeed.primary.actionDisabled}
-                footer={sharedBannerFeed.primary.footer}
-              />
-              {sharedBannerFeed.compactNotice ? (
-                <CompactPersistentNotice
-                  testId="desktop-compact-motion-warning"
-                  title={sharedBannerFeed.compactNotice.title}
-                  body={sharedBannerFeed.compactNotice.body}
-                />
-              ) : null}
-              {sharedBannerFeed.overflow.length > 0 ? (
-                <BannerOverflowDisclosure
-                  banners={sharedBannerFeed.overflow}
-                  variant="desktop"
-                  onAction={handleSharedBannerAction}
-                />
-              ) : null}
+              <div
+                className="flex flex-col gap-2"
+                data-testid="viewer-warning-rail"
+              >
+                {desktopWarningRailItems.map((item) => (
+                  <CompactWarningRailRow
+                    key={item.id}
+                    item={item}
+                    expanded={desktopWarningUiState[item.id]?.expanded ?? false}
+                    onToggleExpanded={() => toggleDesktopWarningExpanded(item.id)}
+                    onDismiss={() => dismissDesktopWarning(item.id)}
+                    onAction={
+                      item.actionId
+                        ? (event) =>
+                            handleSharedBannerAction(item.actionId, {
+                              opener: event.currentTarget,
+                              surface: 'desktop',
+                            })
+                        : undefined
+                    }
+                  />
+                ))}
+              </div>
             </section>
           ) : null}
 
@@ -3928,202 +3989,131 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             data-testid="desktop-viewer-header"
           >
             <div className="pointer-events-auto shell-panel rounded-[1.6rem] px-4 py-4 sm:px-5">
-              <div className="grid gap-3 lg:grid-cols-[minmax(0,1.15fr)_minmax(19rem,0.85fr)]">
-                <section
-                  className="rounded-[1.2rem] border border-sky-100/10 bg-white/5 px-4 py-4"
-                  data-testid="desktop-active-object-summary"
-                >
-                  <div className="flex flex-wrap items-center gap-3">
-                    <div>
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-sky-200/55">
-                        SkyLens
-                      </p>
-                      <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">
-                        {desktopStatusSummary.eyebrow}
-                      </p>
-                      <p className="mt-2 text-base font-semibold text-white">
-                        {desktopStatusSummary.title}
-                      </p>
-                    </div>
-                    <div className="rounded-full bg-emerald-400/10 px-3 py-1 text-xs text-emerald-100/85">
-                      {alignmentBadgeValue(state, cameraPose, startupState)}
-                    </div>
-                  </div>
-                  {renderedActiveSummaryObject ? (
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      {renderObjectBadges(renderedActiveSummaryObject)}
-                    </div>
-                  ) : null}
-                  <p className="mt-2 text-sm leading-6 text-sky-100/78">{desktopStatusSummary.body}</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {desktopStatusSummary.rows.map((row) => (
-                      <div
-                        key={`${desktopStatusSummary.title}-${row.label}`}
-                        className="rounded-full border border-sky-100/10 bg-slate-950/35 px-3 py-2"
-                      >
-                        <p className="text-[10px] uppercase tracking-[0.16em] text-sky-200/55">
-                          {row.label}
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <section
+                    className="min-w-0 flex-1 rounded-[1.2rem] border border-sky-100/10 bg-white/5 px-4 py-4"
+                    data-testid="desktop-active-object-summary"
+                  >
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="min-w-0">
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-sky-200/55">
+                          SkyLens
                         </p>
-                        <p className="mt-1 text-sm text-white">{row.value}</p>
+                        <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">
+                          {desktopStatusSummary.eyebrow}
+                        </p>
+                        <p className="mt-2 truncate text-base font-semibold text-white">
+                          {desktopStatusSummary.title}
+                        </p>
                       </div>
-                    ))}
+                      <div className="rounded-full bg-emerald-400/10 px-3 py-1 text-xs text-emerald-100/85">
+                        {alignmentBadgeValue(state, cameraPose, startupState)}
+                      </div>
+                    </div>
+                    {renderedActiveSummaryObject ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        {renderObjectBadges(renderedActiveSummaryObject)}
+                      </div>
+                    ) : null}
+                  </section>
+                  <div className="flex shrink-0 justify-start lg:justify-end">
+                    <SettingsSheet {...desktopSettingsSheetProps} />
                   </div>
-                </section>
+                </div>
                 <section
                   className="rounded-[1.2rem] border border-sky-100/10 bg-slate-950/38 px-4 py-4"
                   data-testid="desktop-next-action"
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="min-w-0">
                       <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">
                         {desktopPrimaryAction?.eyebrow ?? 'Viewer controls'}
                       </p>
-                      <p className="mt-2 text-base font-semibold text-white">
+                      <p className="mt-2 text-sm font-medium text-sky-100/82">
                         {desktopPrimaryAction?.title ?? 'Viewer ready'}
                       </p>
                     </div>
-                    <SettingsSheet {...desktopSettingsSheetProps} />
+                    {desktopPrimaryAction ? (
+                      <button
+                        type="button"
+                        onClick={desktopPrimaryAction.onClick}
+                        disabled={desktopPrimaryAction.disabled}
+                        data-testid={
+                          desktopPrimaryAction.kind === 'open-viewer'
+                            ? 'desktop-primary-open-viewer-action'
+                            : 'desktop-primary-next-action'
+                        }
+                        className={`inline-flex min-h-11 items-center justify-center rounded-full px-5 py-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60 ${
+                          desktopPrimaryAction.tone === 'critical'
+                            ? 'bg-rose-400/90 text-rose-950'
+                            : desktopPrimaryAction.tone === 'info'
+                              ? 'bg-sky-300 text-slate-950'
+                              : desktopPrimaryAction.tone === 'success'
+                                ? 'bg-emerald-300 text-slate-950'
+                                : 'bg-amber-300 text-slate-950'
+                        }`}
+                      >
+                        {desktopPrimaryAction.label}
+                      </button>
+                    ) : null}
                   </div>
-                  <p className="mt-2 text-sm leading-6 text-sky-100/78">
-                    {desktopPrimaryAction?.body ??
-                      'Use the compact controls below when you need deeper diagnostics, permissions recovery, or settings changes.'}
-                  </p>
-                  {desktopPrimaryAction ? (
-                    <button
-                      type="button"
-                      onClick={desktopPrimaryAction.onClick}
-                      disabled={desktopPrimaryAction.disabled}
-                      data-testid={
-                        desktopPrimaryAction.kind === 'open-viewer'
-                          ? 'desktop-open-viewer-action'
-                          : 'desktop-primary-next-action'
-                      }
-                      className={`mt-4 inline-flex min-h-11 items-center justify-center rounded-full px-5 py-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60 ${
-                        desktopPrimaryAction.tone === 'critical'
-                          ? 'bg-rose-400/90 text-rose-950'
-                          : desktopPrimaryAction.tone === 'info'
-                            ? 'bg-sky-300 text-slate-950'
-                            : desktopPrimaryAction.tone === 'success'
-                              ? 'bg-emerald-300 text-slate-950'
-                              : 'bg-amber-300 text-slate-950'
-                      }`}
-                    >
-                      {desktopPrimaryAction.label}
-                    </button>
-                  ) : null}
                   <div
                     className="mt-4 flex flex-wrap items-center gap-2"
                     data-testid="desktop-viewer-actions"
                   >
-                    {desktopPrimaryAction?.kind !== 'open-viewer' ? (
-                      <DesktopActionButton
-                        label={isDesktopViewerPanelOpen ? 'Hide viewer' : 'Open viewer'}
-                        status={
-                          isDesktopViewerPanelOpen
-                            ? 'Viewer open'
-                            : renderedActiveSummaryObject?.label ?? 'Details'
-                        }
-                        onClick={() =>
-                          setIsDesktopViewerPanelOpen((current) => !current)
-                        }
-                        dataTestId="desktop-open-viewer-action"
-                      />
-                    ) : null}
-                    {desktopPrimaryAction?.kind !== 'retry-camera' ? (
-                      <DesktopActionButton
-                        label="Enable camera"
-                        status={cameraStatusValue}
-                        onClick={handleDesktopCameraAction}
-                        disabled={desktopCameraActionDisabled}
-                        dataTestId="desktop-camera-action"
-                      />
-                    ) : null}
-                    {desktopPrimaryAction?.kind !== 'recover-motion' ? (
-                      <DesktopActionButton
-                        label="Motion"
-                        status={motionStatusValue}
-                        onClick={handleDesktopMotionAction}
-                        disabled={desktopMotionActionDisabled}
-                        dataTestId="desktop-motion-action"
-                      />
-                    ) : null}
-                    {scopeControlsAvailable ? (
-                      <DesktopActionButton
-                        label="Scope"
-                        status={formatScopeActionStatus(
-                          hydratedScopeEnabled,
-                          hydratedScopeVerticalFovDeg,
-                        )}
-                        onClick={() =>
-                          setViewerSettings((current) => ({
-                            ...current,
-                            scopeModeEnabled: !current.scopeModeEnabled,
-                          }))
-                        }
-                        pressed={hydratedScopeEnabled}
-                        dataTestId="desktop-scope-action"
-                      />
-                    ) : null}
-                    {desktopPrimaryAction?.kind !== 'open-alignment' ? (
-                      <DesktopActionButton
-                        label="Align"
-                        status={desktopAlignActionStatus}
-                        onClick={(event) =>
-                          openAlignmentExperience({
-                            opener: event.currentTarget,
-                            surface: 'desktop',
-                          })
-                        }
-                        disabled={!canOpenDesktopAlignment}
-                        dataTestId="desktop-align-action"
-                      />
-                    ) : null}
+                    <DesktopActionButton
+                      label="Open Viewer"
+                      status={
+                        isDesktopViewerPanelOpen
+                          ? 'Viewer open'
+                          : renderedActiveSummaryObject?.label ?? 'Details'
+                      }
+                      onClick={() =>
+                        setIsDesktopViewerPanelOpen((current) => !current)
+                      }
+                      dataTestId="desktop-open-viewer-action"
+                    />
+                    <DesktopActionButton
+                      label="Align"
+                      status={desktopAlignActionStatus}
+                      onClick={(event) =>
+                        openAlignmentExperience({
+                          opener: event.currentTarget,
+                          surface: 'desktop',
+                        })
+                      }
+                      disabled={!canOpenDesktopAlignment}
+                      dataTestId="desktop-align-action"
+                    />
+                    <DesktopActionButton
+                      label="Enable AR"
+                      status={desktopEnableArActionStatus}
+                      onClick={handleDesktopEnableArAction}
+                      disabled={desktopEnableArActionDisabled}
+                      dataTestId="desktop-enable-ar-action"
+                    />
+                    <DesktopActionButton
+                      label="Scope"
+                      status={
+                        scopeControlsAvailable
+                          ? formatScopeActionStatus(
+                              hydratedScopeEnabled,
+                              hydratedScopeVerticalFovDeg,
+                            )
+                          : 'Unavailable'
+                      }
+                      onClick={() =>
+                        setViewerSettings((current) => ({
+                          ...current,
+                          scopeModeEnabled: !current.scopeModeEnabled,
+                        }))
+                      }
+                      disabled={!scopeControlsAvailable}
+                      pressed={hydratedScopeEnabled}
+                      dataTestId="desktop-scope-action"
+                    />
                   </div>
-                  {scopeControlsAvailable && hydratedScopeEnabled ? (
-                    <div
-                      className="mt-4 grid gap-3 sm:grid-cols-2"
-                      data-testid="desktop-scope-quick-controls"
-                    >
-                      <QuickRangeSlider
-                        label="Scope aperture"
-                        value={viewerSettings.scopeOptics.apertureMm}
-                        suffix=" mm"
-                        min={SCOPE_OPTICS_RANGES.apertureMm.min}
-                        max={SCOPE_OPTICS_RANGES.apertureMm.max}
-                        step={SCOPE_OPTICS_RANGES.apertureMm.step}
-                        valueTestId="desktop-scope-aperture-value"
-                        sliderTestId="desktop-scope-aperture-slider"
-                        onChange={(value) =>
-                          setViewerSettings((current) => ({
-                            ...current,
-                            scopeOptics: {
-                              ...current.scopeOptics,
-                              apertureMm: value,
-                            },
-                          }))
-                        }
-                      />
-                      <QuickRangeSlider
-                        label="Scope magnification"
-                        value={viewerSettings.scopeOptics.magnificationX}
-                        suffix="x"
-                        min={SCOPE_OPTICS_RANGES.magnificationX.min}
-                        max={SCOPE_OPTICS_RANGES.magnificationX.max}
-                        step={SCOPE_OPTICS_RANGES.magnificationX.step}
-                        valueTestId="desktop-scope-magnification-value"
-                        sliderTestId="desktop-scope-magnification-slider"
-                        onChange={(value) =>
-                          setViewerSettings((current) => ({
-                            ...current,
-                            scopeOptics: {
-                              ...current.scopeOptics,
-                              magnificationX: value,
-                            },
-                          }))
-                        }
-                      />
-                    </div>
-                  ) : null}
                 </section>
               </div>
             </div>
@@ -4241,6 +4231,67 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                       </div>
                     </div>
                   </section>
+                  {scopeControlsAvailable && hydratedScopeEnabled ? (
+                    <section
+                      className="pointer-events-auto shell-panel rounded-[1.75rem] p-5"
+                      data-testid="desktop-scope-quick-controls"
+                    >
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">
+                            Scope controls
+                          </p>
+                          <p className="mt-2 text-base font-semibold text-white">
+                            Tune the telescope view inside Open Viewer
+                          </p>
+                        </div>
+                        <p className="text-sm leading-6 text-sky-100/75">
+                          Adjust aperture and magnification here without expanding the desktop
+                          header.
+                        </p>
+                      </div>
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                        <QuickRangeSlider
+                          label="Scope aperture"
+                          value={viewerSettings.scopeOptics.apertureMm}
+                          suffix=" mm"
+                          min={SCOPE_OPTICS_RANGES.apertureMm.min}
+                          max={SCOPE_OPTICS_RANGES.apertureMm.max}
+                          step={SCOPE_OPTICS_RANGES.apertureMm.step}
+                          valueTestId="desktop-scope-aperture-value"
+                          sliderTestId="desktop-scope-aperture-slider"
+                          onChange={(value) =>
+                            setViewerSettings((current) => ({
+                              ...current,
+                              scopeOptics: {
+                                ...current.scopeOptics,
+                                apertureMm: value,
+                              },
+                            }))
+                          }
+                        />
+                        <QuickRangeSlider
+                          label="Scope magnification"
+                          value={viewerSettings.scopeOptics.magnificationX}
+                          suffix="x"
+                          min={SCOPE_OPTICS_RANGES.magnificationX.min}
+                          max={SCOPE_OPTICS_RANGES.magnificationX.max}
+                          step={SCOPE_OPTICS_RANGES.magnificationX.step}
+                          valueTestId="desktop-scope-magnification-value"
+                          sliderTestId="desktop-scope-magnification-slider"
+                          onChange={(value) =>
+                            setViewerSettings((current) => ({
+                              ...current,
+                              scopeOptics: {
+                                ...current.scopeOptics,
+                                magnificationX: value,
+                              },
+                            }))
+                          }
+                        />
+                      </div>
+                    </section>
+                  ) : null}
                   <section className="pointer-events-auto shell-panel rounded-[1.75rem] p-5">
                     <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">
                       Crosshair object
@@ -5745,6 +5796,86 @@ function CompactTopBanner({
   )
 }
 
+function CompactWarningRailRow({
+  item,
+  expanded,
+  onToggleExpanded,
+  onDismiss,
+  onAction,
+}: {
+  item: ViewerBannerItem
+  expanded: boolean
+  onToggleExpanded: () => void
+  onDismiss: () => void
+  onAction?: MouseEventHandler<HTMLButtonElement>
+}) {
+  const containerClassName = item.critical
+    ? 'border-rose-300/20 bg-rose-500/12 text-rose-50'
+    : item.tone === 'info'
+      ? 'border-sky-200/15 bg-sky-300/10 text-sky-50'
+      : 'border-amber-200/15 bg-amber-300/10 text-amber-50'
+  const bodyClassName = item.critical
+    ? 'text-rose-100/80'
+    : item.tone === 'info'
+      ? 'text-sky-100/78'
+      : 'text-amber-50/80'
+  const detailsId = `viewer-warning-rail-details-${item.id}`
+
+  return (
+    <section
+      className={`rounded-[1rem] border px-3 py-2 text-sm shadow-[0_10px_24px_rgba(3,7,13,0.14)] ${containerClassName}`}
+      data-testid={`viewer-warning-rail-item-${item.id}`}
+    >
+      <div className="flex items-center gap-3">
+        <p className="min-w-0 flex-1 truncate font-semibold">{item.title}</p>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            aria-controls={detailsId}
+            aria-expanded={expanded}
+            aria-label={`${expanded ? 'Collapse' : 'Expand'} ${item.title}`}
+            data-testid={`viewer-warning-rail-toggle-${item.id}`}
+            onClick={onToggleExpanded}
+            className="rounded-full border border-current/20 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.16em]"
+          >
+            {expanded ? 'Hide' : 'Details'}
+          </button>
+          <button
+            type="button"
+            aria-label={`Dismiss ${item.title}`}
+            data-testid={`viewer-warning-rail-dismiss-${item.id}`}
+            onClick={onDismiss}
+            className="rounded-full border border-current/20 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.16em]"
+          >
+            Dismiss
+          </button>
+        </div>
+      </div>
+      {expanded ? (
+        <div className="mt-3 border-t border-current/10 pt-3" id={detailsId}>
+          <p className={`leading-5 ${bodyClassName}`}>{item.body}</p>
+          {item.footer ? (
+            <p className={`mt-2 text-xs ${bodyClassName}`} role="alert">
+              {item.footer}
+            </p>
+          ) : null}
+          {item.actionLabel && onAction ? (
+            <button
+              type="button"
+              onClick={onAction}
+              disabled={item.actionDisabled}
+              data-testid={`viewer-warning-rail-action-${item.id}`}
+              className="mt-3 min-h-11 rounded-full border border-current/20 px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {item.actionLabel}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
 function BannerOverflowDisclosure({
   banners,
   variant,
@@ -6135,99 +6266,6 @@ function getActiveFocusableElement() {
   }
 
   return canRestoreFocusTarget(document.activeElement) ? document.activeElement : null
-}
-
-function isElementVisible(element: HTMLElement) {
-  if (
-    element.hasAttribute('hidden') ||
-    element.closest('[hidden]') ||
-    element.hasAttribute('inert') ||
-    element.closest('[inert]') ||
-    element.getAttribute('aria-hidden') === 'true' ||
-    element.closest('[aria-hidden="true"]')
-  ) {
-    return false
-  }
-
-  if (typeof window !== 'undefined' && typeof window.getComputedStyle === 'function') {
-    const style = window.getComputedStyle(element)
-
-    if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse') {
-      return false
-    }
-  }
-
-  return true
-}
-
-function canRestoreFocusTarget(target: HTMLElement | null | undefined): target is HTMLElement {
-  return Boolean(target && target.isConnected && isElementVisible(target) && isFocusableElement(target))
-}
-
-function isFocusableElement(element: HTMLElement) {
-  if (!element.isConnected || element.hasAttribute('disabled') || !isElementVisible(element)) {
-    return false
-  }
-
-  return element.matches(FOCUSABLE_SELECTOR) || element.tabIndex >= 0
-}
-
-function resolveFocusRestoreTarget(...targets: Array<HTMLElement | null | undefined>) {
-  return targets.find((target) => canRestoreFocusTarget(target)) ?? null
-}
-
-function getFocusableElements(root: HTMLElement) {
-  return Array.from(
-    root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
-  ).filter((element) => isFocusableElement(element))
-}
-
-function trapFocusWithinPanel(
-  event: ReactKeyboardEvent<HTMLElement>,
-  panel: HTMLElement | null,
-) {
-  if (event.key !== 'Tab' || !panel) {
-    return
-  }
-
-  const focusableElements = getFocusableElements(panel)
-
-  if (focusableElements.length === 0) {
-    return
-  }
-
-  const firstFocusable = focusableElements[0]
-  const lastFocusable = focusableElements[focusableElements.length - 1]
-  const activeElement = document.activeElement
-
-  if (event.shiftKey && activeElement === firstFocusable) {
-    event.preventDefault()
-    lastFocusable.focus()
-    return
-  }
-
-  if (!event.shiftKey && activeElement === lastFocusable) {
-    event.preventDefault()
-    firstFocusable.focus()
-  }
-}
-
-function focusAfterDismiss(target: HTMLElement | null) {
-  if (!target) {
-    return
-  }
-
-  target.focus()
-
-  if (document.activeElement === target || typeof window === 'undefined') {
-    return
-  }
-
-  window.setTimeout(() => {
-    if (canRestoreFocusTarget(target)) {
-      target.focus()
-    }
-  }, 0)
 }
 
 function AlignmentInstructionsPanel({

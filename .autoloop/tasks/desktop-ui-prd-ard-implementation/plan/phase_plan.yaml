@@ -1,0 +1,134 @@
+version: 1
+task_id: desktop-ui-prd-ard-implementation
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/desktop-ui-prd-ard-implementation/runs/run-20260406T222202Z-e34c14d5/request.md
+phases:
+  - phase_id: desktop-quick-actions
+    title: Simplify desktop quick actions and unify Enable AR
+    objective: Reduce the desktop quick row to the approved four actions while preserving existing permission recovery routing.
+    status: planned
+    in_scope:
+      - Normalize desktop quick-row actions to Open Viewer, Align, Enable AR, and Scope.
+      - Route desktop Enable AR through the existing permission recovery handlers.
+      - Update desktop action visibility and ordering tests.
+    out_of_scope:
+      - Rewriting permission coordinator behavior.
+      - Changing mobile quick-action copy unless required by shared implementation.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: Desktop quick actions render only Open Viewer, Align, Enable AR, and Scope in the approved order.
+      - id: AC-2
+        text: Camera-only, motion-only, and combined recovery states still route to the correct existing recovery behavior behind the single desktop Enable AR action.
+    deliverables:
+      - Desktop quick-row composition update in ViewerShell.
+      - Resolver and unit test updates covering permission-state routing and ordering.
+    risks:
+      - Presentation cleanup could accidentally remove a recovery path.
+    rollback:
+      - Restore prior desktop action rendering while keeping resolver behavior unchanged.
+
+  - phase_id: desktop-overlay-content-cleanup
+    title: Move secondary desktop clutter into Open Viewer
+    objective: Keep the desktop header compact and action-focused while preserving access to advanced viewer content inside Open Viewer.
+    status: planned
+    in_scope:
+      - Relocate non-essential quick-row-adjacent diagnostics and advanced controls into the desktop Open Viewer surface.
+      - Keep advanced content reachable without cluttering the desktop header.
+      - Update coverage for overlay content availability.
+    out_of_scope:
+      - Removing advanced diagnostics entirely.
+      - Changing core viewer snapshot or object-detail behavior.
+    dependencies:
+      - desktop-quick-actions
+    acceptance_criteria:
+      - id: AC-1
+        text: Secondary diagnostics and advanced controls no longer persist beside the desktop quick actions.
+      - id: AC-2
+        text: Moved content remains reachable from Open Viewer and existing viewer-detail behavior still works.
+    deliverables:
+      - Desktop header/panel composition cleanup in ViewerShell.
+      - Unit tests proving overlay content remains available.
+    risks:
+      - Content relocation could strand existing diagnostics or scope controls.
+    rollback:
+      - Restore prior desktop panel placement if required without reverting quick-row simplification.
+
+  - phase_id: compact-warning-rail
+    title: Refactor warning rail to compact expandable rows
+    objective: Replace stacked desktop banners with one-line warning rows that support per-item expand and dismiss behavior.
+    status: planned
+    in_scope:
+      - Add warning UI state for collapsed, expanded, and dismissed rows.
+      - Render one-line desktop warning rows with per-item expand and dismiss controls.
+      - Keep banner ordering/actions aligned with existing resolver priority.
+    out_of_scope:
+      - Persisting warning state in viewer settings storage.
+      - Redefining banner business logic priorities beyond what the UI needs.
+    dependencies:
+      - desktop-quick-actions
+    acceptance_criteria:
+      - id: AC-1
+        text: Desktop warnings are one line tall by default and can be expanded or dismissed individually.
+      - id: AC-2
+        text: Warning actions remain keyboard-accessible with correct aria-expanded semantics and stable ordering.
+    deliverables:
+      - Warning-row UI and state management in ViewerShell.
+      - Resolver/UI tests for warning expand, dismiss, and accessibility behavior.
+    risks:
+      - Dismissed warnings may hide important actionable states.
+    rollback:
+      - Revert to the existing banner stack/disclosure rendering while keeping resolver inputs intact.
+
+  - phase_id: shared-dismiss-contract
+    title: Standardize outside-click, Escape-close, and focus restore
+    objective: Apply one consistent dismiss contract across overlays, sheets, and dialogs touched by this task.
+    status: planned
+    in_scope:
+      - Align the current settings sheet, mobile viewer overlay, and mobile alignment overlay close behavior.
+      - Ensure Escape closes, backdrop/outside click closes, inside click does not close, and focus restores.
+      - Add regression tests for close behavior and focus restoration.
+    out_of_scope:
+      - Building a generic modal framework for the whole app.
+      - Changing viewer stage interactions unrelated to dismiss behavior.
+    dependencies:
+      - desktop-overlay-content-cleanup
+    acceptance_criteria:
+      - id: AC-1
+        text: The existing settings sheet, mobile viewer overlay, and mobile alignment overlay close consistently on Escape and backdrop/outside click.
+      - id: AC-2
+        text: Focus returns to the correct opener or documented fallback after close, and inside-panel clicks do not dismiss.
+    deliverables:
+      - Minimal shared dismiss/focus handling updates across ViewerShell and SettingsSheet.
+      - Unit tests for backdrop close, Escape close, and focus restoration.
+    risks:
+      - Refactoring dismiss behavior can regress mobile overlay focus handling.
+    rollback:
+      - Restore previous per-surface close handlers while retaining newly added tests as regression documentation.
+
+  - phase_id: desktop-settings-dialog
+    title: Fix desktop settings clipping with a desktop dialog variant
+    objective: Replace the desktop reuse of the mobile settings shell with a desktop-optimized dialog that preserves existing settings behavior.
+    status: planned
+    in_scope:
+      - Add a desktop settings presentation with internal scroll and dialog semantics.
+      - Preserve the existing settings content tree and callback contract.
+      - Keep mobile settings on the current compact mobile sheet.
+      - Apply the Phase 4 dismiss/focus contract to the new desktop dialog presentation.
+    out_of_scope:
+      - Reworking settings persistence or option semantics.
+      - Broad visual redesign outside the settings surface.
+    dependencies:
+      - shared-dismiss-contract
+    acceptance_criteria:
+      - id: AC-1
+        text: Desktop settings no longer clip and all content remains reachable through an internal scroll region.
+      - id: AC-2
+        text: Desktop settings preserve dialog accessibility semantics and integrate with the same close/focus contract as other surfaces.
+    deliverables:
+      - Responsive SettingsSheet shell update for desktop dialog presentation.
+      - Unit tests covering desktop settings reachability and dismiss behavior.
+      - Final verified implementation committed in git after tests pass.
+    risks:
+      - Separate desktop markup could drift from mobile settings content.
+    rollback:
+      - Restore the existing sheet shell presentation while keeping the underlying settings callbacks untouched.

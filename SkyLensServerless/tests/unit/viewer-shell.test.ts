@@ -69,7 +69,7 @@ vi.mock('next/link', () => ({
 }))
 
 vi.mock('../../components/settings/settings-sheet', () => ({
-  SettingsSheet: (props: { triggerSurfaceId?: string }) => {
+  SettingsSheet: (props: { triggerSurfaceId?: string; presentation?: string }) => {
     mockSettingsSheetProps(props)
 
     return React.createElement(
@@ -519,6 +519,7 @@ describe('ViewerShell startup gating', () => {
         orientation: 'denied',
       }),
     )
+    await expandWarningRailItem('motion-recovery')
     expect(container.textContent).toContain('Motion recovery')
     expect(container.textContent).toContain('Motion access is still denied.')
   })
@@ -565,6 +566,7 @@ describe('ViewerShell startup gating', () => {
         orientation: 'unavailable',
       }),
     )
+    await expandWarningRailItem('motion-recovery')
     expect(container.textContent).toContain('Motion recovery')
     expect(container.textContent).toContain('Motion sensors are unavailable')
   })
@@ -762,10 +764,17 @@ describe('ViewerShell startup gating', () => {
             showScopeControls?: boolean
           }
         | undefined
+    const desktopScopeAction = container.querySelector(
+      '[data-testid="desktop-scope-action"]',
+    ) as HTMLButtonElement | null
 
     expect(latestSettingsProps()?.showScopeControls).toBe(false)
-    expect(container.querySelector('[data-testid="desktop-scope-action"]')).toBeNull()
+    expect(desktopScopeAction).not.toBeNull()
+    expect(desktopScopeAction?.disabled).toBe(true)
+    expect(desktopScopeAction?.textContent).toContain('Scope')
+    expect(desktopScopeAction?.textContent).toContain('Unavailable')
     expect(container.querySelector('[data-testid="mobile-scope-action"]')).toBeNull()
+    expect(container.querySelector('[data-testid="desktop-scope-quick-controls"]')).toBeNull()
   })
 
   it('keeps scope controls hidden in the unsupported secure-context blocker state', async () => {
@@ -787,10 +796,16 @@ describe('ViewerShell startup gating', () => {
             showScopeControls?: boolean
           }
         | undefined
+    const desktopScopeAction = container.querySelector(
+      '[data-testid="desktop-scope-action"]',
+    ) as HTMLButtonElement | null
 
     expect(latestSettingsProps()?.showScopeControls).toBe(false)
-    expect(container.querySelector('[data-testid="desktop-scope-action"]')).toBeNull()
+    expect(desktopScopeAction).not.toBeNull()
+    expect(desktopScopeAction?.disabled).toBe(true)
+    expect(desktopScopeAction?.textContent).toContain('Unavailable')
     expect(container.querySelector('[data-testid="mobile-scope-action"]')).toBeNull()
+    expect(container.querySelector('[data-testid="desktop-scope-quick-controls"]')).toBeNull()
     expect(container.textContent).toContain('Live AR requires a secure context.')
   })
 
@@ -1047,6 +1062,7 @@ describe('ViewerShell startup gating', () => {
     ) as HTMLButtonElement | null
     expect(container.querySelector('[data-testid="mobile-viewer-overlay"]')).toBeNull()
     expect(restoredTrigger).not.toBeNull()
+    expect(document.activeElement).toBe(restoredTrigger)
   })
 
   it('closes the mobile viewer overlay on Escape and restores focus to the trigger', async () => {
@@ -1556,6 +1572,58 @@ describe('ViewerShell startup gating', () => {
 
     await act(async () => {
       backdrop!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    const restoredAlignButton = container.querySelector(
+      '[data-testid="mobile-align-action"]',
+    ) as HTMLButtonElement | null
+
+    expect(container.querySelector('[data-testid="mobile-alignment-overlay-shell"]')).toBeNull()
+    expect(document.activeElement).toBe(restoredAlignButton)
+  })
+
+  it('keeps the alignment overlay open for inside-panel clicks and closes it on Escape', async () => {
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'granted',
+    })
+
+    const alignButton = container.querySelector(
+      '[data-testid="mobile-align-action"]',
+    ) as HTMLButtonElement | null
+
+    expect(alignButton).not.toBeNull()
+
+    alignButton!.focus()
+
+    await act(async () => {
+      alignButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    const panel = container.querySelector(
+      '[data-testid="mobile-alignment-overlay-panel"]',
+    ) as HTMLElement | null
+
+    expect(panel).not.toBeNull()
+
+    await act(async () => {
+      panel!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(container.querySelector('[data-testid="mobile-alignment-overlay-shell"]')).not.toBeNull()
+
+    await act(async () => {
+      panel!.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'Escape',
+          bubbles: true,
+          cancelable: true,
+        }),
+      )
     })
     await flushEffects()
 
@@ -2467,6 +2535,7 @@ describe('ViewerShell startup gating', () => {
     })
 
     await openDesktopViewerPanel()
+    await expandWarningRailItem('motion-recovery')
 
     expect(container.textContent).toContain('Motion recovery')
     expect(container.textContent).toContain('iOS Settings → Safari → Motion & Orientation Access')
@@ -2630,6 +2699,7 @@ describe('ViewerShell startup gating', () => {
         orientation: 'denied',
       }),
     )
+    await expandWarningRailItem('motion-recovery')
     expect(container.textContent).toContain('Motion recovery')
     expect(container.textContent).toContain('Motion access is still denied.')
   })
@@ -2649,6 +2719,7 @@ describe('ViewerShell startup gating', () => {
     })
 
     await openDesktopViewerPanel()
+    await expandWarningRailItem('motion-recovery')
 
     expect(container.textContent).toContain('Motion recovery')
     expect(container.textContent).toContain(
@@ -2680,6 +2751,7 @@ describe('ViewerShell startup gating', () => {
       })
 
       await openDesktopViewerPanel()
+      await expandWarningRailItem('motion-recovery')
 
       expect(container.textContent).toContain('Motion recovery')
 
@@ -2768,6 +2840,7 @@ describe('ViewerShell startup gating', () => {
           orientation: 'denied',
         }),
       )
+      await expandWarningRailItem('motion-recovery')
       expect(container.textContent).toContain('Motion recovery')
       expect(container.textContent).toContain('Unable to retry motion permission right now.')
 
@@ -2807,6 +2880,7 @@ describe('ViewerShell startup gating', () => {
     })
 
     await openDesktopViewerPanel()
+    await expandWarningRailItem('motion-recovery')
 
     const enableMotionButton = Array.from(container.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Enable motion'),
@@ -2829,6 +2903,7 @@ describe('ViewerShell startup gating', () => {
         orientation: 'denied',
       }),
     )
+    await expandWarningRailItem('motion-recovery')
     expect(container.textContent).toContain('Motion recovery')
     expect(container.textContent).toContain(
       'Motion access is still denied. Check iOS Settings → Safari → Motion & Orientation Access, then retry.',
@@ -2844,6 +2919,7 @@ describe('ViewerShell startup gating', () => {
     })
 
     await openDesktopViewerPanel()
+    await expandWarningRailItem('motion-recovery')
 
     expect(container.textContent).toContain('Motion is not enabled.')
     expect(container.textContent).toContain(
@@ -2907,6 +2983,7 @@ describe('ViewerShell startup gating', () => {
     })
 
     await openDesktopViewerPanel()
+    await expandWarningRailItem('relative-calibration')
 
     expect(container.textContent).toContain('Relative sensor mode needs alignment.')
     expect(container.textContent).toMatch(
@@ -4008,29 +4085,48 @@ describe('ViewerShell startup gating', () => {
     const desktopNextAction = container.querySelector(
       '[data-testid="desktop-next-action"]',
     ) as HTMLElement | null
+    const desktopActiveSummary = container.querySelector(
+      '[data-testid="desktop-active-object-summary"]',
+    ) as HTMLElement | null
     const openViewerButton = container.querySelector(
       '[data-testid="desktop-open-viewer-action"]',
     ) as HTMLButtonElement | null
     const topWarningStack = container.querySelector(
       '[data-testid="viewer-top-warning-stack"]',
     ) as HTMLElement | null
+    const warningRail = container.querySelector(
+      '[data-testid="viewer-warning-rail"]',
+    ) as HTMLElement | null
+    const desktopSettingsProps = mockSettingsSheetProps.mock.calls
+      .map(([props]) => props as { triggerSurfaceId?: string; presentation?: string })
+      .find((props) => props.triggerSurfaceId === 'desktop-settings-trigger')
 
     expect(desktopHeader).not.toBeNull()
     expect(desktopHeader?.textContent).toContain('SkyLens')
     expect(desktopHeader?.querySelector('[data-testid="settings-sheet"]')).not.toBeNull()
+    expect(desktopSettingsProps?.presentation).toBe('desktop-dialog')
+    expect(desktopActiveSummary?.textContent).toContain('Current status')
+    expect(desktopActiveSummary?.textContent).toContain('Demo')
+    expect(desktopActiveSummary?.textContent).not.toContain('Camera')
+    expect(desktopHeader?.textContent).not.toContain('Visible markers')
+    expect(desktopHeader?.textContent).not.toContain('Privacy reassurance')
     expect(desktopNextAction?.textContent).toContain('Open the viewer details')
-    expect(desktopNextAction?.textContent).toContain(
+    expect(desktopNextAction?.textContent).not.toContain(
       'Inspect the current crosshair object, selected target, and fallback state without covering the stage.',
     )
-    expect(openViewerButton?.textContent).toContain('Open viewer')
-    expect(desktopActions?.textContent).not.toContain('Open viewer')
-    expect(desktopActions?.textContent).toContain('Enable camera')
-    expect(desktopActions?.textContent).toContain('Motion')
-    expect(desktopActions?.textContent).toContain('Scope')
-    expect(desktopActions?.textContent).toContain('Align')
+    expect(openViewerButton?.textContent).toContain('Open Viewer')
+    expect(
+      Array.from(desktopActions?.querySelectorAll('button') ?? []).map((button) =>
+        button.firstElementChild?.textContent?.trim(),
+      ),
+    ).toEqual(['Open Viewer', 'Align', 'Enable AR', 'Scope'])
+    expect(desktopHeader?.querySelector('[data-testid="desktop-scope-quick-controls"]')).toBeNull()
+    expect(container.querySelector('[data-testid="desktop-camera-action"]')).toBeNull()
+    expect(container.querySelector('[data-testid="desktop-motion-action"]')).toBeNull()
     expect(topWarningStack).not.toBeNull()
     expect(topWarningStack?.className).toContain('hidden')
     expect(topWarningStack?.className).toContain('sm:flex')
+    expect(warningRail).not.toBeNull()
     expect(desktopViewerPanel).toBeNull()
 
     await act(async () => {
@@ -4041,7 +4137,151 @@ describe('ViewerShell startup gating', () => {
       'Viewer snapshot',
     )
     expect(container.querySelector('[data-testid="desktop-viewer-panel"]')?.textContent).toContain(
+      'Visible markers',
+    )
+    expect(container.querySelector('[data-testid="desktop-viewer-panel"]')?.textContent).toContain(
+      'Camera',
+    )
+    expect(container.querySelector('[data-testid="desktop-viewer-panel"]')?.textContent).toContain(
       'Privacy reassurance',
+    )
+  })
+
+  it('renders desktop warning rows collapsed by default and supports expand and dismiss controls', async () => {
+    const originalRequestAnimationFrame = window.requestAnimationFrame
+    const originalCancelAnimationFrame = window.cancelAnimationFrame
+
+    Object.defineProperty(window, 'requestAnimationFrame', {
+      configurable: true,
+      writable: true,
+      value: vi.fn(() => 1),
+    })
+    Object.defineProperty(window, 'cancelAnimationFrame', {
+      configurable: true,
+      writable: true,
+      value: vi.fn(),
+    })
+
+    try {
+      await renderViewer({
+        entry: 'live',
+        location: 'granted',
+        camera: 'denied',
+        orientation: 'denied',
+      })
+
+      const warningRail = container.querySelector(
+        '[data-testid="viewer-warning-rail"]',
+      ) as HTMLElement | null
+      const warningRows = Array.from(
+        container.querySelectorAll('[data-testid^="viewer-warning-rail-item-"]'),
+      ) as HTMLElement[]
+      const motionRow = container.querySelector(
+        '[data-testid="viewer-warning-rail-item-motion-recovery"]',
+      ) as HTMLElement | null
+      const cameraRow = container.querySelector(
+        '[data-testid="viewer-warning-rail-item-camera-disabled"]',
+      ) as HTMLElement | null
+      const expandButton = container.querySelector(
+        '[data-testid="viewer-warning-rail-toggle-motion-recovery"]',
+      ) as HTMLButtonElement | null
+
+      expect(warningRail).not.toBeNull()
+      expect(warningRows.map((row) => row.dataset.testid)).toEqual([
+        'viewer-warning-rail-item-motion-recovery',
+        'viewer-warning-rail-item-camera-disabled',
+      ])
+      expect(motionRow?.textContent).toContain('Motion recovery')
+      expect(motionRow?.textContent).not.toContain('Motion is not enabled.')
+      expect(
+        motionRow?.querySelector('[data-testid="viewer-warning-rail-action-motion-recovery"]'),
+      ).toBeNull()
+      expect(cameraRow?.textContent).toContain('Camera access is off.')
+      expect(expandButton?.getAttribute('aria-expanded')).toBe('false')
+
+      await act(async () => {
+        expandButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      })
+      await flushEffects()
+
+      const actionButton = container.querySelector(
+        '[data-testid="viewer-warning-rail-action-motion-recovery"]',
+      ) as HTMLButtonElement | null
+      const dismissButton = container.querySelector(
+        '[data-testid="viewer-warning-rail-dismiss-motion-recovery"]',
+      ) as HTMLButtonElement | null
+      const detailsRegion = container.querySelector(
+        '#viewer-warning-rail-details-motion-recovery',
+      ) as HTMLElement | null
+
+      expect(expandButton?.getAttribute('aria-expanded')).toBe('true')
+      expect(expandButton?.getAttribute('aria-controls')).toBe(
+        'viewer-warning-rail-details-motion-recovery',
+      )
+      expect(dismissButton?.getAttribute('aria-label')).toBe('Dismiss Motion recovery')
+      expect(detailsRegion).not.toBeNull()
+      expect(motionRow?.textContent).toContain('Motion is not enabled.')
+      expect(actionButton?.textContent).toContain('Enable camera and motion')
+
+      await act(async () => {
+        dismissButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      })
+      await flushEffects()
+
+      expect(
+        container.querySelector('[data-testid="viewer-warning-rail-item-motion-recovery"]'),
+      ).toBeNull()
+      expect(
+        container.querySelector('[data-testid="viewer-warning-rail-item-camera-disabled"]'),
+      ).not.toBeNull()
+    } finally {
+      Object.defineProperty(window, 'requestAnimationFrame', {
+        configurable: true,
+        writable: true,
+        value: originalRequestAnimationFrame,
+      })
+      Object.defineProperty(window, 'cancelAnimationFrame', {
+        configurable: true,
+        writable: true,
+        value: originalCancelAnimationFrame,
+      })
+    }
+  })
+
+  it('routes desktop Enable AR through motion-only recovery when camera is already granted', async () => {
+    await renderViewer({
+      entry: 'live',
+      location: 'granted',
+      camera: 'granted',
+      orientation: 'denied',
+    })
+
+    const enableArButton = container.querySelector(
+      '[data-testid="desktop-enable-ar-action"]',
+    ) as HTMLButtonElement | null
+
+    expect(enableArButton?.textContent).toContain('Enable AR')
+    expect(enableArButton?.textContent).toContain('Motion off')
+    expect(enableArButton?.disabled).toBe(false)
+
+    mockRequestOrientationPermission.mockClear()
+    mockRequestRearCameraStream.mockClear()
+    mockRouterReplace.mockClear()
+
+    act(() => {
+      enableArButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(mockRequestOrientationPermission).toHaveBeenCalledTimes(1)
+    expect(mockRequestRearCameraStream).not.toHaveBeenCalled()
+    expect(mockRouterReplace).toHaveBeenCalledWith(
+      buildViewerHref({
+        entry: 'live',
+        location: 'granted',
+        camera: 'granted',
+        orientation: 'unknown',
+      }),
     )
   })
 
@@ -4132,6 +4372,7 @@ describe('ViewerShell startup gating', () => {
       )?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
     await flushEffects()
+    await openDesktopViewerPanel()
 
     const desktopAperture = container.querySelector(
       '[data-testid="desktop-scope-aperture-slider"]',
@@ -4340,6 +4581,21 @@ describe('ViewerShell startup gating', () => {
 
     await act(async () => {
       openViewerButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+  }
+
+  async function expandWarningRailItem(id: string) {
+    const toggleButton = container.querySelector(
+      `[data-testid="viewer-warning-rail-toggle-${id}"]`,
+    ) as HTMLButtonElement | null
+
+    if (!toggleButton || toggleButton.getAttribute('aria-expanded') === 'true') {
+      return
+    }
+
+    await act(async () => {
+      toggleButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
     await flushEffects()
   }
