@@ -19,6 +19,16 @@ export const SCOPE_OPTICS_RANGES = {
   },
 } as const
 
+export const MAIN_VIEW_OPTICS_RANGES = {
+  apertureMm: SCOPE_OPTICS_RANGES.apertureMm,
+  magnificationX: {
+    min: 0.25,
+    max: 300,
+    step: 0.25,
+    defaultValue: 1,
+  },
+} as const
+
 export const SCOPE_VERTICAL_FOV_RANGE = {
   min: 3,
   max: 20,
@@ -37,6 +47,9 @@ export type ScopeOptics = {
   magnificationX: number
   transparencyPct: number
 }
+
+export type ActiveOptics = Pick<ScopeOptics, 'apertureMm' | 'magnificationX'>
+export type MainViewOptics = ActiveOptics
 
 export type ScopeRenderProfile = {
   effectiveLimitMag: number
@@ -82,6 +95,22 @@ export function normalizeScopeOptics(
   }
 }
 
+export function getDefaultMainViewOptics(): MainViewOptics {
+  return {
+    apertureMm: MAIN_VIEW_OPTICS_RANGES.apertureMm.defaultValue,
+    magnificationX: MAIN_VIEW_OPTICS_RANGES.magnificationX.defaultValue,
+  }
+}
+
+export function normalizeMainViewOptics(
+  optics: Partial<MainViewOptics> | null | undefined,
+): MainViewOptics {
+  return {
+    apertureMm: normalizeMainViewOpticsValue('apertureMm', optics?.apertureMm),
+    magnificationX: normalizeMainViewOpticsValue('magnificationX', optics?.magnificationX),
+  }
+}
+
 export function normalizeScopeOpticsValue(
   key: keyof ScopeOptics,
   value: unknown,
@@ -93,6 +122,20 @@ export function normalizeScopeOpticsValue(
       : typeof value === 'string' && value.trim().length > 0
         ? Number(value)
         : Number.NaN
+
+  if (!Number.isFinite(parsedValue)) {
+    return range.defaultValue
+  }
+
+  return clamp(parsedValue, range.min, range.max)
+}
+
+export function normalizeMainViewOpticsValue(
+  key: keyof MainViewOptics,
+  value: unknown,
+) {
+  const range = MAIN_VIEW_OPTICS_RANGES[key]
+  const parsedValue = parseFiniteNumber(value)
 
   if (!Number.isFinite(parsedValue)) {
     return range.defaultValue
@@ -121,6 +164,16 @@ export function magnificationToScopeVerticalFovDeg(
   return normalizeScopeVerticalFovDeg(safeApparentFieldDeg / safeMagnificationX)
 }
 
+export function magnificationToMainViewVerticalFovDeg(
+  magnificationX: unknown,
+  baseVerticalFovDeg: unknown,
+) {
+  const safeMagnificationX = normalizeMainViewOpticsValue('magnificationX', magnificationX)
+  const safeBaseVerticalFovDeg = normalizeProfileVerticalFovDeg(baseVerticalFovDeg)
+
+  return normalizeProfileVerticalFovDeg(safeBaseVerticalFovDeg / safeMagnificationX)
+}
+
 export function scopeVerticalFovDegToMagnificationX(
   scopeVerticalFovDeg: unknown,
   apparentFieldDeg: unknown = SCOPE_APPARENT_FIELD_DEG_RANGE.defaultValue,
@@ -136,27 +189,24 @@ export function scopeVerticalFovDegToMagnificationX(
 
 export function computeScopeLimitingMagnitude({
   apertureMm,
-  magnificationX,
-  transparencyPct,
+  magnificationX: _magnificationX,
+  transparencyPct: _transparencyPct,
   altitudeDeg,
 }: ScopeOptics & {
   altitudeDeg: unknown
 }) {
+  void _magnificationX
+  void _transparencyPct
   const optics = normalizeScopeOptics({
     apertureMm,
-    magnificationX,
-    transparencyPct,
+    magnificationX: _magnificationX,
+    transparencyPct: _transparencyPct,
   })
   const safeAltitudeDeg = normalizeAltitudeDeg(altitudeDeg)
-  const transparency = optics.transparencyPct / 100
-  const base =
-    2.2 +
-    2.0 * Math.log10(optics.apertureMm) +
-    0.3 * Math.log10(optics.magnificationX)
-  const transparencyAdj = 1.3 * (transparency - 0.7)
+  const base = 2.7 + 2.0 * Math.log10(optics.apertureMm)
   const altitudePenalty = getAltitudePenalty(safeAltitudeDeg)
 
-  return clamp(base + transparencyAdj - altitudePenalty, 3, 15.5)
+  return clamp(base - altitudePenalty, 3, 15.5)
 }
 
 export function passesScopeLimitingMagnitude({
@@ -204,10 +254,9 @@ export function computeScopeRenderProfile({
     0.0003,
     250,
   )
-  const transparency = normalizedOptics.transparencyPct / 100
   const altitudePenalty = getAltitudePenalty(safeAltitudeDeg)
   const transmission = clamp(
-    transparency * Math.max(0.24, 1 - altitudePenalty / 2.4),
+    Math.max(0.24, 1 - altitudePenalty / 2.4),
     0.18,
     1,
   )
@@ -216,12 +265,7 @@ export function computeScopeRenderProfile({
     0.72,
     1.7,
   )
-  const magnificationGain = clamp(
-    0.88 + Math.log10(normalizedOptics.magnificationX / 10 + 1) * 0.22,
-    0.9,
-    1.24,
-  )
-  const opticsGain = clamp(apertureGain * magnificationGain, 0.8, 1.95)
+  const opticsGain = clamp(apertureGain, 0.8, 1.95)
   const nearLimitBoost = clamp((effectiveLimitMag - safeMagnitude + 1.4) / 3.2, 0.24, 1.45)
   const intensity = clamp(
     Math.pow(relativeFlux * transmission * opticsGain * nearLimitBoost, 0.26),
@@ -315,6 +359,16 @@ function normalizeMagnitude(value: unknown) {
   }
 
   return clamp(value, -8, 30)
+}
+
+function normalizeProfileVerticalFovDeg(value: unknown) {
+  const parsedValue = parseFiniteNumber(value)
+
+  if (!Number.isFinite(parsedValue)) {
+    return 50
+  }
+
+  return clamp(parsedValue, 1, 179)
 }
 
 function parseFiniteNumber(value: unknown) {

@@ -1,0 +1,51 @@
+{
+  "task_id": "task-implement-main-viewer-optics-unification-sk-d0e30232",
+  "created_at": "2026-04-07T14:52:43.849782+00:00",
+  "request_text": "# Task: Implement Main-Viewer Optics Unification (SkyLensServerless)\n\nImplement the PRD/ARD in `SkyLensServerless/PRD_ARD_MAIN_VIEW_OPTICS_UNIFICATION.md`.\n\n## Scope\n- Implement on `SkyLensServerless` codepaths.\n- Keep scope lens overlay optional presentation.\n- Main-view optics always active.\n- Main-view and scope-mode optics are independently wired.\n\n## Required behavior\n1. Main-view optics\n   - Always active in normal/main view.\n   - Sliders visible by default.\n   - Magnification default = `1.0x`.\n   - Magnification minimum = `0.25x`.\n   - Magnification affects FOV/projection only.\n   - Aperture controls deep-star emergence only.\n   - Main-view aperture/magnification are **not persisted**; always reset to defaults on load.\n\n2. Scope-mode optics\n   - Scope lens remains optional presentation mode.\n   - Scope-mode aperture/magnification values are persisted.\n   - Scope-mode optics values are independent from main-view optics values.\n   - Controls look the same between modes; callback wiring depends on active mode.\n\n3. Object/label/center-lock behavior\n   - Deep stars participate with other objects in center-lock and labels.\n   - Winner rule: closest to center wins.\n   - Tie-breaker for perfect overlap: brightest wins.\n   - Final deterministic fallback: stable object-id ordering.\n\n4. Dataset scope\n   - Deep-star scope for this feature stays HYG-only.\n\n5. DRY requirement\n   - Do not duplicate optics math/projection/filter/ranking logic.\n   - Reuse shared paths and abstractions.\n\n## Implementation guidance\n- Primary touchpoints:\n  - `SkyLensServerless/components/viewer/viewer-shell.tsx`\n  - `SkyLensServerless/lib/viewer/scope-optics.ts`\n  - `SkyLensServerless/lib/viewer/settings.ts`\n  - `SkyLensServerless/components/settings/settings-sheet.tsx`\n  - Relevant deep-star paths under `SkyLensServerless/lib/scope/*`\n- Keep architecture conservative and avoid unnecessary churn.\n- Preserve existing request cancellation/invalidation behavior.\n\n## Testing requirements\nAdd/update unit, integration, and e2e tests to cover:\n- 0.25x minimum and 1.0x default magnification for main view.\n- Magnification = FOV-only effect.\n- Aperture-driven emergence behavior.\n- Main-view non-persistence vs scope-mode persistence.\n- Center-lock deterministic ranking (distance -> brightness -> id).\n- Mode switching behavior and control wiring.\n\nRun relevant tests and report outcomes.\n\n## Constraints\n- Follow DRY principles.\n- Prefer minimal, high-leverage changes.\n- Keep existing UX labels the same.",
+  "request_updated_at": "2026-04-07T14:52:43.849841+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/task-implement-main-viewer-optics-unification-sk-d0e30232/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260407T145243Z-0b7f6f0d",
+    "mode": "single",
+    "phase_ids": [
+      "unify-optics-runtime",
+      "validate-optics-regressions"
+    ],
+    "explicit": true,
+    "current_phase_index": 2,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "unify-optics-runtime": "completed",
+    "validate-optics-regressions": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "unify-optics-runtime",
+      "run_id": "run-20260407T145243Z-0b7f6f0d",
+      "status": "in_progress",
+      "ts": "2026-04-07T14:59:51.985345+00:00"
+    },
+    {
+      "phase_id": "unify-optics-runtime",
+      "run_id": "run-20260407T145243Z-0b7f6f0d",
+      "status": "completed",
+      "ts": "2026-04-07T15:47:33.689604+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "validate-optics-regressions",
+      "run_id": "run-20260407T145243Z-0b7f6f0d",
+      "status": "in_progress",
+      "ts": "2026-04-07T15:47:33.690813+00:00"
+    },
+    {
+      "phase_id": "validate-optics-regressions",
+      "run_id": "run-20260407T145243Z-0b7f6f0d",
+      "status": "completed",
+      "ts": "2026-04-07T15:57:23.613327+00:00",
+      "pair": "test"
+    }
+  ]
+}

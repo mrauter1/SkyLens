@@ -84,8 +84,8 @@ export interface ProjectedWorldPoint {
 
 export interface CenterLockCandidate {
   id: string
-  rankScore: number
   angularDistanceDeg: number
+  brightnessScore: number
 }
 
 export interface ProjectionProfile {
@@ -634,11 +634,15 @@ export function pickCenterLockedCandidate<T extends CenterLockCandidate>(
     candidates
       .filter((candidate) => candidate.angularDistanceDeg <= angularRadiusDeg)
       .sort((left, right) => {
-        if (right.rankScore !== left.rankScore) {
-          return right.rankScore - left.rankScore
+        if (left.angularDistanceDeg !== right.angularDistanceDeg) {
+          return left.angularDistanceDeg - right.angularDistanceDeg
         }
 
-        return left.angularDistanceDeg - right.angularDistanceDeg
+        if (right.brightnessScore !== left.brightnessScore) {
+          return right.brightnessScore - left.brightnessScore
+        }
+
+        return left.id.localeCompare(right.id)
       })[0] ?? null
   )
 }

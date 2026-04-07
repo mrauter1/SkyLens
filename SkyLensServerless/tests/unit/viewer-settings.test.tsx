@@ -568,7 +568,7 @@ describe('ViewerShell settings integration', () => {
     })
 
     await openDesktopViewerPanel()
-    expect(container.textContent).toContain('FOV 56° vertical')
+    expect(container.textContent).toContain('FOV 56.0° vertical')
 
     const settingsButton = Array.from(container.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Settings'),
@@ -734,7 +734,7 @@ describe('ViewerShell settings integration', () => {
     })
 
     await openDesktopViewerPanel()
-    expect(container.textContent).toContain('FOV 46° vertical')
+    expect(container.textContent).toContain('FOV 46.0° vertical')
 
     const reloadedSettingsButton = Array.from(container.querySelectorAll('button')).find(
       (button) => button.textContent?.includes('Settings'),

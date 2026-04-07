@@ -333,6 +333,64 @@ describe('ViewerShell scope runtime', () => {
     expect(dataset.requestedUrls.some((url) => url.endsWith(dataset.edgeTileFile))).toBe(true)
   })
 
+  it('fetches deep-star tiles in main view using the full stage viewport while scope mode is off', async () => {
+    const dataset = createMainViewSelectionDataset()
+    global.fetch = vi.fn().mockImplementation(dataset.fetcher) as typeof fetch
+
+    setStoredViewerSettings({
+      scopeModeEnabled: false,
+      labelDisplayMode: 'center_only',
+    })
+
+    await renderViewer()
+
+    expect(container.querySelector('[data-testid="scope-lens-overlay"]')).toBeNull()
+    expect(dataset.requestedUrls.some((url) => url.endsWith(dataset.edgeTileFile))).toBe(true)
+  })
+
+  it('lets main-view deep stars participate in center-lock and on-object labels without scope mode', async () => {
+    const scenario = getDemoScenario('tokyo-iss')
+    const dataset = createMultiBandScopeDataset([
+      {
+        azimuthDeg: 0,
+        elevationDeg: scenario.initialPitchDeg,
+        vMag: 5.2,
+        nameId: 1,
+      },
+    ])
+    global.fetch = vi.fn().mockImplementation(dataset.fetcher) as typeof fetch
+
+    setStoredViewerSettings({
+      scopeModeEnabled: false,
+      scopeOptics: {
+        apertureMm: 240,
+        magnificationX: 50,
+        transparencyPct: 85,
+      },
+      labelDisplayMode: 'center_only',
+    })
+
+    await renderViewer()
+
+    expect(container.querySelector('[data-testid="scope-lens-overlay"]')).toBeNull()
+    expect(container.querySelector('[data-testid="center-lock-chip"]')?.textContent).toContain(
+      'Scope Star 1',
+    )
+
+    await rerenderViewerWithSettings({
+      scopeModeEnabled: false,
+      scopeOptics: {
+        apertureMm: 240,
+        magnificationX: 50,
+        transparencyPct: 85,
+      },
+      labelDisplayMode: 'on_objects',
+    })
+
+    const labels = Array.from(container.querySelectorAll('[data-testid="sky-object-label"]'))
+    expect(labels.some((label) => label.textContent?.includes('Scope Star 1'))).toBe(true)
+  })
+
   it('rejects below-horizon deep stars while retaining optics-eligible stars', async () => {
     const dataset = createMultiBandScopeDataset([
       {
@@ -620,7 +678,7 @@ describe('ViewerShell scope runtime', () => {
     expect(narrowHighDiameterPx).toBeGreaterThan(narrowLowDiameterPx)
   })
 
-  it('scales scope planet size with magnification and keeps opacity monotonic with aperture and magnification', async () => {
+  it('scales scope planet size with magnification while opacity stays aperture-driven', async () => {
     mockNormalizeCelestialObjects.mockReturnValue({
       sunAltitudeDeg: -12,
       objects: [
@@ -684,7 +742,7 @@ describe('ViewerShell scope runtime', () => {
     const largeApertureOpacity = getScopeMarkerOpacity('planet-jupiter')
 
     expect(highMagnificationSizePx).toBeGreaterThan(lowMagnificationSizePx)
-    expect(highMagnificationOpacity).toBeLessThanOrEqual(lowMagnificationOpacity)
+    expect(highMagnificationOpacity).toBe(lowMagnificationOpacity)
     expect(largeApertureOpacity).toBeGreaterThanOrEqual(highMagnificationOpacity)
   })
 
@@ -1101,6 +1159,117 @@ function createPortraitScopeSelectionDataset() {
         decStepDeg: 45,
         tiles: [],
       })
+    },
+  }
+}
+
+function createMainViewSelectionDataset() {
+  const scenario = getDemoScenario('tokyo-iss')
+  const centeredEquatorial = convertScopeHorizontalToEquatorial(
+    {
+      azimuthDeg: 0,
+      elevationDeg: scenario.initialPitchDeg,
+    },
+    scenario.observer,
+    scenario.observer.timestampMs,
+  )
+  const centerDecIndex = Math.floor(centeredEquatorial.decDeg + 90)
+  const edgeTileFile = `r0_d${centerDecIndex + 12}.bin`
+  const requestedUrls: string[] = []
+  const manifest = {
+    version: 1,
+    kind: 'dev',
+    sourceCatalog: 'dev-synthetic-from-stars-200',
+    epoch: 'J2000',
+    rowFormat: 'scope-star-v2-le',
+    namesPath: 'names.json',
+    bands: [
+      {
+        bandDir: 'mag6p5',
+        maxMagnitude: 6.5,
+        raStepDeg: 90,
+        decStepDeg: 45,
+        indexPath: 'mag6p5/index.json',
+        totalRows: 2,
+        namedRows: 0,
+      },
+      {
+        bandDir: 'mag8p0',
+        maxMagnitude: 8,
+        raStepDeg: 45,
+        decStepDeg: 30,
+        indexPath: 'mag8p0/index.json',
+        totalRows: 2,
+        namedRows: 0,
+      },
+      {
+        bandDir: 'mag9p5',
+        maxMagnitude: 9.5,
+        raStepDeg: 360,
+        decStepDeg: 1,
+        indexPath: 'mag9p5/index.json',
+        totalRows: 2,
+        namedRows: 0,
+      },
+      {
+        bandDir: 'mag10p5',
+        maxMagnitude: 10.5,
+        raStepDeg: 11.25,
+        decStepDeg: 11.25,
+        indexPath: 'mag10p5/index.json',
+        totalRows: 2,
+        namedRows: 0,
+      },
+    ],
+  }
+  const emptyTileBytes = new Uint8Array(0)
+
+  return {
+    edgeTileFile,
+    requestedUrls,
+    fetcher: async (input: string | URL | Request) => {
+      const url = String(input)
+      requestedUrls.push(url)
+
+      if (url.endsWith('/manifest.json')) {
+        return jsonResponse(manifest)
+      }
+
+      if (url.endsWith('/names.json')) {
+        return jsonResponse({})
+      }
+
+      if (url.endsWith('/index.json')) {
+        return jsonResponse({
+          bandDir: 'mag9p5',
+          maxMagnitude: 9.5,
+          raStepDeg: 360,
+          decStepDeg: 1,
+          tiles: [
+            {
+              raIndex: 0,
+              decIndex: centerDecIndex,
+              file: `r0_d${centerDecIndex}.bin`,
+              count: 1,
+            },
+            {
+              raIndex: 0,
+              decIndex: centerDecIndex + 12,
+              file: edgeTileFile,
+              count: 1,
+            },
+          ],
+        })
+      }
+
+      if (
+        url.endsWith(`/r0_d${centerDecIndex}.bin`) ||
+        url.endsWith(`/${edgeTileFile}`)
+      ) {
+        return binaryResponse(emptyTileBytes)
+      }
+
+      throw new Error(`Unhandled scope selection request: ${url}`)
     },
   }
 }

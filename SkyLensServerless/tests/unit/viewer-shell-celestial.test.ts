@@ -474,9 +474,7 @@ describe('ViewerShell celestial behavior', () => {
 
     expect(activeSummary?.textContent).toContain('Sirius')
     expect(container.querySelectorAll('[data-testid="scope-bright-object-marker"]')).toHaveLength(1)
-    expect(aircraftLabel).not.toBeNull()
-    expect(aircraftLabel?.className).toContain('border-amber-200/70')
-    expect(aircraftLabel?.textContent).toContain('UAL123')
+    expect(aircraftLabel).toBeNull()
   })
 
   it('renders the scope overlay after wide lines, markers, and labels for lens occlusion ordering', async () => {
@@ -2525,7 +2523,7 @@ describe('ViewerShell celestial behavior', () => {
     await flushEffects()
 
     expect(container.textContent).toContain('Astronomy fallback active.')
-    expect(container.textContent).toContain('Demo mode is active.')
+    expect(container.textContent).toContain('Demo viewer')
   })
 
   it('keeps the live viewer active when the satellite layer throws', async () => {

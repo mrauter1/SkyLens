@@ -494,13 +494,25 @@ describe('projection camera foundation', () => {
     expect(eastProjection.y).toBeCloseTo(expectedCoverY, 6)
   })
 
-  it('center-locks by angular distance within the fixed 4-degree radius', () => {
+  it('center-locks by angular distance, then brightness, then id within the fixed 4-degree radius', () => {
     const centered = pickCenterLockedCandidate([
-      { id: 'closer-lower-rank', rankScore: 60, angularDistanceDeg: 1.2 },
-      { id: 'wider-higher-rank', rankScore: 80, angularDistanceDeg: 3.6 },
-      { id: 'outside-radius', rankScore: 99, angularDistanceDeg: 4.2 },
+      { id: 'beta', brightnessScore: 20, angularDistanceDeg: 1.2 },
+      { id: 'alpha', brightnessScore: 20, angularDistanceDeg: 1.2 },
+      { id: 'brighter', brightnessScore: 30, angularDistanceDeg: 1.2 },
+      { id: 'closer', brightnessScore: 5, angularDistanceDeg: 0.8 },
+      { id: 'outside-radius', brightnessScore: 99, angularDistanceDeg: 4.2 },
+    ])
+    const brightnessTie = pickCenterLockedCandidate([
+      { id: 'dim', brightnessScore: 10, angularDistanceDeg: 1.5 },
+      { id: 'bright', brightnessScore: 15, angularDistanceDeg: 1.5 },
+    ])
+    const stableIdTie = pickCenterLockedCandidate([
+      { id: 'beta', brightnessScore: 20, angularDistanceDeg: 1.2 },
+      { id: 'alpha', brightnessScore: 20, angularDistanceDeg: 1.2 },
     ])
 
-    expect(centered?.id).toBe('wider-higher-rank')
+    expect(centered?.id).toBe('closer')
+    expect(brightnessTie?.id).toBe('bright')
+    expect(stableIdTie?.id).toBe('alpha')
   })
 })
