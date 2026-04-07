@@ -1180,8 +1180,12 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
           .filter((object) => object.scopeInLensCircle)
           .map((object) => {
             const scopeRender = getScopeRenderProfile(object)
+            const safeMagnitude =
+              typeof object.magnitude === 'number' && Number.isFinite(object.magnitude)
+                ? object.magnitude
+                : 12
             const deltaMag =
-              (scopeRender?.effectiveLimitMag ?? object.magnitude) - object.magnitude
+              (scopeRender?.effectiveLimitMag ?? safeMagnitude) - safeMagnitude
 
             return {
               id: object.id,
@@ -1189,7 +1193,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
               y: object.scopeProjection.y,
               bMinusV: object.bMinusV,
               alpha: computeScopeDeepStarEmergenceAlpha(deltaMag),
-              radius: computeScopeDeepStarCoreRadiusPx(object.magnitude),
+              radius: computeScopeDeepStarCoreRadiusPx(safeMagnitude),
             }
           })
       : []
