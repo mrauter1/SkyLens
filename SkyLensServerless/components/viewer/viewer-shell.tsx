@@ -939,12 +939,44 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         }).sort((left, right) => left.file.localeCompare(right.file))
       : []
   const scopeSelectedTileKey = scopeSelectedTiles.map((tile) => tile.file).join('|')
+  const useStageProfileProjection =
+    !scopeModeActive &&
+    normalizedMainViewOptics.magnificationX !==
+      MAIN_VIEW_OPTICS_RANGES.magnificationX.defaultValue
+  const stageProjectionViewport = {
+    width: viewport.width,
+    height: viewport.height,
+    sourceWidth: cameraFrameLayout?.sourceWidth,
+    sourceHeight: cameraFrameLayout?.sourceHeight,
+  }
+  const projectStageWorldPoint = (worldPoint: {
+    azimuthDeg: number
+    elevationDeg: number
+  }) =>
+    useStageProfileProjection
+      ? projectWorldPointToScreenWithProfile(
+          cameraPose,
+          worldPoint,
+          stageProjectionViewport,
+          stageProjectionProfile,
+        )
+      : projectWorldPointToScreen(
+          cameraPose,
+          worldPoint,
+          stageProjectionViewport,
+          viewerSettings.verticalFovAdjustmentDeg,
+        )
   const constellationScene =
     observer && sceneSnapshot.error === null
       ? buildVisibleConstellations({
           cameraPose,
           viewport,
           verticalFovAdjustmentDeg: viewerSettings.verticalFovAdjustmentDeg,
+          ...(useStageProfileProjection
+            ? {
+                projectLinePoint: projectStageWorldPoint,
+              }
+            : {}),
           enabledLayers,
           likelyVisibleOnly,
           sunAltitudeDeg: sceneSnapshot.sunAltitudeDeg,
@@ -961,38 +993,12 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   )
   const alignmentTargetPreference =
     viewerSettings.alignmentTargetPreference ?? defaultAlignmentTargetPreference
-  const useStageProfileProjection =
-    !scopeModeActive &&
-    normalizedMainViewOptics.magnificationX !==
-      MAIN_VIEW_OPTICS_RANGES.magnificationX.defaultValue
   const projectedObjects: ProjectedSkyObject[] = sceneObjects.map((object) => ({
     ...object,
-    projection: useStageProfileProjection
-      ? projectWorldPointToScreenWithProfile(
-          cameraPose,
-          {
-            azimuthDeg: object.azimuthDeg,
-            elevationDeg: object.elevationDeg,
-          },
-          {
-            width: viewport.width,
-            height: viewport.height,
-          },
-          stageProjectionProfile,
-        )
-      : projectWorldPointToScreen(
-          cameraPose,
-          {
-            azimuthDeg: object.azimuthDeg,
-            elevationDeg: object.elevationDeg,
-          },
-          {
-            ...viewport,
-            sourceWidth: cameraFrameLayout?.sourceWidth,
-            sourceHeight: cameraFrameLayout?.sourceHeight,
-          },
-          viewerSettings.verticalFovAdjustmentDeg,
-        ),
+    projection: projectStageWorldPoint({
+      azimuthDeg: object.azimuthDeg,
+      elevationDeg: object.elevationDeg,
+    }),
   }))
   const wideCenterLockedCandidate = pickCenterLockedCandidate(
     projectedObjects
@@ -1068,20 +1074,17 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
           if (emergenceAlpha <= 0) {
             return []
           }
-          const activeProjection = projectWorldPointToScreenWithProfile(
-            cameraPose,
-            horizontalPosition,
-            scopeModeActive
-              ? {
+          const activeProjection = scopeModeActive
+            ? projectWorldPointToScreenWithProfile(
+                cameraPose,
+                horizontalPosition,
+                {
                   width: scopeLensDiameterPx,
                   height: scopeLensDiameterPx,
-                }
-              : {
-                  width: viewport.width,
-                  height: viewport.height,
                 },
-            activeProjectionProfile,
-          )
+                activeProjectionProfile,
+              )
+            : projectStageWorldPoint(horizontalPosition)
           const scopeProjection = scopeModeActive ? activeProjection : null
           const scopeOffsetX = (scopeProjection?.x ?? 0) - scopeLensRadiusPx
           const scopeOffsetY = (scopeProjection?.y ?? 0) - scopeLensRadiusPx
@@ -1291,19 +1294,10 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                 nowMs: sceneTimeMs,
               })
               .map((point) =>
-                projectWorldPointToScreen(
-                  cameraPose,
-                  {
-                    azimuthDeg: point.azimuthDeg,
-                    elevationDeg: point.elevationDeg,
-                  },
-                  {
-                    ...viewport,
-                    sourceWidth: cameraFrameLayout?.sourceWidth,
-                    sourceHeight: cameraFrameLayout?.sourceHeight,
-                  },
-                  viewerSettings.verticalFovAdjustmentDeg,
-                ),
+                projectStageWorldPoint({
+                  azimuthDeg: point.azimuthDeg,
+                  elevationDeg: point.elevationDeg,
+                }),
               )
               .filter((projection) => projection.visible)
               .map((projection) => `${projection.x},${projection.y}`),

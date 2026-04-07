@@ -106,17 +106,10 @@ vi.mock('../../lib/satellites/client', () => ({
   fetchSatelliteCatalog: mockFetchSatelliteCatalog,
 }))
 
-vi.mock('../../lib/viewer/motion', async () => {
-  const actual = await vi.importActual<typeof import('../../lib/viewer/motion')>(
-    '../../lib/viewer/motion',
-  )
-
-  return {
-    ...actual,
-    resolveAircraftMotionObjects: mockResolveAircraftMotionObjects,
-    resolveSatelliteMotionObjects: mockResolveSatelliteMotionObjects,
-  }
-})
+vi.mock('../../lib/viewer/motion', () => ({
+  resolveAircraftMotionObjects: mockResolveAircraftMotionObjects,
+  resolveSatelliteMotionObjects: mockResolveSatelliteMotionObjects,
+}))
 
 const SENSOR_CONTROLLER = {
   stop: vi.fn(),
@@ -389,6 +382,67 @@ describe('ViewerShell scope runtime', () => {
 
     const labels = Array.from(container.querySelectorAll('[data-testid="sky-object-label"]'))
     expect(labels.some((label) => label.textContent?.includes('Scope Star 1'))).toBe(true)
+  })
+
+  it('keeps main-view deep stars co-located with bright-object markers under magnified projection', async () => {
+    const scenario = getDemoScenario('tokyo-iss')
+    const sharedElevationDeg = scenario.initialPitchDeg
+    const dataset = createMultiBandScopeDataset([
+      {
+        azimuthDeg: 0,
+        elevationDeg: sharedElevationDeg,
+        vMag: 5.2,
+        nameId: 1,
+      },
+    ])
+    global.fetch = vi.fn().mockImplementation(dataset.fetcher) as typeof fetch
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -18,
+      objects: [
+        {
+          id: 'planet-jupiter',
+          type: 'planet',
+          label: 'Jupiter',
+          azimuthDeg: 0,
+          elevationDeg: sharedElevationDeg,
+          importance: 90,
+          metadata: {
+            detail: {
+              typeLabel: 'Planet',
+              elevationDeg: sharedElevationDeg,
+              azimuthDeg: 0,
+            },
+          },
+        },
+      ],
+    })
+
+    setStoredViewerSettings({
+      scopeModeEnabled: false,
+      scopeOptics: {
+        apertureMm: 240,
+        magnificationX: 50,
+        transparencyPct: 85,
+      },
+      labelDisplayMode: 'center_only',
+    })
+
+    await renderViewer()
+    await openDesktopViewerPanel()
+    await setSliderValue('desktop-scope-magnification-slider', '2')
+
+    const markerPosition = getSkyObjectMarkerPosition('planet-jupiter')
+    const deepStarMarkerPosition = getSkyObjectMarkerPositionByLabel('Scope Star 1')
+    const alignmentTolerancePx = 0.05
+
+    expect(markerPosition).not.toBeNull()
+    expect(deepStarMarkerPosition).not.toBeNull()
+    expect(Math.abs(deepStarMarkerPosition!.x - markerPosition!.x)).toBeLessThan(
+      alignmentTolerancePx,
+    )
+    expect(Math.abs(deepStarMarkerPosition!.y - markerPosition!.y)).toBeLessThan(
+      alignmentTolerancePx,
+    )
   })
 
   it('rejects below-horizon deep stars while retaining optics-eligible stars', async () => {
@@ -794,6 +848,41 @@ describe('ViewerShell scope runtime', () => {
 
     await flushEffects()
     await flushEffects()
+    await flushEffects()
+  }
+
+  async function openDesktopViewerPanel() {
+    if (container.querySelector('[data-testid="desktop-viewer-panel"]')) {
+      return
+    }
+
+    const openViewerButton = container.querySelector(
+      '[data-testid="desktop-open-viewer-action"]',
+    ) as HTMLButtonElement | null
+
+    if (!openViewerButton) {
+      return
+    }
+
+    await act(async () => {
+      openViewerButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+  }
+
+  async function setSliderValue(testId: string, value: string) {
+    const slider = container.querySelector(`[data-testid="${testId}"]`) as HTMLInputElement | null
+
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        'value',
+      )?.set
+
+      valueSetter?.call(slider, value)
+      slider?.dispatchEvent(new Event('input', { bubbles: true }))
+      slider?.dispatchEvent(new Event('change', { bubbles: true }))
+    })
     await flushEffects()
   }
 
@@ -1477,6 +1566,36 @@ function getScopeMarkerSizePx(objectId: string) {
 function getScopeMarkerOpacity(objectId: string) {
   const marker = getScopeMarkerVisual(objectId)
   return marker ? Number.parseFloat(marker.style.opacity) : Number.NaN
+}
+
+function getSkyObjectMarkerPosition(objectId: string) {
+  const marker = container.querySelector(
+    `[data-testid="sky-object-marker"][data-object-id="${objectId}"]`,
+  ) as HTMLElement | null
+
+  if (!marker) {
+    return null
+  }
+
+  return {
+    x: Number.parseFloat(marker.style.left),
+    y: Number.parseFloat(marker.style.top),
+  }
+}
+
+function getSkyObjectMarkerPositionByLabel(label: string) {
+  const marker = Array.from(
+    container.querySelectorAll('[data-testid="sky-object-marker"]'),
+  ).find((element) => element.getAttribute('aria-label')?.includes(label)) as HTMLElement | undefined
+
+  if (!marker) {
+    return null
+  }
+
+  return {
+    x: Number.parseFloat(marker.style.left),
+    y: Number.parseFloat(marker.style.top),
+  }
 }
 
 function setStoredViewerSettings(overrides: Record<string, unknown>) {

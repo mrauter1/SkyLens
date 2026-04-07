@@ -1,0 +1,36 @@
+{
+  "task_id": "standalone-correction-plan-main-view-projection-8b93d388",
+  "created_at": "2026-04-07T17:01:05.705458+00:00",
+  "request_text": "# Standalone Correction Plan: Main-View Projection Alignment + Overlay Consistency\n\n## Background\nA prior optics-unification change introduced main-view profile-based projection for magnification and a shared deep-star pipeline. Automated review identified three correctness regressions in `SkyLensServerless/components/viewer/viewer-shell.tsx`:\n\n1. Main-view profile projection path omits camera frame source dimensions (`sourceWidth`/`sourceHeight`) when calling `projectWorldPointToScreenWithProfile`.\n2. Main-view deep-star profile projection also omits camera frame source dimensions.\n3. Overlay elements (constellation line segments and focused aircraft trails) remain projected with base vertical FOV logic instead of active profile/FOV when main-view magnification differs from 1x.\n\nThis causes marker-to-video misalignment and overlay divergence when viewport aspect ratio differs from camera source and/or when magnification is active.\n\n## Goal\nCorrect projection alignment and overlay consistency for magnified main view while preserving:\n- scope behavior,\n- DRY projection logic,\n- existing center-lock and persistence semantics.\n\n## In-Scope Corrections\n\n### C1 \u2014 Main object profile projection uses camera frame mapping\n- In the `useStageProfileProjection` branch for `projectedObjects`, pass camera source dimensions alongside viewport dimensions to `projectWorldPointToScreenWithProfile`:\n  - `sourceWidth: cameraFrameLayout?.sourceWidth`\n  - `sourceHeight: cameraFrameLayout?.sourceHeight`\n\n### C2 \u2014 Main deep-star profile projection uses camera frame mapping\n- In non-scope deep-star projection, include camera source dimensions in the profile projection viewport object.\n- Ensure deep-star spatial alignment matches bright objects and center-lock candidates in live mode.\n\n### C3 \u2014 Overlay projection follows active main-view profile\n- For non-scope mode when profile magnification is active:\n  - apply the same active projection profile/FOV path to constellation line segment projection,\n  - apply the same active projection profile/FOV path to focused aircraft trail projection.\n- Keep scope-mode behavior unchanged.\n\n## Must-Not-Break Invariants\n1. Scope lens overlay projection and clipping remain unchanged in scope mode.\n2. Main-view magnification remains FOV/projection-only.\n3. Aperture-driven emergence logic remains unchanged.\n4. Deterministic center-lock ordering remains unchanged.\n\n## Implementation Guidance\n- Primary file: `SkyLensServerless/components/viewer/viewer-shell.tsx`\n- Projection utility API: `SkyLensServerless/lib/projection/camera.ts`\n- Reuse existing profile selection variables (`useStageProfileProjection`, `stageProjectionProfile`, `activeProjectionProfile`) rather than adding parallel logic.\n- Prefer small helper(s) to avoid duplicating projection call shape across objects/deep-stars/overlays.\n\n## Test Plan\n\n### Unit / Integration\n1. Add/extend tests proving profile projection path preserves camera-frame crop mapping for main objects and deep stars.\n2. Add/extend tests proving constellation lines and focused aircraft trails remain co-located with marker projections when main magnification != 1x.\n3. Verify no regressions in scope runtime tests.\n\n### E2E\n1. Add/extend demo/e2e coverage for magnified main view alignment behavior (or update existing demo test with assertions tied to overlay consistency).\n2. If environment blocks browser dependencies, document limitation clearly while keeping unit/integration coverage strong.\n\n## Acceptance Criteria\n1. In live mode with camera source AR != viewport AR and main magnification active, marker positions remain aligned to video feed.\n2. Deep stars and non-deep markers align spatially under same camera pose.\n3. Constellation lines and focused aircraft trails align with projected markers under main magnification.\n4. Scope mode behavior remains unchanged.\n5. Updated tests pass for touched logic.\n\n## Autoloop Execution Requirements\n- Use autoloop with full-auto answers enabled.\n- Use `plan,implement,test` pairs.\n- Do not set `max_iterations`.\n- Let server-side processing run to completion even if logs appear paused.",
+  "request_updated_at": "2026-04-07T17:01:05.705509+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/standalone-correction-plan-main-view-projection-8b93d388/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260407T170105Z-c216fa64",
+    "mode": "single",
+    "phase_ids": [
+      "main-view-projection-alignment"
+    ],
+    "explicit": true,
+    "current_phase_index": 1,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "main-view-projection-alignment": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "main-view-projection-alignment",
+      "run_id": "run-20260407T170105Z-c216fa64",
+      "status": "in_progress",
+      "ts": "2026-04-07T17:05:09.262748+00:00"
+    },
+    {
+      "phase_id": "main-view-projection-alignment",
+      "run_id": "run-20260407T170105Z-c216fa64",
+      "status": "completed",
+      "ts": "2026-04-07T17:25:39.565351+00:00",
+      "pair": "test"
+    }
+  ]
+}

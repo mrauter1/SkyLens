@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
   buildVisibleConstellations,
@@ -149,6 +149,43 @@ describe('celestial layer', () => {
     expect(stars).toEqual([])
     expect(constellations.objects).toEqual([])
     expect(constellations.lineSegments).toEqual([])
+  })
+
+  it('allows callers to override constellation segment projection without changing the catalog pass', () => {
+    const stars = normalizeVisibleStars({
+      observer: nyDayObserver as ObserverState,
+      timeMs: nyDayObserver.timestampMs,
+      enabledLayers: ENABLED_LAYERS,
+      likelyVisibleOnly: false,
+      sunAltitudeDeg: 12.61,
+    })
+    const projectLinePoint = vi.fn((worldPoint: { azimuthDeg: number; elevationDeg: number }) => ({
+      visible: true,
+      inViewport: true,
+      inOverscan: true,
+      x: worldPoint.azimuthDeg + 100,
+      y: worldPoint.elevationDeg + 200,
+      normalizedX: 0,
+      normalizedY: 0,
+      angularDistanceDeg: 0,
+      cameraVector: [0, 0, 1] as [number, number, number],
+    }))
+
+    const constellations = buildVisibleConstellations({
+      cameraPose: createPose(75, 78),
+      viewport: VIEWPORT,
+      enabledLayers: ENABLED_LAYERS,
+      likelyVisibleOnly: false,
+      sunAltitudeDeg: 12.61,
+      visibleStars: stars,
+      starCatalog: loadStarCatalog(),
+      projectLinePoint,
+    })
+
+    expect(projectLinePoint).toHaveBeenCalled()
+    expect(constellations.objects.map((object) => object.label)).toContain('Cygnus')
+    expect(constellations.lineSegments.length).toBeGreaterThan(1)
+    expect(constellations.lineSegments[0]?.start.x).toBeGreaterThan(100)
   })
 
   it('adds optics render metadata without removing baseline stars and keeps magnification out of render intensity', () => {
