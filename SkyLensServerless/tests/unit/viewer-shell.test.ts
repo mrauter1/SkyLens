@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { buildViewerHref, type ViewerRouteState } from '../../lib/permissions/coordinator'
+import { resetScopeCatalogSessionCacheForTests } from '../../lib/scope/catalog'
 import {
   SCOPE_LENS_DIAMETER_PCT_RANGE,
   VIEWER_SETTINGS_STORAGE_KEY,
@@ -170,6 +171,7 @@ const TRACKER = {
   stop: vi.fn(),
 }
 
+const originalFetch = global.fetch
 const CAMERA_STREAM = {
   getTracks: vi.fn(() => []),
   getVideoTracks: vi.fn(() => []),
@@ -296,9 +298,13 @@ describe('ViewerShell startup gating', () => {
     mockAircraftTracker.getTrail.mockReturnValue([])
     mockCreateAircraftTracker.mockReturnValue(mockAircraftTracker)
     mockRequestOrientationPermission.mockResolvedValue('granted')
+    global.fetch = vi.fn(async () => new Response(null, { status: 404 })) as typeof fetch
+    resetScopeCatalogSessionCacheForTests()
+    stubCanvasContext()
   })
 
   afterEach(async () => {
+    global.fetch = originalFetch
     if (rootMounted) {
       await act(async () => {
         root.unmount()
@@ -313,6 +319,7 @@ describe('ViewerShell startup gating', () => {
 
     vi.clearAllTimers()
     vi.useRealTimers()
+    resetScopeCatalogSessionCacheForTests()
     container.remove()
     window.localStorage.clear()
   })
@@ -809,6 +816,9 @@ describe('ViewerShell startup gating', () => {
     expect(desktopScopeAction?.textContent).toContain('Unavailable')
     expect(container.querySelector('[data-testid="mobile-scope-action"]')).toBeNull()
     expect(container.querySelector('[data-testid="desktop-scope-quick-controls"]')).toBeNull()
+
+    await openDesktopViewerPanel()
+
     expect(container.textContent).toContain('Live AR requires a secure context.')
   })
 
@@ -4153,18 +4163,12 @@ describe('ViewerShell startup gating', () => {
       .find((props) => props.triggerSurfaceId === 'desktop-settings-trigger')
 
     expect(desktopHeader).not.toBeNull()
-    expect(desktopHeader?.textContent).toContain('SkyLens')
     expect(desktopHeader?.querySelector('[data-testid="settings-sheet"]')).not.toBeNull()
     expect(desktopSettingsProps?.presentation).toBe('desktop-dialog')
-    expect(desktopActiveSummary?.textContent).toContain('Current status')
-    expect(desktopActiveSummary?.textContent).toContain('Demo')
-    expect(desktopActiveSummary?.textContent).not.toContain('Camera')
+    expect(desktopActiveSummary).toBeNull()
     expect(desktopHeader?.textContent).not.toContain('Visible markers')
     expect(desktopHeader?.textContent).not.toContain('Privacy reassurance')
-    expect(desktopNextAction?.textContent).toContain('Open the viewer details')
-    expect(desktopNextAction?.textContent).not.toContain(
-      'Inspect the current crosshair object, selected target, and fallback state without covering the stage.',
-    )
+    expect(desktopNextAction).toBeNull()
     expect(openViewerButton?.textContent).toContain('Open Viewer')
     expect(
       Array.from(desktopActions?.querySelectorAll('button') ?? []).map((button) =>
@@ -4392,7 +4396,7 @@ describe('ViewerShell startup gating', () => {
     ).toBe('false')
   })
 
-  it('shows matching scope aperture and magnification quick controls on desktop and mobile while keeping marker scale in settings', async () => {
+  it('hides normal-view magnification controls while preserving scope magnification and settings callbacks', async () => {
     await renderViewer({
       entry: 'demo',
       location: 'unavailable',
@@ -4432,29 +4436,13 @@ describe('ViewerShell startup gating', () => {
     ) as HTMLInputElement | null
 
     expect(desktopAperture?.value).toBe('120')
-    expect(desktopMagnification?.value).toBe('1')
     expect(mobileAperture?.value).toBe('120')
-    expect(mobileMagnification?.value).toBe('1')
-    expect(desktopAperture?.min).toBe(String(SCOPE_OPTICS_RANGES.apertureMm.min))
-    expect(desktopAperture?.max).toBe(String(SCOPE_OPTICS_RANGES.apertureMm.max))
-    expect(desktopAperture?.step).toBe(String(SCOPE_OPTICS_RANGES.apertureMm.step))
-    expect(mobileMagnification?.min).toBe(String(MAIN_VIEW_OPTICS_RANGES.magnificationX.min))
-    expect(mobileMagnification?.max).toBe(String(MAIN_VIEW_OPTICS_RANGES.magnificationX.max))
-    expect(mobileMagnification?.step).toBe(String(MAIN_VIEW_OPTICS_RANGES.magnificationX.step))
+    expect(desktopMagnification).toBeNull()
+    expect(mobileMagnification).toBeNull()
+    expect(desktopAperture?.min).toBe(String(MAIN_VIEW_OPTICS_RANGES.apertureMm.min))
+    expect(desktopAperture?.max).toBe(String(MAIN_VIEW_OPTICS_RANGES.apertureMm.max))
+    expect(desktopAperture?.step).toBe(String(MAIN_VIEW_OPTICS_RANGES.apertureMm.step))
     expect(container.querySelector('[data-testid="mobile-marker-scale-slider"]')).toBeNull()
-
-    await act(async () => {
-      const valueSetter = Object.getOwnPropertyDescriptor(
-        HTMLInputElement.prototype,
-        'value',
-      )?.set
-
-      valueSetter?.call(desktopMagnification, '2')
-      desktopMagnification?.dispatchEvent(new Event('change', { bubbles: true }))
-    })
-    await flushEffects()
-
-    expect(readViewerSettings().scopeOptics.magnificationX).toBe(50)
 
     await act(async () => {
       ;(
@@ -4462,6 +4450,19 @@ describe('ViewerShell startup gating', () => {
       )?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
     await flushEffects()
+
+    const scopeDesktopMagnification = container.querySelector(
+      '[data-testid="desktop-scope-magnification-slider"]',
+    ) as HTMLInputElement | null
+    const scopeMobileMagnification = container.querySelector(
+      '[data-testid="mobile-scope-magnification-slider"]',
+    ) as HTMLInputElement | null
+
+    expect(scopeDesktopMagnification?.value).toBe('50')
+    expect(scopeMobileMagnification?.value).toBe('50')
+    expect(scopeDesktopMagnification?.min).toBe(String(SCOPE_OPTICS_RANGES.magnificationX.min))
+    expect(scopeDesktopMagnification?.max).toBe(String(SCOPE_OPTICS_RANGES.magnificationX.max))
+    expect(scopeDesktopMagnification?.step).toBe(String(SCOPE_OPTICS_RANGES.magnificationX.step))
 
     await act(async () => {
       latestSettingsProps()?.onMarkerScaleChange?.(2.5)
@@ -4497,7 +4498,7 @@ describe('ViewerShell startup gating', () => {
       '[data-testid="desktop-scope-magnification-slider"]',
     ) as HTMLInputElement | null
 
-    expect(reloadedDesktopMagnification?.value).toBe('1')
+    expect(reloadedDesktopMagnification).toBeNull()
     expect(readViewerSettings().scopeOptics.magnificationX).toBe(50)
   })
 
@@ -4542,13 +4543,16 @@ describe('ViewerShell startup gating', () => {
       )?.textContent
 
     expect(currentApertureValue()).toBe('120 mm')
-    expect(currentMagnificationValue()).toBe('1x')
+    expect(currentMagnificationValue()).toBeUndefined()
 
     await setSliderValue('desktop-scope-aperture-slider', '180')
-    await setSliderValue('desktop-scope-magnification-slider', '2')
 
     expect(currentApertureValue()).toBe('180 mm')
-    expect(currentMagnificationValue()).toBe('2x')
+    expect(currentMagnificationValue()).toBeUndefined()
+    expect(readViewerSettings().mainViewOptics).toMatchObject({
+      apertureMm: 180,
+      magnificationX: 1,
+    })
     expect(readViewerSettings().scopeOptics).toMatchObject({
       apertureMm: 120,
       magnificationX: 50,
@@ -4576,7 +4580,11 @@ describe('ViewerShell startup gating', () => {
     await flushEffects()
 
     expect(currentApertureValue()).toBe('180 mm')
-    expect(currentMagnificationValue()).toBe('2x')
+    expect(currentMagnificationValue()).toBeUndefined()
+    expect(readViewerSettings().mainViewOptics).toMatchObject({
+      apertureMm: 180,
+      magnificationX: 1,
+    })
     expect(readViewerSettings().scopeOptics).toMatchObject({
       apertureMm: 240,
       magnificationX: 75,
@@ -4649,6 +4657,7 @@ describe('ViewerShell startup gating', () => {
       orientation: 'unavailable',
       demoScenarioId: 'sf-evening',
     })
+    await openDesktopViewerPanel()
 
     const markerButtons = Array.from(
       container.querySelectorAll('[data-testid="sky-object-marker"]'),
@@ -4930,6 +4939,20 @@ function createMatchMediaStub(matches: boolean) {
     removeListener: vi.fn(),
     dispatchEvent: vi.fn(() => false),
   }))
+}
+
+function stubCanvasContext() {
+  Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+    configurable: true,
+    value: () => ({
+      clearRect: vi.fn(),
+      beginPath: vi.fn(),
+      arc: vi.fn(),
+      fill: vi.fn(),
+      setTransform: vi.fn(),
+      drawImage: vi.fn(),
+    }),
+  })
 }
 
 function createMatchMediaController(initialMatches: boolean) {

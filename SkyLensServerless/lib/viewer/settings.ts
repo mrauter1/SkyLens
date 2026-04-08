@@ -9,9 +9,12 @@ import {
 } from '../sensors/orientation'
 import {
   SCOPE_VERTICAL_FOV_RANGE,
+  getDefaultMainViewOptics,
   magnificationToScopeVerticalFovDeg,
+  normalizeMainViewOptics,
   normalizeScopeOptics,
   scopeVerticalFovDegToMagnificationX,
+  type MainViewOptics,
   type ScopeOptics,
 } from './scope-optics'
 
@@ -51,6 +54,7 @@ export interface ViewerSettings {
   alignmentTargetPreference: AlignmentTargetPreference | null
   verticalFovAdjustmentDeg: number
   scopeModeEnabled: boolean
+  mainViewOptics: MainViewOptics
   scope: ScopeSettings
   scopeOptics: ScopeOptics
   selectedCameraDeviceId: string | null
@@ -98,6 +102,7 @@ const SettingsSchema = z.object({
     .optional(),
   verticalFovAdjustmentDeg: z.number(),
   scopeModeEnabled: z.unknown().optional(),
+  mainViewOptics: z.unknown().optional(),
   scope: z.unknown().optional(),
   scopeOptics: z.unknown().optional(),
   selectedCameraDeviceId: z.string().nullable(),
@@ -113,6 +118,7 @@ const SettingsSchema = z.object({
 
 export function getDefaultViewerSettings(): ViewerSettings {
   const config = getPublicConfig()
+  const defaultMainViewOptics = getDefaultMainViewOptics()
   const defaultScopeOptics = normalizeScopeOptics(undefined)
 
   return {
@@ -133,6 +139,7 @@ export function getDefaultViewerSettings(): ViewerSettings {
     alignmentTargetPreference: null,
     verticalFovAdjustmentDeg: 0,
     scopeModeEnabled: false,
+    mainViewOptics: defaultMainViewOptics,
     scope: {
       verticalFovDeg: magnificationToScopeVerticalFovDeg(defaultScopeOptics.magnificationX),
     },
@@ -160,11 +167,13 @@ export function readViewerSettings(storage = getBrowserStorage()): ViewerSetting
     const parsed = SettingsSchema.partial().parse(JSON.parse(rawValue))
     const {
       scopeLensDiameterPct: rawScopeLensDiameterPct,
+      mainViewOptics: rawMainViewOpticsInput,
       scope: rawScopeInput,
       scopeOptics: rawScopeOpticsInput,
       scopeModeEnabled: rawScopeModeEnabled,
       ...parsedSettings
     } = parsed
+    const mainViewOpticsInput = getSettingsObject(rawMainViewOpticsInput)
     const scopeInput = getSettingsObject(rawScopeInput)
     const scopeOpticsInput = getSettingsObject(rawScopeOpticsInput)
     const legacyScopeVerticalFovDeg = readNumberSetting(scopeInput.verticalFovDeg)
@@ -185,6 +194,11 @@ export function readViewerSettings(storage = getBrowserStorage()): ViewerSetting
       },
       mainViewDeepStarsEnabled:
         readBooleanSetting(parsed.mainViewDeepStarsEnabled) ?? defaults.mainViewDeepStarsEnabled,
+      mainViewOptics: normalizeMainViewOptics({
+        ...defaults.mainViewOptics,
+        apertureMm: readNumberSetting(mainViewOpticsInput.apertureMm),
+        magnificationX: readNumberSetting(mainViewOpticsInput.magnificationX),
+      }),
       scope: {
         ...defaults.scope,
         verticalFovDeg: legacyScopeVerticalFovDeg ?? defaults.scope.verticalFovDeg,
@@ -236,6 +250,7 @@ export function markViewerOnboardingCompleted(storage = getBrowserStorage()) {
 }
 
 export function normalizeViewerSettings(settings: ViewerSettings): ViewerSettings {
+  const mainViewOptics = normalizeMainViewOptics(settings.mainViewOptics)
   const scopeOptics = normalizeScopeOptics(settings.scopeOptics)
 
   return {
@@ -258,6 +273,7 @@ export function normalizeViewerSettings(settings: ViewerSettings): ViewerSetting
     ),
     verticalFovAdjustmentDeg: clamp(settings.verticalFovAdjustmentDeg, -30, 30),
     scopeModeEnabled: settings.scopeModeEnabled === true,
+    mainViewOptics,
     scope: normalizeScopeSettings(settings.scope, scopeOptics),
     scopeOptics,
     selectedCameraDeviceId:

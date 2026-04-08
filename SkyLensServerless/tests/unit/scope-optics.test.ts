@@ -142,7 +142,7 @@ describe('scope optics helpers', () => {
         magnitude,
         altitudeDeg: 18,
         optics: {
-          apertureMm: 40,
+          apertureMm: 20,
           magnificationX: 50,
           transparencyPct: 40,
         },
@@ -250,16 +250,16 @@ describe('scope optics helpers', () => {
 
   it('normalizes main-view optics defaults and maps 1.0x to the base viewer fov', () => {
     expect(getDefaultMainViewOptics()).toEqual({
-      apertureMm: SCOPE_OPTICS_RANGES.apertureMm.defaultValue,
+      apertureMm: MAIN_VIEW_OPTICS_RANGES.apertureMm.defaultValue,
       magnificationX: MAIN_VIEW_OPTICS_RANGES.magnificationX.defaultValue,
     })
     expect(
       normalizeMainViewOptics({
-        apertureMm: Number.NaN,
+        apertureMm: 12,
         magnificationX: Number.POSITIVE_INFINITY,
       }),
     ).toEqual({
-      apertureMm: SCOPE_OPTICS_RANGES.apertureMm.defaultValue,
+      apertureMm: MAIN_VIEW_OPTICS_RANGES.apertureMm.min,
       magnificationX: MAIN_VIEW_OPTICS_RANGES.magnificationX.defaultValue,
     })
     expect(magnificationToMainViewVerticalFovDeg(1, 50)).toBe(50)

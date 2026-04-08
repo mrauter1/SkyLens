@@ -130,6 +130,10 @@ describe('ViewerShell settings integration', () => {
       alignmentTargetPreference: null,
       verticalFovAdjustmentDeg: 6,
       scopeModeEnabled: false,
+      mainViewOptics: {
+        apertureMm: 120,
+        magnificationX: 1,
+      },
       scope: {
         verticalFovDeg: 10,
       },
@@ -310,6 +314,10 @@ describe('ViewerShell settings integration', () => {
 
   it('defaults and clamps persisted scope settings without breaking older payloads', () => {
     expect(readViewerSettings().scopeModeEnabled).toBe(false)
+    expect(readViewerSettings().mainViewOptics).toEqual({
+      apertureMm: 120,
+      magnificationX: 1,
+    })
     expect(readViewerSettings().scope).toEqual({
       verticalFovDeg: 10,
     })
@@ -351,7 +359,7 @@ describe('ViewerShell settings integration', () => {
       verticalFovDeg: 3,
     })
     expect(readViewerSettings().scopeOptics).toEqual({
-      apertureMm: 40,
+      apertureMm: 20,
       magnificationX: 300,
       transparencyPct: 85,
     })
@@ -433,6 +441,53 @@ describe('ViewerShell settings integration', () => {
     expect(readViewerSettings().scopeModeEnabled).toBe(false)
     expect(readViewerSettings().scope).toEqual({
       verticalFovDeg: 12.5,
+    })
+  })
+
+  it('persists normal-view aperture independently from scope optics and keeps main-view magnification fixed at 1x', () => {
+    writeViewerSettings({
+      ...readViewerSettings(),
+      mainViewOptics: {
+        apertureMm: 18,
+        magnificationX: 12,
+      },
+      scopeOptics: {
+        apertureMm: 160,
+        magnificationX: 75,
+        transparencyPct: 85,
+      },
+    })
+
+    const settings = readViewerSettings()
+    const persisted = JSON.parse(
+      window.localStorage.getItem(VIEWER_SETTINGS_STORAGE_KEY) ?? 'null',
+    ) as {
+      mainViewOptics: {
+        apertureMm: number
+        magnificationX: number
+      }
+      scopeOptics: {
+        apertureMm: number
+        magnificationX: number
+      }
+    }
+
+    expect(settings.mainViewOptics).toEqual({
+      apertureMm: 20,
+      magnificationX: 1,
+    })
+    expect(settings.scopeOptics).toEqual({
+      apertureMm: 160,
+      magnificationX: 75,
+      transparencyPct: 85,
+    })
+    expect(persisted.mainViewOptics).toEqual({
+      apertureMm: 20,
+      magnificationX: 1,
+    })
+    expect(persisted.scopeOptics).toMatchObject({
+      apertureMm: 160,
+      magnificationX: 75,
     })
   })
 
