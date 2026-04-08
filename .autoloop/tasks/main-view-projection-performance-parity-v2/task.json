@@ -1,0 +1,7 @@
+{
+  "task_id": "main-view-projection-performance-parity-v2",
+  "created_at": "2026-04-08T01:18:48.153712+00:00",
+  "request_text": "Implement the task described in /workspace/SkyLens/AUTOLOOP_TASK_MAIN_VIEW_PROJECTION_PERF_PARITY.md exactly. Use that markdown file as the source of truth.",
+  "request_updated_at": "2026-04-08T01:18:48.153782+00:00",
+  "phase_plan_path": ".autoloop/tasks/main-view-projection-performance-parity-v2/plan/phase_plan.yaml"
+}

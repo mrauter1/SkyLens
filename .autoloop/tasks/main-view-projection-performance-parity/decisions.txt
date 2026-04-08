@@ -1,0 +1,6 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260408T011514Z-aad380a8" ts="2026-04-08T01:15:14.621360+00:00" />
+Non-scope projection must be consolidated around one render-pass context that carries profile plus viewport and optional source dimensions; scope-lens projection remains a separate unchanged path.
+Persisted main-view deep-star preference should remain backward compatible by treating missing `deepStarsEnabled` as auto/default resolution rather than rotating the viewer settings storage key.
+Main-view deep stars may still participate in center-lock and selected-detail behavior when enabled, but ordinary main-view deep-star markers and labels stay suppressed unless the object is center-locked or selected.
+Constellation catalog validation must leave the per-frame production path; bundled data can validate eagerly, while non-bundled or test-injected catalogs should be memoized by catalog identity.
+Adaptive quality tiers may reduce deep-star workload and color richness, but they must never introduce a second non-scope projection basis or alter scope-mode behavior.

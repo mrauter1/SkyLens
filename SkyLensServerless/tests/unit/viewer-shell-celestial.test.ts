@@ -649,6 +649,100 @@ describe('ViewerShell celestial behavior', () => {
     expect(Number(constellationLine?.getAttribute('y1'))).toBeCloseTo(markerPosition.y, 3)
   })
 
+  it('keeps constellation line endpoints aligned with marker projections at the default main-view scale', async () => {
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -18,
+      objects: [
+        {
+          id: 'star-sirius',
+          type: 'star',
+          label: 'Sirius',
+          azimuthDeg: 0,
+          elevationDeg: 16,
+          magnitude: -1.46,
+          importance: 74,
+          metadata: {
+            detail: {
+              typeLabel: 'Star',
+              magnitude: -1.46,
+              elevationDeg: 16,
+            },
+          },
+        },
+      ],
+    })
+    mockBuildVisibleConstellations.mockImplementation((input: {
+      projectLinePoint?: (worldPoint: { azimuthDeg: number; elevationDeg: number }) => {
+        x: number
+        y: number
+      }
+    }) => {
+      const projectLinePoint =
+        input.projectLinePoint ??
+        ((worldPoint: { azimuthDeg: number; elevationDeg: number }) => ({
+          x: worldPoint.azimuthDeg,
+          y: worldPoint.elevationDeg,
+        }))
+
+      return {
+        objects: [],
+        lineSegments: [
+          {
+            constellationId: 'orion',
+            start: projectLinePoint({ azimuthDeg: 0, elevationDeg: 16 }),
+            end: projectLinePoint({ azimuthDeg: 4, elevationDeg: 16 }),
+          },
+        ],
+      }
+    })
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
+
+    const marker = container.querySelector(
+      '[data-testid="sky-object-marker"][data-object-id="star-sirius"]',
+    ) as HTMLElement | null
+    const constellationLine = container.querySelector('svg line') as SVGLineElement | null
+
+    expect(marker).not.toBeNull()
+    expect(constellationLine).not.toBeNull()
+
+    const markerPosition = getAbsoluteMarkerPosition(marker!)
+    expect(Number(constellationLine?.getAttribute('x1'))).toBeCloseTo(markerPosition.x, 3)
+    expect(Number(constellationLine?.getAttribute('y1'))).toBeCloseTo(markerPosition.y, 3)
+  })
+
+  it('routes constellation segments through the shared stage projector even before magnification is enabled', async () => {
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -18,
+      objects: [],
+    })
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
+
+    expect(mockBuildVisibleConstellations).toHaveBeenCalled()
+    expect(mockBuildVisibleConstellations.mock.calls.at(-1)?.[0]).toEqual(
+      expect.objectContaining({
+        projectLinePoint: expect.any(Function),
+        viewport: expect.objectContaining({
+          width: expect.any(Number),
+          height: expect.any(Number),
+          sourceWidth: expect.any(Number),
+          sourceHeight: expect.any(Number),
+        }),
+      }),
+    )
+  })
+
   it('keeps focused aircraft trails aligned with aircraft markers under main-view magnification', async () => {
     mockNormalizeCelestialObjects.mockReturnValue({
       sunAltitudeDeg: -18,

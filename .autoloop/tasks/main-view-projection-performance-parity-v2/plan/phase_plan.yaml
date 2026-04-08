@@ -1,0 +1,4 @@
+version: 1
+task_id: main-view-projection-performance-parity-v2
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/main-view-projection-performance-parity-v2/runs/run-20260408T011848Z-aff22af4/request.md
+phases: []

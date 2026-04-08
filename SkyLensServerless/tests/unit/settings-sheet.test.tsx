@@ -39,6 +39,7 @@ describe('SettingsSheet', () => {
     const onFixAlignment = vi.fn()
     const onLabelDisplayModeChange = vi.fn()
     const onMotionQualityChange = vi.fn()
+    const onMainViewDeepStarsEnabledChange = vi.fn()
 
     await act(async () => {
       root.render(
@@ -55,6 +56,7 @@ describe('SettingsSheet', () => {
             stars: true,
             constellations: true,
           },
+          mainViewDeepStarsEnabled: true,
           layerAvailabilityLabels: {
             aircraft: 'Live aircraft temporarily unavailable',
           },
@@ -62,6 +64,7 @@ describe('SettingsSheet', () => {
           labelDisplayMode: 'center_only',
           motionQuality: 'balanced',
           onLayerToggle: vi.fn(),
+          onMainViewDeepStarsEnabledChange,
           onLikelyVisibleOnlyChange: vi.fn(),
           onLabelDisplayModeChange,
           onMotionQualityChange,
@@ -81,6 +84,13 @@ describe('SettingsSheet', () => {
 
     expect(container.textContent).toContain('Planes')
     expect(container.textContent).toContain('Live aircraft temporarily unavailable')
+    expect(
+      (
+        container.querySelector('input[aria-label="Main-view deep stars"]') as
+          | HTMLInputElement
+          | null
+      )?.checked,
+    ).toBe(true)
 
     const fixAlignmentButton = Array.from(container.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Alignment'),
@@ -112,6 +122,16 @@ describe('SettingsSheet', () => {
     })
 
     expect(onMotionQualityChange).toHaveBeenCalledWith('high')
+
+    const mainViewDeepStarsToggle = container.querySelector(
+      'input[aria-label="Main-view deep stars"]',
+    ) as HTMLInputElement | null
+
+    await act(async () => {
+      mainViewDeepStarsToggle?.click()
+    })
+
+    expect(onMainViewDeepStarsEnabledChange).toHaveBeenCalledWith(false)
 
     await act(async () => {
       fixAlignmentButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))

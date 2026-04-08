@@ -848,6 +848,43 @@ describe('ViewerShell startup gating', () => {
     expect(readViewerSettings().scopeLensDiameterPct).toBe(SCOPE_LENS_DIAMETER_PCT_RANGE.max)
   })
 
+  it('bridges the main-view deep-stars toggle through settings-sheet state and persisted viewer settings', async () => {
+    await renderViewer({
+      entry: 'demo',
+      location: 'unavailable',
+      camera: 'unavailable',
+      orientation: 'unavailable',
+      demoScenarioId: 'sf-evening',
+    })
+
+    const latestSettingsProps = () =>
+      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+        | {
+            mainViewDeepStarsEnabled?: boolean
+            onMainViewDeepStarsEnabledChange?: (enabled: boolean) => void
+          }
+        | undefined
+
+    expect(latestSettingsProps()?.mainViewDeepStarsEnabled).toBe(true)
+    expect(readViewerSettings().mainViewDeepStarsEnabled).toBe(true)
+
+    await act(async () => {
+      latestSettingsProps()?.onMainViewDeepStarsEnabledChange?.(false)
+    })
+    await flushEffects()
+
+    expect(latestSettingsProps()?.mainViewDeepStarsEnabled).toBe(false)
+    expect(readViewerSettings().mainViewDeepStarsEnabled).toBe(false)
+
+    await act(async () => {
+      latestSettingsProps()?.onMainViewDeepStarsEnabledChange?.(true)
+    })
+    await flushEffects()
+
+    expect(latestSettingsProps()?.mainViewDeepStarsEnabled).toBe(true)
+    expect(readViewerSettings().mainViewDeepStarsEnabled).toBe(true)
+  })
+
   it('supports keyboard panning in manual mode for desktop fallback', async () => {
     await renderViewer({
       entry: 'demo',
@@ -3103,6 +3140,9 @@ describe('ViewerShell startup gating', () => {
     const diagnostics = container.querySelector(
       '[data-testid="orientation-diagnostics"]',
     ) as HTMLElement | null
+    const deepStarDiagnostics = container.querySelector(
+      '[data-testid="main-view-deep-star-diagnostics"]',
+    ) as HTMLElement | null
 
     expect(diagnostics).not.toBeNull()
     expect(diagnostics?.textContent).toContain('Orientation diagnostics')
@@ -3112,6 +3152,14 @@ describe('ViewerShell startup gating', () => {
     expect(diagnostics?.textContent).toContain('sensor')
     expect(diagnostics?.textContent).toContain('Calibration active')
     expect(diagnostics?.textContent).toContain('yes')
+    expect(deepStarDiagnostics).not.toBeNull()
+    expect(deepStarDiagnostics?.textContent).toContain('Main-view deep stars')
+    expect(deepStarDiagnostics?.textContent).toContain('Quality tier')
+    expect(deepStarDiagnostics?.textContent).toContain('baseline')
+    expect(deepStarDiagnostics?.textContent).toContain('Decision source')
+    expect(deepStarDiagnostics?.textContent).toContain('governor')
+    expect(deepStarDiagnostics?.textContent).toContain('Transition reason')
+    expect(deepStarDiagnostics?.textContent).toContain('initial-baseline')
   })
 
   it('advances demo scene time continuously with the animation-driven cadence', async () => {

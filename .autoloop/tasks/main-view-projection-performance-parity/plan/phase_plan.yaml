@@ -1,0 +1,106 @@
+version: 1
+task_id: main-view-projection-performance-parity
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/main-view-projection-performance-parity/runs/run-20260408T011514Z-aad380a8/request.md
+phases:
+  - phase_id: consolidate-non-scope-projection
+    title: Consolidate non-scope projection
+    objective: Route all main-view world-to-screen work through one camera-frame-aware render-pass context while preserving scope-only projection semantics.
+    status: planned
+    in_scope:
+      - Add a reusable non-scope projection context carrying effective vertical FOV, profile, viewport dimensions, and optional source dimensions with deterministic fallback behavior.
+      - Build the non-scope context once per render pass in the viewer shell and reuse it for bright objects, projected deep stars, constellation endpoints, and focused trail points.
+      - Ensure source dimensions are propagated explicitly for profile projection and covered by tests.
+      - Remove duplicated non-scope projection branches without changing the existing scope lens projection and clipping path.
+      - Move constellation catalog validation off the production per-frame path through init-time validation or memoization by catalog identity.
+    out_of_scope:
+      - Rewriting the scope-lens projection geometry.
+      - New astronomy catalogs or unrelated viewer overlays.
+      - Broad camera-permission or sensor workflow changes.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: Main-view markers, deep stars, constellation endpoints, and focused trails all use one camera-frame-aware projection basis.
+      - id: AC-2
+        text: Source-dimension propagation and fallback behavior are explicit, deterministic, and test-covered.
+      - id: AC-3
+        text: Scope-mode projection and clipping behavior remain unchanged.
+      - id: AC-4
+        text: Constellation catalog validation no longer executes on each production render pass.
+    deliverables:
+      - Updated projection helper contracts in `camera.ts` and viewer-shell wiring for a single non-scope render-pass context.
+      - Updated constellation pipeline wiring that preserves overlay behavior while removing per-frame validation.
+      - Regression tests for projection alignment, source-dimension handling, and scope-mode safety.
+    risks:
+      - Some overlay or trail paths may keep calling legacy projection helpers and drift from marker positions.
+      - Over-sharing the helper into the scope path could change lens behavior unintentionally.
+    rollback:
+      - Restore the previous non-scope helper calls as one coherent change if alignment regresses.
+      - Keep scope-path changes isolated so projection rollback does not require settings or catalog changes.
+  - phase_id: govern-main-view-deep-stars
+    title: Govern main-view deep stars and visual parity
+    objective: Add explicit main-view deep-star control, low-end adaptive governance, and shared B-V color parity without expanding startup density or changing projection correctness.
+    status: planned
+    in_scope:
+      - Add backward-compatible `deepStarsEnabled` settings support and settings-sheet wiring for main-view deep-star control.
+      - Resolve deep-star enablement by precedence: explicit user preference, then adaptive governor, then device/default heuristic.
+      - Implement explicit adaptive quality tiers, tunable knobs, numeric degrade and upgrade thresholds, and hysteresis windows with dev-only diagnostics.
+      - Gate deep-star fetch, tile selection, projection, selection, and rendering so disabled mode removes workload.
+      - Preserve conservative startup density and restrict main-view deep-star markers and labels to center-locked or selected exceptions.
+      - Share B-V star color mapping between scope canvas rendering and non-scope deep-star output, allowing tier-aware color degradation without changing projection behavior.
+    out_of_scope:
+      - Scope-mode optics redesign or changes to persisted scope optics semantics.
+      - New deep-star catalogs or generic performance infrastructure outside this viewer path.
+      - Non-dev diagnostics surfaces for end users.
+    dependencies:
+      - consolidate-non-scope-projection
+    acceptance_criteria:
+      - id: AC-1
+        text: Deep-stars-disabled mode removes main-view deep-star workload while preserving non-deep-object center-lock behavior.
+      - id: AC-2
+        text: Adaptive governance honors explicit precedence, numeric thresholds, and hysteresis windows, with dev-only diagnostics exposing tier, source, and reason.
+      - id: AC-3
+        text: Main-view startup defaults remain conservative and deep-star markers or labels stay absent unless the star is center-locked or selected.
+      - id: AC-4
+        text: Non-scope B-V color parity uses a shared mapping path and remains stable across tiers except for intentional tier-based simplification of color richness.
+    deliverables:
+      - Updated viewer settings and settings-sheet interfaces for deep-star preference control.
+      - Viewer-shell runtime logic for adaptive deep-star governance, workload gating, diagnostics, and conservative main-view presentation.
+      - Shared star-color helper reused by scope and non-scope deep-star rendering.
+    risks:
+      - Preference semantics can drift if storage, UI, and runtime precedence are not defined from one contract.
+      - Governance changes may accidentally affect scope-mode deep-star behavior or visible startup density.
+    rollback:
+      - Revert adaptive-governor and deep-star preference wiring independently from projection consolidation if heuristics misbehave.
+      - Leave storage backward compatibility intact so rollback does not require migration.
+  - phase_id: verify-regressions-and-reporting
+    title: Verify regressions and reporting evidence
+    objective: Prove IC-1 through IC-4 closure, conservative startup behavior, and governor correctness through targeted tests and required task reporting.
+    status: planned
+    in_scope:
+      - Update the required unit suites to cover projection context reuse, source-dimension fallback, startup density, deep-star suppression, workload gating, governor transitions, hysteresis, and shared color parity.
+      - Update best-effort e2e coverage where it can deterministically confirm the touched viewer behavior.
+      - Run the requested validation commands and capture pass or fail status plus any environment limitations.
+      - Prepare implementation/test-phase notes for the required PR content, including projection-path summary, IC closure mapping, governor evidence, and artifact hygiene confirmation.
+    out_of_scope:
+      - Broad unrelated test-suite cleanup.
+      - Performance benchmarking infrastructure beyond deterministic regression tests.
+    dependencies:
+      - govern-main-view-deep-stars
+    acceptance_criteria:
+      - id: AC-1
+        text: Automated tests guard IC-1 through IC-4, conservative startup visible-star count band, deep-star workload removal when disabled, and subpixel overlay alignment.
+      - id: AC-2
+        text: Automated tests prove main-view deep-star markers and labels are zero unless center-locked or selected.
+      - id: AC-3
+        text: Automated tests prove numeric governor thresholds, hysteresis transitions, and precedence resolution deterministically.
+      - id: AC-4
+        text: Requested validation commands are executed and implementation/test artifacts record results and environment limitations.
+    deliverables:
+      - Updated unit and e2e coverage for the touched projection, viewer, settings, and parity behavior.
+      - Recorded test execution results for the requested command set.
+      - Implementation-ready reporting checklist for required PR notes.
+    risks:
+      - Existing tests that currently assume unrestricted main-view deep-star markers or labels will need deliberate fixture updates.
+      - Best-effort Playwright verification may be limited by environment or fixture determinism.
+    rollback:
+      - Keep test changes scoped to the touched behaviors so outdated assertions can be reverted independently if implementation direction changes.

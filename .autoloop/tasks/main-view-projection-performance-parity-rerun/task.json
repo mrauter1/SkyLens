@@ -1,0 +1,66 @@
+{
+  "task_id": "main-view-projection-performance-parity-rerun",
+  "created_at": "2026-04-08T02:12:40.556377+00:00",
+  "request_text": "Implement the task described in /workspace/SkyLens/AUTOLOOP_TASK_MAIN_VIEW_PROJECTION_PERF_PARITY.md exactly.",
+  "request_updated_at": "2026-04-08T02:12:40.556471+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/main-view-projection-performance-parity-rerun/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260408T021240Z-fdc4b072",
+    "mode": "single",
+    "phase_ids": [
+      "projection-context-and-hot-path",
+      "deep-star-governance-and-settings",
+      "color-parity-and-regression-validation"
+    ],
+    "explicit": true,
+    "current_phase_index": 3,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "projection-context-and-hot-path": "completed",
+    "deep-star-governance-and-settings": "completed",
+    "color-parity-and-regression-validation": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "projection-context-and-hot-path",
+      "run_id": "run-20260408T021240Z-fdc4b072",
+      "status": "in_progress",
+      "ts": "2026-04-08T02:19:06.865897+00:00"
+    },
+    {
+      "phase_id": "projection-context-and-hot-path",
+      "run_id": "run-20260408T021240Z-fdc4b072",
+      "status": "completed",
+      "ts": "2026-04-08T02:29:56.402849+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "deep-star-governance-and-settings",
+      "run_id": "run-20260408T021240Z-fdc4b072",
+      "status": "in_progress",
+      "ts": "2026-04-08T02:29:56.404018+00:00"
+    },
+    {
+      "phase_id": "deep-star-governance-and-settings",
+      "run_id": "run-20260408T021240Z-fdc4b072",
+      "status": "completed",
+      "ts": "2026-04-08T02:45:07.863532+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "color-parity-and-regression-validation",
+      "run_id": "run-20260408T021240Z-fdc4b072",
+      "status": "in_progress",
+      "ts": "2026-04-08T02:45:07.864623+00:00"
+    },
+    {
+      "phase_id": "color-parity-and-regression-validation",
+      "run_id": "run-20260408T021240Z-fdc4b072",
+      "status": "completed",
+      "ts": "2026-04-08T02:51:24.703040+00:00",
+      "pair": "test"
+    }
+  ]
+}

@@ -188,6 +188,28 @@ describe('celestial layer', () => {
     expect(constellations.lineSegments[0]?.start.x).toBeGreaterThan(100)
   })
 
+  it('keeps bundled constellation validation outside the build hot path', () => {
+    const stars = normalizeVisibleStars({
+      observer: nyDayObserver as ObserverState,
+      timeMs: nyDayObserver.timestampMs,
+      enabledLayers: ENABLED_LAYERS,
+      likelyVisibleOnly: false,
+      sunAltitudeDeg: 12.61,
+    })
+
+    expect(() =>
+      buildVisibleConstellations({
+        cameraPose: createPose(75, 78),
+        viewport: VIEWPORT,
+        enabledLayers: ENABLED_LAYERS,
+        likelyVisibleOnly: false,
+        sunAltitudeDeg: 12.61,
+        visibleStars: stars,
+        starCatalog: [],
+      }),
+    ).not.toThrow()
+  })
+
   it('adds optics render metadata without removing baseline stars and keeps magnification out of render intensity', () => {
     const baselineStars = normalizeVisibleStars({
       observer: nyDayObserver as ObserverState,

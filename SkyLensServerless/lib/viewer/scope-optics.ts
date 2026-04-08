@@ -1,3 +1,8 @@
+import {
+  SCOPE_DATASET_BANDS,
+  type ScopeBandDefinition,
+} from '../scope/contracts'
+
 export const SCOPE_OPTICS_RANGES = {
   apertureMm: {
     min: 40,
@@ -61,6 +66,63 @@ export type ScopeRenderProfile = {
   haloPx: number
 }
 
+export type MainViewDeepStarQualityTier = 'off' | 'baseline' | 'standard' | 'detailed' | 'precision'
+export type MainViewDeepStarDecisionSource =
+  | 'no-observer'
+  | 'stars-layer-disabled'
+  | 'daylight-suppressed'
+  | 'main-view-setting-disabled'
+  | 'governor'
+export type MainViewDeepStarTransitionReason =
+  | 'observer-missing'
+  | 'stars-layer-disabled'
+  | 'daylight-suppressed'
+  | 'main-view-setting-disabled'
+  | 'initial-baseline'
+  | 'magnification-promoted-standard'
+  | 'magnification-demoted-baseline'
+  | 'magnification-promoted-detailed'
+  | 'magnification-demoted-standard'
+  | 'magnification-promoted-precision'
+  | 'magnification-demoted-detailed'
+export type MainViewDeepStarGovernorSnapshot = {
+  enabled: boolean
+  tier: MainViewDeepStarQualityTier
+  band: ScopeBandDefinition | null
+  decisionSource: MainViewDeepStarDecisionSource
+  transitionReason: MainViewDeepStarTransitionReason
+}
+
+export const MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS = {
+  standard: {
+    enter: 1.5,
+    exit: 1.25,
+  },
+  detailed: {
+    enter: 3,
+    exit: 2.5,
+  },
+  precision: {
+    enter: 6,
+    exit: 5,
+  },
+} as const
+
+export const MAIN_VIEW_DEEP_STAR_STARTUP_VISIBLE_COUNT_BAND = {
+  min: 2,
+  max: 4,
+} as const
+
+const MAIN_VIEW_DEEP_STAR_TIER_BANDS: Record<
+  Exclude<MainViewDeepStarQualityTier, 'off'>,
+  ScopeBandDefinition
+> = {
+  baseline: SCOPE_DATASET_BANDS[0],
+  standard: SCOPE_DATASET_BANDS[1],
+  detailed: SCOPE_DATASET_BANDS[2],
+  precision: SCOPE_DATASET_BANDS[3],
+}
+
 const DEEP_STAR_EMERGENCE_BAND = {
   start: -0.35,
   end: 0.75,
@@ -108,6 +170,74 @@ export function normalizeMainViewOptics(
   return {
     apertureMm: normalizeMainViewOpticsValue('apertureMm', optics?.apertureMm),
     magnificationX: normalizeMainViewOpticsValue('magnificationX', optics?.magnificationX),
+  }
+}
+
+export function getMainViewDeepStarBand(
+  tier: Exclude<MainViewDeepStarQualityTier, 'off'>,
+) {
+  return MAIN_VIEW_DEEP_STAR_TIER_BANDS[tier]
+}
+
+export function resolveMainViewDeepStarGovernor({
+  hasObserver,
+  starsLayerEnabled,
+  daylightSuppressed,
+  mainViewDeepStarsEnabled,
+  magnificationX,
+  previousTier,
+  previousTransitionReason,
+}: {
+  hasObserver: boolean
+  starsLayerEnabled: boolean
+  daylightSuppressed: boolean
+  mainViewDeepStarsEnabled: boolean
+  magnificationX: number
+  previousTier?: MainViewDeepStarQualityTier | null
+  previousTransitionReason?: MainViewDeepStarTransitionReason | null
+}): MainViewDeepStarGovernorSnapshot {
+  if (!hasObserver) {
+    return createMainViewDeepStarHardOffState('no-observer', 'observer-missing')
+  }
+
+  if (!starsLayerEnabled) {
+    return createMainViewDeepStarHardOffState(
+      'stars-layer-disabled',
+      'stars-layer-disabled',
+    )
+  }
+
+  if (daylightSuppressed) {
+    return createMainViewDeepStarHardOffState(
+      'daylight-suppressed',
+      'daylight-suppressed',
+    )
+  }
+
+  if (!mainViewDeepStarsEnabled) {
+    return createMainViewDeepStarHardOffState(
+      'main-view-setting-disabled',
+      'main-view-setting-disabled',
+    )
+  }
+
+  const safeMagnificationX = normalizeMainViewOpticsValue('magnificationX', magnificationX)
+  const normalizedPreviousTier = normalizeMainViewDeepStarGovernorTier(previousTier)
+  const nextTier = selectMainViewDeepStarGovernorTier({
+    magnificationX: safeMagnificationX,
+    previousTier: normalizedPreviousTier,
+  })
+  const transitionReason =
+    getMainViewDeepStarTierTransitionReason(normalizedPreviousTier, nextTier) ??
+    previousTransitionReason ??
+    'initial-baseline'
+
+  return {
+    enabled: true,
+    tier: nextTier,
+    band: getMainViewDeepStarBand(nextTier),
+    decisionSource: 'governor',
+    transitionReason,
   }
 }
 
@@ -341,6 +471,151 @@ function normalizeAltitudeDeg(value: unknown) {
   }
 
   return clamp(value, -90, 90)
+}
+
+function createMainViewDeepStarHardOffState(
+  decisionSource: Exclude<MainViewDeepStarDecisionSource, 'governor'>,
+  transitionReason: Extract<
+    MainViewDeepStarTransitionReason,
+    | 'observer-missing'
+    | 'stars-layer-disabled'
+    | 'daylight-suppressed'
+    | 'main-view-setting-disabled'
+  >,
+): MainViewDeepStarGovernorSnapshot {
+  return {
+    enabled: false,
+    tier: 'off',
+    band: null,
+    decisionSource,
+    transitionReason,
+  }
+}
+
+function normalizeMainViewDeepStarGovernorTier(
+  tier: MainViewDeepStarQualityTier | null | undefined,
+): Exclude<MainViewDeepStarQualityTier, 'off'> | null {
+  switch (tier) {
+    case 'baseline':
+    case 'standard':
+    case 'detailed':
+    case 'precision':
+      return tier
+    default:
+      return null
+  }
+}
+
+function selectMainViewDeepStarGovernorTier({
+  magnificationX,
+  previousTier,
+}: {
+  magnificationX: number
+  previousTier: Exclude<MainViewDeepStarQualityTier, 'off'> | null
+}): Exclude<MainViewDeepStarQualityTier, 'off'> {
+  switch (previousTier) {
+    case 'precision':
+      if (magnificationX >= MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.precision.exit) {
+        return 'precision'
+      }
+      return magnificationX >= MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.detailed.exit
+        ? 'detailed'
+        : magnificationX >=
+              MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.standard.exit
+          ? 'standard'
+          : 'baseline'
+    case 'detailed':
+      if (magnificationX >= MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.precision.enter) {
+        return 'precision'
+      }
+      if (magnificationX >= MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.detailed.exit) {
+        return 'detailed'
+      }
+      return magnificationX >=
+            MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.standard.exit
+        ? 'standard'
+        : 'baseline'
+    case 'standard':
+      if (magnificationX >= MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.precision.enter) {
+        return 'precision'
+      }
+      if (magnificationX >= MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.detailed.enter) {
+        return 'detailed'
+      }
+      return magnificationX >=
+            MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.standard.exit
+        ? 'standard'
+        : 'baseline'
+    case 'baseline':
+    default:
+      if (magnificationX >= MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.precision.enter) {
+        return 'precision'
+      }
+      if (magnificationX >= MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.detailed.enter) {
+        return 'detailed'
+      }
+      if (magnificationX >= MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.standard.enter) {
+        return 'standard'
+      }
+      return 'baseline'
+  }
+}
+
+function getMainViewDeepStarTierTransitionReason(
+  previousTier: Exclude<MainViewDeepStarQualityTier, 'off'> | null,
+  nextTier: Exclude<MainViewDeepStarQualityTier, 'off'>,
+): Exclude<
+  MainViewDeepStarTransitionReason,
+  | 'observer-missing'
+  | 'stars-layer-disabled'
+  | 'daylight-suppressed'
+  | 'main-view-setting-disabled'
+> | null {
+  if (previousTier === null) {
+    return 'initial-baseline'
+  }
+
+  if (previousTier === nextTier) {
+    return null
+  }
+
+  if (previousTier === 'baseline' && nextTier === 'standard') {
+    return 'magnification-promoted-standard'
+  }
+
+  if (previousTier === 'standard' && nextTier === 'baseline') {
+    return 'magnification-demoted-baseline'
+  }
+
+  if (
+    (previousTier === 'baseline' || previousTier === 'standard') &&
+    nextTier === 'detailed'
+  ) {
+    return 'magnification-promoted-detailed'
+  }
+
+  if (
+    previousTier === 'detailed' &&
+    (nextTier === 'baseline' || nextTier === 'standard')
+  ) {
+    return nextTier === 'standard'
+      ? 'magnification-demoted-standard'
+      : 'magnification-demoted-baseline'
+  }
+
+  if (nextTier === 'precision') {
+    return 'magnification-promoted-precision'
+  }
+
+  if (previousTier === 'precision' && nextTier === 'detailed') {
+    return 'magnification-demoted-detailed'
+  }
+
+  if (nextTier === 'standard') {
+    return 'magnification-demoted-standard'
+  }
+
+  return 'magnification-demoted-baseline'
 }
 
 function normalizeScopeApparentFieldDeg(value: unknown) {

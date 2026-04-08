@@ -1,0 +1,30 @@
+# Test Strategy
+
+- Task ID: main-view-projection-performance-parity-rerun
+- Pair: test
+- Phase ID: color-parity-and-regression-validation
+- Phase Directory Key: color-parity-and-regression-validation
+- Phase Title: Shared Star Color Parity And Final Coverage
+- Scope: phase-local producer artifact
+- Behaviors covered:
+  - Shared B-V palette parity is anchored by `tests/unit/scope-star-canvas.test.tsx` for the canonical band outputs and by `tests/unit/viewer-shell-scope-runtime.test.tsx` for focused main-view deep-star marker styling.
+  - Viewer settings storage compatibility for `mainViewDeepStarsEnabled` is covered by `tests/unit/viewer-settings.test.tsx`.
+  - Touched `ViewerShell` behavior for forwarding and persisting the main-view deep-stars settings-sheet toggle is covered by `tests/unit/viewer-shell.test.ts`.
+- Preserved invariants checked:
+  - Scope-mode deep-star canvas semantics continue to use the same B-V color mapping bands.
+  - Main-view deep-stars toggle changes persist without breaking older settings payloads.
+  - Main-view deep-stars toggle wiring remains in `ViewerShell`/`SettingsSheet` integration instead of relying on lower-level storage tests alone.
+- Edge cases:
+  - Existing scope-canvas coverage keeps finite fallback and color-band boundary expectations deterministic.
+  - Existing settings coverage exercises missing legacy payload fields so absent `mainViewDeepStarsEnabled` still defaults safely.
+- Failure paths:
+  - Runtime marker parity assertions would fail if non-scope deep stars drift away from the shared helper colors.
+  - Viewer-shell integration assertions would fail if the settings-sheet callback stops mutating persisted viewer settings.
+- Stabilization approach:
+  - Use demo-mode and mocked settings-sheet props for deterministic `ViewerShell` integration tests.
+  - Keep scope-runtime deep-star assertions on synthetic dataset fixtures instead of live network/catalog state.
+- Validation run:
+  - `cd SkyLensServerless && pnpm exec vitest run tests/unit/viewer-shell.test.ts tests/unit/viewer-settings.test.tsx tests/unit/viewer-shell-scope-runtime.test.tsx tests/unit/scope-star-canvas.test.tsx` ✅
+  - Best-effort Playwright validation remains environment-blocked in this workspace because the required browser executable is not installed.
+- Known gaps:
+  - No new e2e coverage was added beyond the task-specified best-effort demo command because the phase contract keeps broader e2e expansion out of scope.

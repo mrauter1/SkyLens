@@ -1,0 +1,98 @@
+version: 1
+task_id: main-view-projection-performance-parity-rerun
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/main-view-projection-performance-parity-rerun/runs/run-20260408T021240Z-fdc4b072/request.md
+phases:
+  - phase_id: projection-context-and-hot-path
+    title: Shared Non-Scope Projection Context
+    objective: Unify non-scope projection inputs across all aligned render consumers and remove per-frame static constellation validation.
+    status: planned
+    in_scope:
+      - Consolidate main-view projection call sites in viewer-shell around one shared stage projection context.
+      - Propagate explicit camera source dimensions through main-view profile projection with deterministic fallback.
+      - Apply the same non-scope projector to markers, deep stars, constellation endpoints, and focused trails.
+      - Move bundled constellation catalog validation out of the per-frame production path.
+    out_of_scope:
+      - Any change to scope-lens projection or clipping behavior.
+      - New projection APIs beyond local refactoring needed to share existing camera helpers.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: Main-view magnification keeps bright-object markers, deep stars, constellation endpoints, and focused trails aligned within subpixel tolerance.
+      - id: AC-2
+        text: Explicit source-dimension propagation and fallback are covered by deterministic projection tests.
+      - id: AC-3
+        text: Constellation catalog validation no longer runs in the per-frame production build path.
+    deliverables:
+      - Shared main-view projection context/refactor in viewer-shell.
+      - Camera projection tests covering source-dimension propagation and fallback.
+      - Constellation pipeline change that validates bundled data once outside the hot path.
+    risks:
+      - A missed caller could still bypass the shared projection context and drift visually.
+      - Hoisting validation could mask failures if initialization is not still strict.
+    rollback:
+      - Revert the viewer-shell shared projector refactor while keeping camera helper tests.
+      - Restore prior constellation validation placement if startup behavior changes unexpectedly.
+  - phase_id: deep-star-governance-and-settings
+    title: Main-View Deep-Star Governance
+    objective: Add a persisted main-view deep-stars toggle, adaptive quality governor, conservative startup baseline, and dev diagnostics without changing scope-mode semantics.
+    status: planned
+    in_scope:
+      - Persist a main-view deep-stars enable flag in viewer settings with backward-compatible defaults.
+      - Expose the main-view deep-stars control in the settings sheet.
+      - Add deterministic governor tiers, thresholds, hysteresis, and precedence rules for main-view deep-star workload shaping.
+      - Anchor startup workload to getDefaultMainViewOptics plus the governor initial tier and document a numeric startup visible-deep-star count band.
+      - Add dev-only diagnostics for quality tier, decision source, and transition reason.
+      - Keep main-view deep-star markers and labels silent unless center-locked or selected where required by the task.
+    out_of_scope:
+      - Any scope-mode deep-star policy change.
+      - Production-visible diagnostics or new telemetry infrastructure.
+    dependencies:
+      - projection-context-and-hot-path
+    acceptance_criteria:
+      - id: AC-1
+        text: Main-view deep stars can be disabled from settings and disabled mode reduces deep-star runtime work.
+      - id: AC-2
+        text: Governor tier selection, hysteresis, and precedence follow one explicit rule order and are covered by deterministic tests and diagnostics assertions.
+      - id: AC-3
+        text: Scope-mode behavior remains unchanged while main-view startup optics preserve a documented numeric visible-deep-star count band and main-view deep stars follow the new silence/focus rules.
+    deliverables:
+      - Viewer settings and settings-sheet updates for main-view deep stars.
+      - Governor implementation and dev diagnostics in viewer-shell and supporting utilities using one explicit precedence order.
+      - Tests covering disabled mode, tier transitions, precedence, diagnostics reason reporting, and the numeric startup visible-deep-star count band.
+    risks:
+      - Precedence mistakes could hide expected focused stars or leave workload too high.
+      - Startup-band values could drift if the default main-view optics owner is changed without updating the contract.
+      - Backward-compatible settings reads could default incorrectly if normalization is incomplete.
+    rollback:
+      - Disable or revert the new governor while keeping the projection parity changes.
+      - Revert only the new persisted settings fields and sheet controls if UI or storage regressions appear.
+  - phase_id: color-parity-and-regression-validation
+    title: Shared Star Color Parity And Final Coverage
+    objective: Reuse the existing B-V color semantics for non-scope deep stars and complete regression coverage across the touched surfaces.
+    status: planned
+    in_scope:
+      - Extract and reuse the B-V color mapping used by scope-star-canvas for non-scope deep-star rendering.
+      - Add or update tests for color parity, storage compatibility, and touched viewer-shell behavior.
+      - Run the task-specified validation commands on a best-effort basis and record any blocked checks.
+    out_of_scope:
+      - Broader visual redesign of star markers beyond task-required parity.
+      - Unrelated e2e expansion outside the specified demo validation path.
+    dependencies:
+      - deep-star-governance-and-settings
+    acceptance_criteria:
+      - id: AC-1
+        text: Non-scope deep stars reuse the same B-V color bands as scope-star-canvas where enabled.
+      - id: AC-2
+        text: Settings, projection, celestial, scope-runtime, and viewer-shell tests cover the touched behavior without regressing scope mode.
+      - id: AC-3
+        text: Validation results clearly distinguish passing commands from best-effort or environment-blocked checks.
+    deliverables:
+      - Shared B-V color helper consumed by scope and non-scope deep-star rendering.
+      - Final unit/integration test updates across the touched suites.
+      - Documented validation outcomes for vitest and playwright commands.
+    risks:
+      - Reusing color semantics through the wrong helper location could create avoidable cross-layer coupling.
+      - Final verification may expose earlier phase gaps that require small follow-on fixes.
+    rollback:
+      - Revert only the non-scope color-parity changes if visual parity work regresses marker readability.
+      - Keep earlier projection and governor changes intact if validation isolates the issue to color styling.
