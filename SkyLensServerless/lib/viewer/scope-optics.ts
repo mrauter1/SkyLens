@@ -29,7 +29,7 @@ export const MAIN_VIEW_OPTICS_RANGES = {
     min: 20,
     max: 400,
     step: 5,
-    defaultValue: 120,
+    defaultValue: 40,
   },
   magnificationX: {
     min: 0.25,
@@ -339,10 +339,12 @@ export function computeScopeLimitingMagnitude({
     transparencyPct: _transparencyPct,
   })
   const safeAltitudeDeg = normalizeAltitudeDeg(altitudeDeg)
-  const base = 2.7 + 2.0 * Math.log10(optics.apertureMm)
-  const altitudePenalty = getAltitudePenalty(safeAltitudeDeg)
+  const limitingMagnitude = computeRawScopeLimitingMagnitude({
+    apertureMm: optics.apertureMm,
+    altitudeDeg: safeAltitudeDeg,
+  })
 
-  return clamp(base - altitudePenalty, 3, 15.5)
+  return limitingMagnitude
 }
 
 export function passesScopeLimitingMagnitude({
@@ -381,8 +383,8 @@ export function computeScopeRenderProfile({
   const normalizedOptics = normalizeScopeOptics(optics)
   const safeMagnitude = normalizeMagnitude(magnitude) ?? 12
   const safeAltitudeDeg = normalizeAltitudeDeg(altitudeDeg)
-  const effectiveLimitMag = computeScopeLimitingMagnitude({
-    ...normalizedOptics,
+  const effectiveLimitMag = computeRawScopeLimitingMagnitude({
+    apertureMm: normalizedOptics.apertureMm,
     altitudeDeg: safeAltitudeDeg,
   })
   const relativeFlux = clamp(
@@ -673,6 +675,19 @@ function getAltitudePenalty(altitudeDeg: number) {
   const airmass = 1 / Math.cos((zenithDistanceDeg * Math.PI) / 180)
 
   return 0.22 * (airmass - 1)
+}
+
+function computeRawScopeLimitingMagnitude({
+  apertureMm,
+  altitudeDeg,
+}: {
+  apertureMm: number
+  altitudeDeg: number
+}) {
+  const base = 2.7 + 2.0 * Math.log10(apertureMm)
+  const altitudePenalty = getAltitudePenalty(altitudeDeg)
+
+  return Math.min(base - altitudePenalty, 15.5)
 }
 
 function clamp(value: number, min: number, max: number) {

@@ -131,7 +131,7 @@ describe('ViewerShell settings integration', () => {
       verticalFovAdjustmentDeg: 6,
       scopeModeEnabled: false,
       mainViewOptics: {
-        apertureMm: 120,
+        apertureMm: 40,
         magnificationX: 1,
       },
       scope: {
@@ -315,7 +315,7 @@ describe('ViewerShell settings integration', () => {
   it('defaults and clamps persisted scope settings without breaking older payloads', () => {
     expect(readViewerSettings().scopeModeEnabled).toBe(false)
     expect(readViewerSettings().mainViewOptics).toEqual({
-      apertureMm: 120,
+      apertureMm: 40,
       magnificationX: 1,
     })
     expect(readViewerSettings().scope).toEqual({
@@ -441,6 +441,79 @@ describe('ViewerShell settings integration', () => {
     expect(readViewerSettings().scopeModeEnabled).toBe(false)
     expect(readViewerSettings().scope).toEqual({
       verticalFovDeg: 12.5,
+    })
+  })
+
+  it('defaults invalid persisted main-view aperture values to 40mm without changing scope defaults', () => {
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabledLayers: {
+          aircraft: false,
+          satellites: true,
+          planets: true,
+          stars: true,
+          constellations: true,
+        },
+        likelyVisibleOnly: false,
+        labelDisplayMode: 'on_objects',
+        motionQuality: 'balanced',
+        verticalFovAdjustmentDeg: 6,
+        mainViewOptics: {
+          apertureMm: Number.POSITIVE_INFINITY,
+          magnificationX: 8,
+        },
+        onboardingCompleted: false,
+      }),
+    )
+
+    expect(readViewerSettings().mainViewOptics).toEqual({
+      apertureMm: 40,
+      magnificationX: 1,
+    })
+    expect(readViewerSettings().scopeOptics).toEqual({
+      apertureMm: 120,
+      magnificationX: 50,
+      transparencyPct: 85,
+    })
+  })
+
+  it('preserves a valid persisted main-view aperture instead of replacing it with the 40mm default', () => {
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabledLayers: {
+          aircraft: false,
+          satellites: true,
+          planets: true,
+          stars: true,
+          constellations: true,
+        },
+        likelyVisibleOnly: false,
+        labelDisplayMode: 'on_objects',
+        motionQuality: 'balanced',
+        verticalFovAdjustmentDeg: 6,
+        mainViewOptics: {
+          apertureMm: 180,
+          magnificationX: 12,
+        },
+        scopeOptics: {
+          apertureMm: 120,
+          magnificationX: 50,
+          transparencyPct: 85,
+        },
+        onboardingCompleted: false,
+      }),
+    )
+
+    expect(readViewerSettings().mainViewOptics).toEqual({
+      apertureMm: 180,
+      magnificationX: 1,
+    })
+    expect(readViewerSettings().scopeOptics).toEqual({
+      apertureMm: 120,
+      magnificationX: 50,
+      transparencyPct: 85,
     })
   })
 

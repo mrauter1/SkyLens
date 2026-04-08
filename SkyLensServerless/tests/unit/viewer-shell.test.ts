@@ -4435,8 +4435,8 @@ describe('ViewerShell startup gating', () => {
       '[data-testid="mobile-scope-magnification-slider"]',
     ) as HTMLInputElement | null
 
-    expect(desktopAperture?.value).toBe('120')
-    expect(mobileAperture?.value).toBe('120')
+    expect(desktopAperture?.value).toBe('40')
+    expect(mobileAperture?.value).toBe('40')
     expect(desktopMagnification).toBeNull()
     expect(mobileMagnification).toBeNull()
     expect(desktopAperture?.min).toBe(String(MAIN_VIEW_OPTICS_RANGES.apertureMm.min))
@@ -4542,7 +4542,7 @@ describe('ViewerShell startup gating', () => {
           | null
       )?.textContent
 
-    expect(currentApertureValue()).toBe('120 mm')
+    expect(currentApertureValue()).toBe('40 mm')
     expect(currentMagnificationValue()).toBeUndefined()
 
     await setSliderValue('desktop-scope-aperture-slider', '180')
