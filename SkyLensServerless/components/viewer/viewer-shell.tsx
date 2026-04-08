@@ -1164,20 +1164,16 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         ) ??
         null
       : null
+  const mainViewRenderedDeepStars = projectedDeepStars.filter((object) => object.projection.visible)
   const mainCenterLockedCandidate = pickCenterLockedCandidate(
-    [...projectedObjects, ...projectedDeepStars]
+    [...projectedObjects, ...mainViewRenderedDeepStars]
       .filter((object) => object.projection.visible)
       .map((object) => toCenterLockCandidate(object)),
   )
   const mainCenterLockedObject =
-    [...projectedObjects, ...projectedDeepStars].find(
+    [...projectedObjects, ...mainViewRenderedDeepStars].find(
       (object) => object.id === mainCenterLockedCandidate?.id,
     ) ?? null
-  const mainViewFocusedDeepStars = projectedDeepStars.filter(
-    (object) =>
-      object.projection.visible &&
-      (object.id === mainCenterLockedObject?.id || object.id === selectedObjectId),
-  )
   const wideSceneCenterLockedObject = scopeModeActive
     ? wideCenterLockedObject
     : mainCenterLockedObject
@@ -1186,7 +1182,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     : mainCenterLockedObject
   const markerObjects: ActiveProjectedSkyObject[] = [
     ...projectedObjects,
-    ...(scopeModeActive ? [] : mainViewFocusedDeepStars),
+    ...(scopeModeActive ? [] : mainViewRenderedDeepStars),
   ].filter(
     (object) =>
       object.projection.visible &&
