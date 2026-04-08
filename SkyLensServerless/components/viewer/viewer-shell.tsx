@@ -167,7 +167,6 @@ import {
   computeScopeDeepStarEmergenceAlpha,
   SCOPE_OPTICS_RANGES,
   computeScopeRenderProfile,
-  getDefaultMainViewOptics,
   getMainViewDeepStarBand,
   magnificationToMainViewVerticalFovDeg,
   magnificationToScopeVerticalFovDeg,
@@ -176,7 +175,6 @@ import {
   resolveMainViewDeepStarGovernor,
   type ActiveOptics,
   type MainViewDeepStarGovernorSnapshot,
-  type MainViewOptics,
   type ScopeOptics,
   type ScopeRenderProfile,
 } from '../../lib/viewer/scope-optics'
@@ -621,9 +619,6 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       : getCurrentTimestampMs(),
   )
   const [viewerSettings, setViewerSettings] = useState(persistedViewerSettings)
-  const [mainViewOptics, setMainViewOptics] = useState<MainViewOptics>(() =>
-    getDefaultMainViewOptics(),
-  )
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null)
   const [hoveredObjectId, setHoveredObjectId] = useState<string | null>(null)
   const [astronomyFailureBanner, setAstronomyFailureBanner] = useState<string | null>(null)
@@ -796,7 +791,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         : 'available'
   const activeSatelliteCatalog =
     state.entry === 'demo' ? demoScenario.satelliteCatalog : satelliteCatalog
-  const normalizedMainViewOptics = normalizeMainViewOptics(mainViewOptics)
+  const normalizedMainViewOptics = normalizeMainViewOptics(viewerSettings.mainViewOptics)
   const normalizedScopeOptics = normalizeScopeOptics(viewerSettings.scopeOptics)
   const scopeModeRequested =
     viewerSettings.scopeModeEnabled && !isMobileAlignmentFocusActive
@@ -3289,9 +3284,9 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     showStartAlignmentAction: usesCameraStageAlignmentFocus,
   }
   const activeQuickOptics = scopeModeActive ? normalizedScopeOptics : normalizedMainViewOptics
-  const activeMagnificationRange = scopeModeActive
-    ? SCOPE_OPTICS_RANGES.magnificationX
-    : MAIN_VIEW_OPTICS_RANGES.magnificationX
+  const activeApertureRange = scopeModeActive
+    ? SCOPE_OPTICS_RANGES.apertureMm
+    : MAIN_VIEW_OPTICS_RANGES.apertureMm
   const updateActiveAperture = (value: number) => {
     if (scopeModeActive) {
       setViewerSettings((current) => ({
@@ -3304,31 +3299,26 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       return
     }
 
-    setMainViewOptics((current) =>
-      normalizeMainViewOptics({
-        ...current,
+    setViewerSettings((current) => ({
+      ...current,
+      mainViewOptics: {
+        ...current.mainViewOptics,
         apertureMm: value,
-      }),
-    )
+      },
+    }))
   }
   const updateActiveMagnification = (value: number) => {
-    if (scopeModeActive) {
-      setViewerSettings((current) => ({
-        ...current,
-        scopeOptics: {
-          ...current.scopeOptics,
-          magnificationX: value,
-        },
-      }))
+    if (!scopeModeActive) {
       return
     }
 
-    setMainViewOptics((current) =>
-      normalizeMainViewOptics({
-        ...current,
+    setViewerSettings((current) => ({
+      ...current,
+      scopeOptics: {
+        ...current.scopeOptics,
         magnificationX: value,
-      }),
-    )
+      },
+    }))
   }
 
   const settingsSheetProps = {
@@ -4108,76 +4098,80 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
           >
             <div className="pointer-events-auto shell-panel rounded-[1.6rem] px-4 py-4 sm:px-5">
               <div className="flex flex-col gap-4">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                  <section
-                    className="min-w-0 flex-1 rounded-[1.2rem] border border-sky-100/10 bg-white/5 px-4 py-4"
-                    data-testid="desktop-active-object-summary"
-                  >
-                    <div className="flex flex-wrap items-center gap-3">
-                      <div className="min-w-0">
-                        <p className="text-[11px] uppercase tracking-[0.18em] text-sky-200/55">
-                          SkyLens
-                        </p>
-                        <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">
-                          {desktopStatusSummary.eyebrow}
-                        </p>
-                        <p className="mt-2 truncate text-base font-semibold text-white">
-                          {desktopStatusSummary.title}
-                        </p>
-                      </div>
-                      <div className="rounded-full bg-emerald-400/10 px-3 py-1 text-xs text-emerald-100/85">
-                        {alignmentBadgeValue(state, cameraPose, startupState)}
-                      </div>
-                    </div>
-                    {renderedActiveSummaryObject ? (
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        {renderObjectBadges(renderedActiveSummaryObject)}
-                      </div>
-                    ) : null}
-                  </section>
-                  <div className="flex shrink-0 justify-start lg:justify-end">
-                    <SettingsSheet {...desktopSettingsSheetProps} />
-                  </div>
+                <div className="flex justify-end">
+                  <SettingsSheet {...desktopSettingsSheetProps} />
                 </div>
-                <section
-                  className="rounded-[1.2rem] border border-sky-100/10 bg-slate-950/38 px-4 py-4"
-                  data-testid="desktop-next-action"
-                >
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                    <div className="min-w-0">
-                      <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">
-                        {desktopPrimaryAction?.eyebrow ?? 'Viewer controls'}
-                      </p>
-                      <p className="mt-2 text-sm font-medium text-sky-100/82">
-                        {desktopPrimaryAction?.title ?? 'Viewer ready'}
-                      </p>
-                    </div>
-                    {desktopPrimaryAction ? (
-                      <button
-                        type="button"
-                        onClick={desktopPrimaryAction.onClick}
-                        disabled={desktopPrimaryAction.disabled}
-                        data-testid={
-                          desktopPrimaryAction.kind === 'open-viewer'
-                            ? 'desktop-primary-open-viewer-action'
-                            : 'desktop-primary-next-action'
-                        }
-                        className={`inline-flex min-h-11 items-center justify-center rounded-full px-5 py-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60 ${
-                          desktopPrimaryAction.tone === 'critical'
-                            ? 'bg-rose-400/90 text-rose-950'
-                            : desktopPrimaryAction.tone === 'info'
-                              ? 'bg-sky-300 text-slate-950'
-                              : desktopPrimaryAction.tone === 'success'
-                                ? 'bg-emerald-300 text-slate-950'
-                                : 'bg-amber-300 text-slate-950'
-                        }`}
-                      >
-                        {desktopPrimaryAction.label}
-                      </button>
-                    ) : null}
-                  </div>
+                {isDesktopViewerPanelOpen ? (
+                  <>
+                    <section
+                      className="min-w-0 rounded-[1.2rem] border border-sky-100/10 bg-white/5 px-4 py-4"
+                      data-testid="desktop-active-object-summary"
+                    >
+                      <div className="flex flex-wrap items-center gap-3">
+                        <div className="min-w-0">
+                          <p className="text-[11px] uppercase tracking-[0.18em] text-sky-200/55">
+                            SkyLens
+                          </p>
+                          <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">
+                            {desktopStatusSummary.eyebrow}
+                          </p>
+                          <p className="mt-2 truncate text-base font-semibold text-white">
+                            {desktopStatusSummary.title}
+                          </p>
+                        </div>
+                        <div className="rounded-full bg-emerald-400/10 px-3 py-1 text-xs text-emerald-100/85">
+                          {alignmentBadgeValue(state, cameraPose, startupState)}
+                        </div>
+                      </div>
+                      {renderedActiveSummaryObject ? (
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          {renderObjectBadges(renderedActiveSummaryObject)}
+                        </div>
+                      ) : null}
+                    </section>
+                    <section
+                      className="rounded-[1.2rem] border border-sky-100/10 bg-slate-950/38 px-4 py-4"
+                      data-testid="desktop-next-action"
+                    >
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                        <div className="min-w-0">
+                          <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">
+                            {desktopPrimaryAction?.eyebrow ?? 'Viewer controls'}
+                          </p>
+                          <p className="mt-2 text-sm font-medium text-sky-100/82">
+                            {desktopPrimaryAction?.title ?? 'Viewer ready'}
+                          </p>
+                        </div>
+                        {desktopPrimaryAction ? (
+                          <button
+                            type="button"
+                            onClick={desktopPrimaryAction.onClick}
+                            disabled={desktopPrimaryAction.disabled}
+                            data-testid={
+                              desktopPrimaryAction.kind === 'open-viewer'
+                                ? 'desktop-primary-open-viewer-action'
+                                : 'desktop-primary-next-action'
+                            }
+                            className={`inline-flex min-h-11 items-center justify-center rounded-full px-5 py-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60 ${
+                              desktopPrimaryAction.tone === 'critical'
+                                ? 'bg-rose-400/90 text-rose-950'
+                                : desktopPrimaryAction.tone === 'info'
+                                  ? 'bg-sky-300 text-slate-950'
+                                  : desktopPrimaryAction.tone === 'success'
+                                    ? 'bg-emerald-300 text-slate-950'
+                                    : 'bg-amber-300 text-slate-950'
+                            }`}
+                          >
+                            {desktopPrimaryAction.label}
+                          </button>
+                        ) : null}
+                      </div>
+                    </section>
+                  </>
+                ) : null}
+                <section className="rounded-[1.2rem] border border-sky-100/10 bg-slate-950/38 px-4 py-4">
                   <div
-                    className="mt-4 flex flex-wrap items-center gap-2"
+                    className="flex flex-wrap items-center gap-2"
                     data-testid="desktop-viewer-actions"
                   >
                     <DesktopActionButton
@@ -4368,29 +4362,31 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                           header.
                         </p>
                       </div>
-                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <div className={`mt-4 grid gap-3 ${scopeModeActive ? 'sm:grid-cols-2' : ''}`}>
                         <QuickRangeSlider
-                          label="Scope aperture"
+                          label={scopeModeActive ? 'Scope aperture' : 'Aperture'}
                           value={activeQuickOptics.apertureMm}
                           suffix=" mm"
-                          min={SCOPE_OPTICS_RANGES.apertureMm.min}
-                          max={SCOPE_OPTICS_RANGES.apertureMm.max}
-                          step={SCOPE_OPTICS_RANGES.apertureMm.step}
+                          min={activeApertureRange.min}
+                          max={activeApertureRange.max}
+                          step={activeApertureRange.step}
                           valueTestId="desktop-scope-aperture-value"
                           sliderTestId="desktop-scope-aperture-slider"
                           onChange={updateActiveAperture}
                         />
-                        <QuickRangeSlider
-                          label="Scope magnification"
-                          value={activeQuickOptics.magnificationX}
-                          suffix="x"
-                          min={activeMagnificationRange.min}
-                          max={activeMagnificationRange.max}
-                          step={activeMagnificationRange.step}
-                          valueTestId="desktop-scope-magnification-value"
-                          sliderTestId="desktop-scope-magnification-slider"
-                          onChange={updateActiveMagnification}
-                        />
+                        {scopeModeActive ? (
+                          <QuickRangeSlider
+                            label="Scope magnification"
+                            value={activeQuickOptics.magnificationX}
+                            suffix="x"
+                            min={SCOPE_OPTICS_RANGES.magnificationX.min}
+                            max={SCOPE_OPTICS_RANGES.magnificationX.max}
+                            step={SCOPE_OPTICS_RANGES.magnificationX.step}
+                            valueTestId="desktop-scope-magnification-value"
+                            sliderTestId="desktop-scope-magnification-slider"
+                            onChange={updateActiveMagnification}
+                          />
+                        ) : null}
                       </div>
                     </section>
                   ) : null}
@@ -4887,27 +4883,29 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                   data-testid="mobile-scope-quick-controls"
                 >
                   <QuickRangeSlider
-                    label="Scope aperture"
+                    label={scopeModeActive ? 'Scope aperture' : 'Aperture'}
                     value={activeQuickOptics.apertureMm}
                     suffix=" mm"
-                    min={SCOPE_OPTICS_RANGES.apertureMm.min}
-                    max={SCOPE_OPTICS_RANGES.apertureMm.max}
-                    step={SCOPE_OPTICS_RANGES.apertureMm.step}
+                    min={activeApertureRange.min}
+                    max={activeApertureRange.max}
+                    step={activeApertureRange.step}
                     valueTestId="mobile-scope-aperture-value"
                     sliderTestId="mobile-scope-aperture-slider"
                     onChange={updateActiveAperture}
                   />
-                  <QuickRangeSlider
-                    label="Scope magnification"
-                    value={activeQuickOptics.magnificationX}
-                    suffix="x"
-                    min={activeMagnificationRange.min}
-                    max={activeMagnificationRange.max}
-                    step={activeMagnificationRange.step}
-                    valueTestId="mobile-scope-magnification-value"
-                    sliderTestId="mobile-scope-magnification-slider"
-                    onChange={updateActiveMagnification}
-                  />
+                  {scopeModeActive ? (
+                    <QuickRangeSlider
+                      label="Scope magnification"
+                      value={activeQuickOptics.magnificationX}
+                      suffix="x"
+                      min={SCOPE_OPTICS_RANGES.magnificationX.min}
+                      max={SCOPE_OPTICS_RANGES.magnificationX.max}
+                      step={SCOPE_OPTICS_RANGES.magnificationX.step}
+                      valueTestId="mobile-scope-magnification-value"
+                      sliderTestId="mobile-scope-magnification-slider"
+                      onChange={updateActiveMagnification}
+                    />
+                  ) : null}
                 </div>
               ) : null}
               <div className="pointer-events-auto flex flex-wrap justify-center gap-2">

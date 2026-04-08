@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ViewerRouteState } from '../../lib/permissions/coordinator'
+import { resetScopeCatalogSessionCacheForTests } from '../../lib/scope/catalog'
 
 const {
   mockRouterReplace,
@@ -149,6 +150,7 @@ const TRACKER = {
 }
 
 const originalMatchMedia = window.matchMedia
+const originalFetch = global.fetch
 const originalSetTimeout = window.setTimeout
 const originalClearTimeout = window.clearTimeout
 const originalSetInterval = window.setInterval
@@ -243,12 +245,15 @@ describe('ViewerShell celestial behavior', () => {
       prune: vi.fn(),
       reset: vi.fn(),
     }))
+    global.fetch = vi.fn(async () => new Response(null, { status: 404 })) as typeof fetch
     window.localStorage.clear()
+    resetScopeCatalogSessionCacheForTests()
     stubCanvasContext()
   })
 
   afterEach(async () => {
     vi.useRealTimers()
+    global.fetch = originalFetch
     Object.defineProperty(window, 'matchMedia', {
       configurable: true,
       writable: true,
@@ -280,6 +285,7 @@ describe('ViewerShell celestial behavior', () => {
   })
   container.remove()
   window.localStorage.clear()
+  resetScopeCatalogSessionCacheForTests()
   })
 
   it('shows the bottom dock from the centered celestial object metadata', async () => {
@@ -482,6 +488,7 @@ describe('ViewerShell celestial behavior', () => {
       camera: 'denied',
       orientation: 'denied',
     })
+    await openDesktopViewerPanel()
 
     const activeSummary = container.querySelector(
       '[data-testid="desktop-active-object-summary"]',
@@ -581,7 +588,7 @@ describe('ViewerShell celestial behavior', () => {
     ).not.toBe(0)
   })
 
-  it('keeps constellation line endpoints aligned with marker projections under main-view magnification', async () => {
+  it('keeps constellation line endpoints aligned with marker projections in normal view', async () => {
     mockNormalizeCelestialObjects.mockReturnValue({
       sunAltitudeDeg: -18,
       objects: [
@@ -634,7 +641,6 @@ describe('ViewerShell celestial behavior', () => {
       camera: 'denied',
       orientation: 'denied',
     })
-    await setSliderValue('desktop-scope-magnification-slider', '2')
 
     const marker = container.querySelector(
       '[data-testid="sky-object-marker"][data-object-id="star-sirius"]',
@@ -743,7 +749,7 @@ describe('ViewerShell celestial behavior', () => {
     )
   })
 
-  it('keeps focused aircraft trails aligned with aircraft markers under main-view magnification', async () => {
+  it('keeps focused aircraft trails aligned with aircraft markers in normal view', async () => {
     mockNormalizeCelestialObjects.mockReturnValue({
       sunAltitudeDeg: -18,
       objects: [],
@@ -796,7 +802,6 @@ describe('ViewerShell celestial behavior', () => {
       camera: 'denied',
       orientation: 'denied',
     })
-    await setSliderValue('desktop-scope-magnification-slider', '2')
 
     const marker = container.querySelector(
       '[data-testid="sky-object-marker"][data-object-id="flight-1"]',

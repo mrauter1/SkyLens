@@ -5,7 +5,7 @@ import {
 
 export const SCOPE_OPTICS_RANGES = {
   apertureMm: {
-    min: 40,
+    min: 20,
     max: 400,
     step: 5,
     defaultValue: 120,
@@ -25,7 +25,12 @@ export const SCOPE_OPTICS_RANGES = {
 } as const
 
 export const MAIN_VIEW_OPTICS_RANGES = {
-  apertureMm: SCOPE_OPTICS_RANGES.apertureMm,
+  apertureMm: {
+    min: 20,
+    max: 400,
+    step: 5,
+    defaultValue: 120,
+  },
   magnificationX: {
     min: 0.25,
     max: 300,
@@ -140,6 +145,7 @@ const DEEP_STAR_CORE_RADIUS_MAG_RANGE = {
 
 const DEEP_STAR_CORE_RADIUS_CURVE = 0.85
 const DEEP_STAR_EMERGENCE_CURVE = 1.35
+const MAIN_VIEW_FIXED_MAGNIFICATION_X = MAIN_VIEW_OPTICS_RANGES.magnificationX.defaultValue
 
 export function normalizeScopeOptics(
   scopeOptics: Partial<ScopeOptics> | null | undefined,
@@ -160,7 +166,7 @@ export function normalizeScopeOptics(
 export function getDefaultMainViewOptics(): MainViewOptics {
   return {
     apertureMm: MAIN_VIEW_OPTICS_RANGES.apertureMm.defaultValue,
-    magnificationX: MAIN_VIEW_OPTICS_RANGES.magnificationX.defaultValue,
+    magnificationX: MAIN_VIEW_FIXED_MAGNIFICATION_X,
   }
 }
 
@@ -169,7 +175,7 @@ export function normalizeMainViewOptics(
 ): MainViewOptics {
   return {
     apertureMm: normalizeMainViewOpticsValue('apertureMm', optics?.apertureMm),
-    magnificationX: normalizeMainViewOpticsValue('magnificationX', optics?.magnificationX),
+    magnificationX: MAIN_VIEW_FIXED_MAGNIFICATION_X,
   }
 }
 

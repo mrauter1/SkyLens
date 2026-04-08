@@ -400,6 +400,10 @@ describe('ViewerShell scope runtime', () => {
 
     setStoredViewerSettings({
       scopeModeEnabled: false,
+      mainViewOptics: {
+        apertureMm: 240,
+        magnificationX: 1,
+      },
       scopeOptics: {
         apertureMm: 240,
         magnificationX: 50,
@@ -549,7 +553,6 @@ describe('ViewerShell scope runtime', () => {
 
     await renderViewer()
     await openDesktopViewerPanel()
-    await setSliderValue('desktop-scope-magnification-slider', '2')
 
     const markerPosition = getSkyObjectMarkerPosition('planet-jupiter')
     const deepStarMarkerPosition = getSkyObjectMarkerPositionByLabel('Scope Star 1')
