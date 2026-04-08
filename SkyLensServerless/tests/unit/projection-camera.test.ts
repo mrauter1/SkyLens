@@ -516,15 +516,6 @@ describe('projection camera foundation', () => {
       coverViewport,
       profile,
     )
-    const viewportOnlyProjection = projectWorldPointToScreenWithProfile(
-      { quaternion },
-      worldPoint,
-      {
-        width: 400,
-        height: 800,
-      },
-      profile,
-    )
     const imageProjection = projectWorldPointToImagePlaneWithProfile(
       { quaternion },
       worldPoint,
@@ -540,7 +531,49 @@ describe('projection camera foundation', () => {
     expect(coverProjection.visible).toBe(true)
     expect(coverProjection.x).toBeCloseTo(expectedCoverX, 6)
     expect(coverProjection.y).toBeCloseTo(expectedCoverY, 6)
-    expect(viewportOnlyProjection.x).not.toBeCloseTo(expectedCoverX, 3)
+  })
+
+  it('falls back to viewport dimensions when profile-aware stage source dimensions are omitted', () => {
+    const quaternion = createCameraQuaternion(0, 0, 0)
+    const profile = createProjectionProfile({
+      verticalFovDeg: 25,
+    })
+    const worldPoint = {
+      azimuthDeg: 5,
+      elevationDeg: 0,
+    }
+    const viewportOnlyProjection = projectWorldPointToScreenWithProfile(
+      { quaternion },
+      worldPoint,
+      {
+        width: 400,
+        height: 800,
+      },
+      profile,
+    )
+    const explicitViewportSourceProjection = projectWorldPointToScreenWithProfile(
+      { quaternion },
+      worldPoint,
+      {
+        width: 400,
+        height: 800,
+        sourceWidth: 400,
+        sourceHeight: 800,
+      },
+      profile,
+    )
+
+    expect(viewportOnlyProjection.visible).toBe(true)
+    expect(viewportOnlyProjection.x).toBeCloseTo(explicitViewportSourceProjection.x, 6)
+    expect(viewportOnlyProjection.y).toBeCloseTo(explicitViewportSourceProjection.y, 6)
+    expect(viewportOnlyProjection.normalizedX).toBeCloseTo(
+      explicitViewportSourceProjection.normalizedX,
+      6,
+    )
+    expect(viewportOnlyProjection.normalizedY).toBeCloseTo(
+      explicitViewportSourceProjection.normalizedY,
+      6,
+    )
   })
 
   it('center-locks by angular distance, then brightness, then id within the fixed 4-degree radius', () => {

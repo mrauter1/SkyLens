@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS,
+  MAIN_VIEW_DEEP_STAR_STARTUP_VISIBLE_COUNT_BAND,
   MAIN_VIEW_OPTICS_RANGES,
   SCOPE_APPARENT_FIELD_DEG_RANGE,
   SCOPE_OPTICS_RANGES,
@@ -9,11 +11,13 @@ import {
   computeScopeLimitingMagnitude,
   computeScopeRenderProfile,
   getDefaultMainViewOptics,
+  getMainViewDeepStarBand,
   magnificationToMainViewVerticalFovDeg,
   magnificationToScopeVerticalFovDeg,
   normalizeMainViewOptics,
   normalizeScopeOptics,
   passesScopeLimitingMagnitude,
+  resolveMainViewDeepStarGovernor,
   scopeVerticalFovDegToMagnificationX,
 } from '../../lib/viewer/scope-optics'
 
@@ -261,6 +265,174 @@ describe('scope optics helpers', () => {
     expect(magnificationToMainViewVerticalFovDeg(1, 50)).toBe(50)
     expect(magnificationToMainViewVerticalFovDeg(0.25, 50)).toBe(179)
     expect(magnificationToMainViewVerticalFovDeg(2, 50)).toBe(25)
+  })
+
+  it('applies main-view deep-star governor precedence before tier selection', () => {
+    expect(
+      resolveMainViewDeepStarGovernor({
+        hasObserver: false,
+        starsLayerEnabled: true,
+        daylightSuppressed: false,
+        mainViewDeepStarsEnabled: false,
+        magnificationX: 12,
+      }),
+    ).toMatchObject({
+      enabled: false,
+      tier: 'off',
+      decisionSource: 'no-observer',
+      transitionReason: 'observer-missing',
+    })
+
+    expect(
+      resolveMainViewDeepStarGovernor({
+        hasObserver: true,
+        starsLayerEnabled: false,
+        daylightSuppressed: true,
+        mainViewDeepStarsEnabled: false,
+        magnificationX: 12,
+      }),
+    ).toMatchObject({
+      enabled: false,
+      tier: 'off',
+      decisionSource: 'stars-layer-disabled',
+      transitionReason: 'stars-layer-disabled',
+    })
+
+    expect(
+      resolveMainViewDeepStarGovernor({
+        hasObserver: true,
+        starsLayerEnabled: true,
+        daylightSuppressed: true,
+        mainViewDeepStarsEnabled: false,
+        magnificationX: 12,
+      }),
+    ).toMatchObject({
+      enabled: false,
+      tier: 'off',
+      decisionSource: 'daylight-suppressed',
+      transitionReason: 'daylight-suppressed',
+    })
+
+    expect(
+      resolveMainViewDeepStarGovernor({
+        hasObserver: true,
+        starsLayerEnabled: true,
+        daylightSuppressed: false,
+        mainViewDeepStarsEnabled: false,
+        magnificationX: 12,
+      }),
+    ).toMatchObject({
+      enabled: false,
+      tier: 'off',
+      decisionSource: 'main-view-setting-disabled',
+      transitionReason: 'main-view-setting-disabled',
+    })
+  })
+
+  it('uses deterministic thresholds and hysteresis for main-view deep-star tier transitions', () => {
+    const baseline = resolveMainViewDeepStarGovernor({
+      hasObserver: true,
+      starsLayerEnabled: true,
+      daylightSuppressed: false,
+      mainViewDeepStarsEnabled: true,
+      magnificationX: MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.standard.enter,
+    })
+    const standardHeld = resolveMainViewDeepStarGovernor({
+      hasObserver: true,
+      starsLayerEnabled: true,
+      daylightSuppressed: false,
+      mainViewDeepStarsEnabled: true,
+      magnificationX: MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.standard.exit + 0.01,
+      previousTier: 'standard',
+      previousTransitionReason: 'magnification-promoted-standard',
+    })
+    const standardDropped = resolveMainViewDeepStarGovernor({
+      hasObserver: true,
+      starsLayerEnabled: true,
+      daylightSuppressed: false,
+      mainViewDeepStarsEnabled: true,
+      magnificationX: MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.standard.exit - 0.01,
+      previousTier: 'standard',
+      previousTransitionReason: 'magnification-promoted-standard',
+    })
+    const detailed = resolveMainViewDeepStarGovernor({
+      hasObserver: true,
+      starsLayerEnabled: true,
+      daylightSuppressed: false,
+      mainViewDeepStarsEnabled: true,
+      magnificationX: MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.detailed.enter,
+      previousTier: 'standard',
+      previousTransitionReason: 'magnification-promoted-standard',
+    })
+    const precisionHeld = resolveMainViewDeepStarGovernor({
+      hasObserver: true,
+      starsLayerEnabled: true,
+      daylightSuppressed: false,
+      mainViewDeepStarsEnabled: true,
+      magnificationX: MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.precision.exit + 0.01,
+      previousTier: 'precision',
+      previousTransitionReason: 'magnification-promoted-precision',
+    })
+    const precisionDropped = resolveMainViewDeepStarGovernor({
+      hasObserver: true,
+      starsLayerEnabled: true,
+      daylightSuppressed: false,
+      mainViewDeepStarsEnabled: true,
+      magnificationX: MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.precision.exit - 0.01,
+      previousTier: 'precision',
+      previousTransitionReason: 'magnification-promoted-precision',
+    })
+
+    expect(baseline).toMatchObject({
+      enabled: true,
+      tier: 'standard',
+      band: getMainViewDeepStarBand('standard'),
+      decisionSource: 'governor',
+      transitionReason: 'initial-baseline',
+    })
+    expect(standardHeld.tier).toBe('standard')
+    expect(standardHeld.transitionReason).toBe('magnification-promoted-standard')
+    expect(standardDropped.tier).toBe('baseline')
+    expect(standardDropped.transitionReason).toBe('magnification-demoted-baseline')
+    expect(detailed.tier).toBe('detailed')
+    expect(detailed.transitionReason).toBe('magnification-promoted-detailed')
+    expect(precisionHeld.tier).toBe('precision')
+    expect(precisionHeld.transitionReason).toBe('magnification-promoted-precision')
+    expect(precisionDropped.tier).toBe('detailed')
+    expect(precisionDropped.transitionReason).toBe('magnification-demoted-detailed')
+  })
+
+  it('keeps the startup main-view visible deep-star count inside the documented conservative band', () => {
+    const startupOptics = getDefaultMainViewOptics()
+    const startupGovernor = resolveMainViewDeepStarGovernor({
+      hasObserver: true,
+      starsLayerEnabled: true,
+      daylightSuppressed: false,
+      mainViewDeepStarsEnabled: true,
+      magnificationX: startupOptics.magnificationX,
+    })
+    const startupFixtureMagnitudes = [5.2, 5.8, 6.1, 6.7, 7.2]
+    const visibleStartupCount = startupFixtureMagnitudes
+      .filter((magnitude) => magnitude <= (startupGovernor.band?.maxMagnitude ?? 0))
+      .filter((magnitude) => {
+        const renderProfile = computeScopeRenderProfile({
+          magnitude,
+          altitudeDeg: 45,
+          optics: startupOptics,
+        })
+
+        return computeScopeDeepStarEmergenceAlpha(renderProfile.effectiveLimitMag - magnitude) > 0
+      }).length
+
+    expect(startupGovernor.tier).toBe('baseline')
+    expect(startupGovernor.band).toEqual(getMainViewDeepStarBand('baseline'))
+    expect(visibleStartupCount).toBeGreaterThanOrEqual(
+      MAIN_VIEW_DEEP_STAR_STARTUP_VISIBLE_COUNT_BAND.min,
+    )
+    expect(visibleStartupCount).toBeLessThanOrEqual(
+      MAIN_VIEW_DEEP_STAR_STARTUP_VISIBLE_COUNT_BAND.max,
+    )
+    expect(visibleStartupCount).toBe(3)
   })
 
   it('round-trips the shared default apparent-field conversion for legacy scope FOV migration', () => {

@@ -3,6 +3,7 @@ import { z } from 'zod'
 import constellationsCatalogJson from '../../public/data/constellations.json'
 import {
   projectWorldPointToScreen,
+  type ProjectViewport,
   type ProjectedWorldPoint,
   type ProjectWorldPointInput,
 } from '../projection/camera'
@@ -13,7 +14,7 @@ import type {
   SkyObject,
   StarCatalogEntry,
 } from '../viewer/contracts'
-import type { VisibleStarEntry } from './stars'
+import { loadStarCatalog, type VisibleStarEntry } from './stars'
 
 export interface ConstellationDetailMetadata {
   typeLabel: 'Constellation'
@@ -28,10 +29,7 @@ export interface ProjectedConstellationSegment {
 
 export interface ConstellationPipelineInput {
   cameraPose: CameraPose
-  viewport: {
-    width: number
-    height: number
-  }
+  viewport: ProjectViewport
   verticalFovAdjustmentDeg?: number
   projectLinePoint?: (worldPoint: ProjectWorldPointInput) => ProjectedWorldPoint
   enabledLayers: Readonly<Record<EnabledLayer, boolean>>
@@ -57,6 +55,9 @@ const ConstellationCatalogSchema = z.array(
 const CONSTELLATION_CATALOG = ConstellationCatalogSchema.parse(
   constellationsCatalogJson,
 ) as ConstellationCatalogEntry[]
+const BUNDLED_STAR_CATALOG = loadStarCatalog()
+
+validateConstellationCatalog(CONSTELLATION_CATALOG, BUNDLED_STAR_CATALOG)
 
 export function loadConstellationCatalog() {
   return CONSTELLATION_CATALOG
@@ -88,7 +89,7 @@ export function buildVisibleConstellations({
   likelyVisibleOnly,
   sunAltitudeDeg,
   visibleStars,
-  starCatalog,
+  starCatalog: _starCatalog,
 }: ConstellationPipelineInput): ConstellationPipelineResult {
   if (!enabledLayers.constellations) {
     return {
@@ -96,8 +97,6 @@ export function buildVisibleConstellations({
       lineSegments: [],
     }
   }
-
-  validateConstellationCatalog(CONSTELLATION_CATALOG, starCatalog)
 
   if (likelyVisibleOnly && sunAltitudeDeg > -6) {
     return {

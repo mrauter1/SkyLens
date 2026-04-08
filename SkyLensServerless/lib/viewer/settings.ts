@@ -41,6 +41,7 @@ export interface ScopeSettings {
 
 export interface ViewerSettings {
   enabledLayers: Record<EnabledLayer, boolean>
+  mainViewDeepStarsEnabled: boolean
   likelyVisibleOnly: boolean
   labelDisplayMode: LabelDisplayMode
   motionQuality: MotionQuality
@@ -70,6 +71,7 @@ const SettingsSchema = z.object({
     stars: z.boolean(),
     constellations: z.boolean(),
   }),
+  mainViewDeepStarsEnabled: z.boolean().optional(),
   likelyVisibleOnly: z.boolean(),
   labelDisplayMode: z.enum(['center_only', 'on_objects', 'top_list']),
   motionQuality: z.enum(['low', 'balanced', 'high']).optional(),
@@ -121,6 +123,7 @@ export function getDefaultViewerSettings(): ViewerSettings {
       stars: config.defaults.enabledLayers.includes('stars'),
       constellations: config.defaults.enabledLayers.includes('constellations'),
     },
+    mainViewDeepStarsEnabled: true,
     likelyVisibleOnly: config.defaults.likelyVisibleOnly,
     labelDisplayMode: 'center_only',
     motionQuality: 'balanced',
@@ -180,6 +183,8 @@ export function readViewerSettings(storage = getBrowserStorage()): ViewerSetting
         ...defaults.enabledLayers,
         ...parsed.enabledLayers,
       },
+      mainViewDeepStarsEnabled:
+        readBooleanSetting(parsed.mainViewDeepStarsEnabled) ?? defaults.mainViewDeepStarsEnabled,
       scope: {
         ...defaults.scope,
         verticalFovDeg: legacyScopeVerticalFovDeg ?? defaults.scope.verticalFovDeg,
@@ -241,6 +246,7 @@ export function normalizeViewerSettings(settings: ViewerSettings): ViewerSetting
       stars: settings.enabledLayers.stars,
       constellations: settings.enabledLayers.constellations,
     },
+    mainViewDeepStarsEnabled: settings.mainViewDeepStarsEnabled !== false,
     likelyVisibleOnly: settings.likelyVisibleOnly,
     labelDisplayMode: settings.labelDisplayMode,
     motionQuality: normalizeMotionQuality(settings.motionQuality),

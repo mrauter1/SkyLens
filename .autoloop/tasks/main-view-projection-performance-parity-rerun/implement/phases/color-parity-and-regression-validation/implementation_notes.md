@@ -1,0 +1,39 @@
+# Implementation Notes
+
+- Task ID: main-view-projection-performance-parity-rerun
+- Pair: implement
+- Phase ID: color-parity-and-regression-validation
+- Phase Directory Key: color-parity-and-regression-validation
+- Phase Title: Shared Star Color Parity And Final Coverage
+- Scope: phase-local producer artifact
+- Files changed:
+  - `SkyLensServerless/tests/unit/viewer-shell.test.ts`
+  - `.autoloop/tasks/main-view-projection-performance-parity-rerun/implement/phases/color-parity-and-regression-validation/implementation_notes.md`
+- Symbols touched:
+  - `ViewerShell` settings-sheet integration assertions in `tests/unit/viewer-shell.test.ts`
+- Checklist mapping:
+  - Milestone 3: confirmed non-scope main-view marker color parity remains covered by the shared helper path already consumed by `scope-star-canvas` and `viewer-shell`.
+  - Milestone 4: added the missing `viewer-shell` integration assertion for the persisted main-view deep-stars settings bridge and recorded final validation outcomes.
+- Assumptions:
+  - Prior implement phases already landed the production code for shared B-V color mapping, storage compatibility, diagnostics, and governor behavior.
+- Preserved invariants:
+  - Scope-mode deep-star rendering remains unaffected by the main-view deep-stars toggle.
+  - Non-scope deep-star color semantics continue to come from the shared `getStarColorFromBMinusV` helper.
+  - No production rendering or settings logic changed in this phase-local turn.
+- Intended behavior changes:
+  - None in production code.
+  - Test coverage now explicitly verifies that `ViewerShell` forwards `mainViewDeepStarsEnabled` and its update callback through `SettingsSheet` into persisted viewer settings.
+- Known non-changes:
+  - No visual redesign or marker-style changes beyond the already-landed shared color helper adoption.
+  - No additional e2e expansion outside the task-specified demo validation command.
+- Expected side effects:
+  - Stronger regression protection for the viewer-shell/settings integration path of the new main-view deep-stars toggle.
+- Validation performed:
+  - `rg --files SkyLensServerless/tests | head -n 200` ✅
+  - `cd SkyLensServerless && pnpm install --frozen-lockfile` ✅
+  - `cd SkyLensServerless && pnpm exec vitest run tests/unit/projection-camera.test.ts tests/unit/celestial-layer.test.ts tests/unit/viewer-shell-celestial.test.ts tests/unit/viewer-shell.test.ts tests/unit/scope-optics.test.ts` ✅
+  - `cd SkyLensServerless && pnpm exec vitest run tests/unit/viewer-shell-scope-runtime.test.tsx tests/unit/viewer-settings.test.tsx` ✅
+  - `cd SkyLensServerless && pnpm exec playwright test tests/e2e/demo.spec.ts` ⚠️ blocked by missing Playwright browser executable (`pnpm exec playwright install` required in this environment)
+  - `cd SkyLensServerless && pnpm exec vitest run tests/unit/viewer-settings.test.tsx tests/unit/viewer-shell.test.ts` ✅
+- Deduplication / centralization decisions:
+  - No new abstractions added in this turn; existing shared star-color centralization in `lib/viewer/star-colors.ts` remains the authoritative parity path.

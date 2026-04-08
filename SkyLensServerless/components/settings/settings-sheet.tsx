@@ -46,11 +46,13 @@ type SettingsSheetProps = {
   }>
   selectedCameraDeviceId?: string | null
   layers: Record<EnabledLayer, boolean>
+  mainViewDeepStarsEnabled?: boolean
   layerAvailabilityLabels?: Partial<Record<EnabledLayer, string>>
   likelyVisibleOnly: boolean
   labelDisplayMode: LabelDisplayMode
   motionQuality: MotionQuality
   onLayerToggle: (layer: EnabledLayer, enabled: boolean) => void
+  onMainViewDeepStarsEnabledChange?: (enabled: boolean) => void
   onLikelyVisibleOnlyChange: (enabled: boolean) => void
   onLabelDisplayModeChange: (mode: LabelDisplayMode) => void
   onMotionQualityChange: (quality: MotionQuality) => void
@@ -138,11 +140,13 @@ export function SettingsSheet({
   cameraDevices = [],
   selectedCameraDeviceId = null,
   layers,
+  mainViewDeepStarsEnabled = true,
   layerAvailabilityLabels,
   likelyVisibleOnly,
   labelDisplayMode,
   motionQuality,
   onLayerToggle,
+  onMainViewDeepStarsEnabledChange,
   onLikelyVisibleOnlyChange,
   onLabelDisplayModeChange,
   onMotionQualityChange,
@@ -273,6 +277,15 @@ export function SettingsSheet({
           />
         </label>
       ))}
+      <label className="flex items-center justify-between rounded-2xl border border-sky-100/10 bg-white/5 px-4 py-3 text-sm text-sky-50">
+        <span>Main-view deep stars</span>
+        <input
+          type="checkbox"
+          checked={mainViewDeepStarsEnabled}
+          onChange={(event) => onMainViewDeepStarsEnabledChange?.(event.target.checked)}
+          aria-label="Main-view deep stars"
+        />
+      </label>
       <label className="flex items-center justify-between rounded-2xl border border-sky-100/10 bg-white/5 px-4 py-3 text-sm text-sky-50">
         <span>Likely visible only</span>
         <input

@@ -2,6 +2,8 @@
 
 import { useEffect, useRef } from 'react'
 
+import { getStarColorFromBMinusV } from '../../lib/viewer/star-colors'
+
 export type ScopeStarCanvasPoint = {
   id: string
   x: number
@@ -47,7 +49,7 @@ export function ScopeStarCanvas({
     for (const star of stars) {
       const coreRadiusPx = normalizeScopeStarRadiusPx(star.radius, 1)
       const coreOpacity = normalizeScopeStarAlpha(star.alpha, 0)
-      const color = getScopeStarColor(star.bMinusV)
+      const color = getStarColorFromBMinusV(star.bMinusV)
 
       context.beginPath()
       context.fillStyle = color
@@ -87,24 +89,4 @@ function normalizeScopeStarAlpha(value: number, fallback: number) {
   }
 
   return Math.min(Math.max(value, 0), 1)
-}
-
-function getScopeStarColor(bMinusV: number) {
-  if (!Number.isFinite(bMinusV)) {
-    return 'rgba(225, 244, 255, 0.88)'
-  }
-
-  if (bMinusV <= -0.1) {
-    return 'rgba(192, 228, 255, 0.9)'
-  }
-
-  if (bMinusV <= 0.35) {
-    return 'rgba(226, 242, 255, 0.92)'
-  }
-
-  if (bMinusV <= 0.8) {
-    return 'rgba(255, 243, 214, 0.9)'
-  }
-
-  return 'rgba(255, 222, 186, 0.88)'
 }

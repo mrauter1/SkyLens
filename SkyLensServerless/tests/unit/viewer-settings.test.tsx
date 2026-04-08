@@ -121,6 +121,7 @@ describe('ViewerShell settings integration', () => {
         stars: true,
         constellations: true,
       },
+      mainViewDeepStarsEnabled: true,
       likelyVisibleOnly: false,
       labelDisplayMode: 'on_objects',
       motionQuality: 'balanced',
@@ -143,6 +144,7 @@ describe('ViewerShell settings integration', () => {
 
   it('restores a persisted alignment target preference while keeping older payloads readable', () => {
     expect(readViewerSettings().alignmentTargetPreference).toBeNull()
+    expect(readViewerSettings().mainViewDeepStarsEnabled).toBe(true)
 
     window.localStorage.setItem(
       VIEWER_SETTINGS_STORAGE_KEY,
@@ -164,6 +166,36 @@ describe('ViewerShell settings integration', () => {
     )
 
     expect(readViewerSettings().alignmentTargetPreference).toBe('moon')
+  })
+
+  it('reads and persists the main-view deep-stars toggle without breaking legacy payloads', () => {
+    expect(readViewerSettings().mainViewDeepStarsEnabled).toBe(true)
+
+    writeViewerSettings({
+      ...readViewerSettings(),
+      mainViewDeepStarsEnabled: false,
+    })
+
+    expect(readViewerSettings().mainViewDeepStarsEnabled).toBe(false)
+
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabledLayers: {
+          aircraft: false,
+          satellites: true,
+          planets: true,
+          stars: true,
+          constellations: true,
+        },
+        likelyVisibleOnly: false,
+        labelDisplayMode: 'on_objects',
+        verticalFovAdjustmentDeg: 6,
+        onboardingCompleted: false,
+      }),
+    )
+
+    expect(readViewerSettings().mainViewDeepStarsEnabled).toBe(true)
   })
 
   it('clamps persisted marker scale values into the supported 1x to 4x range', () => {
@@ -584,7 +616,7 @@ describe('ViewerShell settings integration', () => {
       container.querySelectorAll('input[type="checkbox"]'),
     ) as HTMLInputElement[]
     const planesToggle = checkboxes[0]
-    const likelyVisibleToggle = checkboxes[5]
+    const likelyVisibleToggle = checkboxes[6]
 
     expect(planesToggle.checked).toBe(false)
     expect(likelyVisibleToggle.checked).toBe(false)
@@ -667,7 +699,7 @@ describe('ViewerShell settings integration', () => {
     ) as HTMLInputElement[]
     const planesToggle = checkboxes[0]
     const satellitesToggle = checkboxes[1]
-    const likelyVisibleToggle = checkboxes[5]
+    const likelyVisibleToggle = checkboxes[6]
 
     const alignmentButton = Array.from(container.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Alignment'),
