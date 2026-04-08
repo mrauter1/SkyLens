@@ -429,7 +429,7 @@ describe('ViewerShell scope runtime', () => {
     expect(labels.some((label) => label.textContent?.includes('Scope Star 1'))).toBe(true)
   })
 
-  it('keeps non-focused main-view deep stars marker-label silent while preserving the focused exception', async () => {
+  it('renders visible normal-view deep stars as the same set used for center-lock', async () => {
     const scenario = getDemoScenario('tokyo-iss')
     const dataset = createMultiBandScopeDataset([
       {
@@ -449,17 +449,29 @@ describe('ViewerShell scope runtime', () => {
 
     setStoredViewerSettings({
       scopeModeEnabled: false,
-      labelDisplayMode: 'on_objects',
+      labelDisplayMode: 'center_only',
     })
 
     await renderViewer()
 
-    const labels = Array.from(container.querySelectorAll('[data-testid="sky-object-label"]'))
+    const markers = Array.from(container.querySelectorAll('[data-testid="sky-object-marker"]'))
 
     expect(getSkyObjectMarkerPositionByLabel('Scope Star 1')).not.toBeNull()
-    expect(getSkyObjectMarkerPositionByLabel('Scope Star 2')).toBeNull()
+    expect(getSkyObjectMarkerPositionByLabel('Scope Star 2')).not.toBeNull()
+    expect(markers).toHaveLength(2)
+    expect(container.querySelector('[data-testid="center-lock-chip"]')?.textContent ?? '').toContain(
+      'Scope Star 1',
+    )
+
+    await rerenderViewerWithSettings({
+      scopeModeEnabled: false,
+      labelDisplayMode: 'on_objects',
+    })
+
+    const labels = Array.from(container.querySelectorAll('[data-testid="sky-object-label"]'))
+
     expect(labels.some((label) => label.textContent?.includes('Scope Star 1'))).toBe(true)
-    expect(labels.some((label) => label.textContent?.includes('Scope Star 2'))).toBe(false)
+    expect(labels.some((label) => label.textContent?.includes('Scope Star 2'))).toBe(true)
   })
 
   it('shares the B-V deep-star color mapping for focused main-view markers', async () => {
@@ -492,7 +504,7 @@ describe('ViewerShell scope runtime', () => {
     expect(marker?.style.boxShadow).toContain('255, 222, 186')
   })
 
-  it('keeps co-located main-view deep stars silent when a brighter object wins focus under magnified projection', async () => {
+  it('keeps center-lock ordering unchanged when a brighter object wins focus under magnified projection', async () => {
     const scenario = getDemoScenario('tokyo-iss')
     const sharedElevationDeg = scenario.initialPitchDeg
     const dataset = createMultiBandScopeDataset([
@@ -543,7 +555,7 @@ describe('ViewerShell scope runtime', () => {
     const deepStarMarkerPosition = getSkyObjectMarkerPositionByLabel('Scope Star 1')
 
     expect(markerPosition).not.toBeNull()
-    expect(deepStarMarkerPosition).toBeNull()
+    expect(deepStarMarkerPosition).not.toBeNull()
     expect(container.querySelector('[data-testid="center-lock-chip"]')?.textContent).toContain(
       'Jupiter',
     )
@@ -615,6 +627,43 @@ describe('ViewerShell scope runtime', () => {
     await renderViewer()
 
     expect(getCanvasStars()).toHaveLength(1)
+  })
+
+  it('reveals more normal-view deep stars as aperture increases', async () => {
+    const scenario = getDemoScenario('tokyo-iss')
+    const dataset = createMultiBandScopeDataset([
+      {
+        azimuthDeg: 0,
+        elevationDeg: scenario.initialPitchDeg,
+        vMag: 5.2,
+        nameId: 1,
+      },
+      {
+        azimuthDeg: 6,
+        elevationDeg: scenario.initialPitchDeg,
+        vMag: 6.8,
+        nameId: 2,
+      },
+    ])
+    global.fetch = vi.fn().mockImplementation(dataset.fetcher) as typeof fetch
+
+    setStoredViewerSettings({
+      scopeModeEnabled: false,
+      labelDisplayMode: 'on_objects',
+    })
+
+    await renderViewer()
+
+    expect(getSkyObjectMarkerPositionByLabel('Scope Star 1')).not.toBeNull()
+    expect(getSkyObjectMarkerPositionByLabel('Scope Star 2')).toBeNull()
+    expect(container.querySelectorAll('[data-testid="sky-object-marker"]')).toHaveLength(1)
+
+    await openDesktopViewerPanel()
+    await setSliderValue('desktop-scope-aperture-slider', '240')
+
+    expect(getSkyObjectMarkerPositionByLabel('Scope Star 1')).not.toBeNull()
+    expect(getSkyObjectMarkerPositionByLabel('Scope Star 2')).not.toBeNull()
+    expect(container.querySelectorAll('[data-testid="sky-object-marker"]')).toHaveLength(2)
   })
 
   it('progressively reveals deep stars as aperture increases while keeping radius fixed', async () => {
