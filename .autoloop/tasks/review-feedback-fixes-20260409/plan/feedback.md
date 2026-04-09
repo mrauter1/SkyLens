@@ -1,0 +1,3 @@
+# Plan ↔ Plan Verifier Feedback
+- 2026-04-09: Replaced the placeholder artifacts with a single-phase implementation plan. Marked the shared `star-point-canvas` resize/clear suggestion as applicable, and constrained the `viewer-shell` memoization note so implementers only add it if they can prove a stable local dependency boundary instead of landing a no-op `useMemo`.
+- PLAN-001 | non-blocking | Verification passed with no blocking findings. The plan covers both review comments, keeps the shared canvas fix narrow, explicitly prevents a placebo `viewer-shell` memoization, preserves existing hybrid-rendering behavior unless a real local optimization is proven, and includes validation plus rollback for the touched area.

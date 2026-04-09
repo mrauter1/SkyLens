@@ -485,9 +485,11 @@ describe('SettingsSheet', () => {
           },
           likelyVisibleOnly: true,
           labelDisplayMode: 'center_only',
+          motionQuality: 'balanced',
           onLayerToggle: vi.fn(),
           onLikelyVisibleOnlyChange: vi.fn(),
           onLabelDisplayModeChange: vi.fn(),
+          onMotionQualityChange: vi.fn(),
         }),
       )
     })

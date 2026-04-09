@@ -1,0 +1,56 @@
+version: 1
+task_id: memoize-main-view-deep-star-canvas-points-20260409
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/memoize-main-view-deep-star-canvas-points-20260409/runs/run-20260409T170551Z-a13290fe/request.md
+phases:
+- phase_id: stabilize-main-view-deep-star-canvas-points
+  title: Stabilize main-view deep-star canvas points
+  objective: Memoize the effective main-view deep-star canvas derivation so unrelated
+    ViewerShell rerenders do not retrigger canvas redraws, preserving the current
+    effective upstream memo boundary when needed, and verify that behavior with
+    a same-mounted runtime test.
+  status: planned
+  in_scope:
+  - Auditing the existing projectedDeepStars -> mainViewRenderedDeepStars -> mainViewDeepStarCanvasPoints
+    memo chain and adjusting only if a nearer boundary is equally effective and safe.
+  - Preserving deep-star visibility, projection, center-lock, and label candidate
+    behavior.
+  - Updating runtime tests to prove unrelated same-mounted rerenders do not redraw
+    the deep-star canvas.
+  - Build and typecheck validation for SkyLensServerless.
+  out_of_scope:
+  - Refactoring unrelated viewer-shell derivations or component structure.
+  - Changing deep-star rendering rules, optics behavior, or marker interactivity.
+  - Adding new canvas abstractions or cross-component memo frameworks.
+  dependencies: []
+  acceptance_criteria:
+  - id: AC-1
+    text: The array ultimately passed to MainStarCanvas for main-view deep stars is
+      memoized at the nearest effective boundary, preserving the current upstream
+      memo boundary if that is the first effective stable point, with complete,
+      non-stale dependencies.
+  - id: AC-2
+    text: Main-view deep-star visibility, projection output, center-lock, and label
+      participation remain behaviorally unchanged.
+  - id: AC-3
+    text: A same-mounted test demonstrates that an unrelated ViewerShell rerender
+      such as opening the desktop viewer panel does not produce additional deep-star
+      canvas draw calls.
+  - id: AC-4
+    text: Relevant tests, typecheck, and build pass in SkyLensServerless.
+  deliverables:
+  - Updated or confirmed viewer-shell memoization for the effective main-view deep-star
+    canvas pipeline.
+  - Updated unit/runtime test coverage for redundant deep-star canvas redraw prevention
+    using a same-mounted rerender path.
+  - Validation results for tests, typecheck, and build.
+  risks:
+  - Incorrect memo dependencies could leave stale point coordinates or stale visibility
+    after camera, optics, or viewport changes.
+  - Simplifying the memoization to only the final mapped array may be ineffective
+    if upstream deep-star arrays still churn each rerender.
+  - A remount-based test could falsely appear to validate memoization while still
+    allowing redundant redraws.
+  rollback:
+  - Remove the new memoized derivation chain if stale rendering appears.
+  - Revert the redraw-prevention test if it proves coupled to incidental UI behavior
+    rather than a true unrelated rerender.

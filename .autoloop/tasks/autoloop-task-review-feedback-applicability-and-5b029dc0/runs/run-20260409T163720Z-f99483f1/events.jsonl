@@ -1,0 +1,7 @@
+{"ts": "2026-04-09T16:37:20.441867+00:00", "run_id": "run-20260409T163720Z-f99483f1", "seq": 1, "event_type": "run_started", "workspace": "/workspace/SkyLens", "pairs": ["plan", "implement", "test"], "max_iterations": 15, "use_git": true, "task_id": "autoloop-task-review-feedback-applicability-and-5b029dc0", "task_root": ".autoloop/tasks/autoloop-task-review-feedback-applicability-and-5b029dc0"}
+{"ts": "2026-04-09T16:37:20.449518+00:00", "run_id": "run-20260409T163720Z-f99483f1", "seq": 2, "event_type": "pair_started", "pair": "plan", "phase_id": null}
+{"ts": "2026-04-09T16:37:20.449853+00:00", "run_id": "run-20260409T163720Z-f99483f1", "seq": 3, "event_type": "cycle_started", "pair": "plan", "cycle": 1, "attempt": 1, "phase_id": null}
+{"ts": "2026-04-09T16:39:29.886485+00:00", "run_id": "run-20260409T163720Z-f99483f1", "seq": 4, "event_type": "phase_finished", "pair": "plan", "phase": "producer", "cycle": 1, "attempt": 1, "empty_output": false, "phase_id": null}
+{"ts": "2026-04-09T16:40:27.502284+00:00", "run_id": "run-20260409T163720Z-f99483f1", "seq": 5, "event_type": "phase_finished", "pair": "plan", "phase": "verifier", "cycle": 1, "attempt": 1, "empty_output": false, "phase_id": null}
+{"ts": "2026-04-09T16:40:27.534532+00:00", "run_id": "run-20260409T163720Z-f99483f1", "seq": 6, "event_type": "pair_completed", "pair": "plan", "cycle": 1, "attempt": 1, "phase_id": null}
+{"ts": "2026-04-09T16:40:27.638489+00:00", "run_id": "run-20260409T163720Z-f99483f1", "seq": 7, "event_type": "run_finished", "status": "fatal_error", "exit_code": 1}

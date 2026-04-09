@@ -1,0 +1,39 @@
+version: 1
+task_id: review-feedback-fixes-20260409
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/review-feedback-fixes-20260409/runs/run-20260409T163942Z-d40cfe4c/request.md
+phases:
+  - phase_id: applicable-review-fixes
+    title: Apply only the technically valid hybrid-rendering review fixes
+    objective: Land the shared star-canvas resize/clear fix, validate whether the viewer-shell memoization comment is actually effective in the current render architecture, and avoid placebo or broad refactors.
+    status: planned
+    in_scope:
+      - Update SkyLensServerless/components/viewer/star-point-canvas.tsx to resize the backing canvas only when DPR-scaled dimensions change.
+      - Keep transform updates aligned with real backing-size changes and clear using ceil-rounded logical viewport dimensions.
+      - Evaluate the mainViewDeepStarCanvasPoints memoization suggestion in SkyLensServerless/components/viewer/viewer-shell.tsx and implement it only if it truly stabilizes the canvas input reference locally.
+      - Add or adjust narrow unit coverage for the changed canvas behavior and any real viewer-shell change.
+      - Run targeted validation for the changed area.
+    out_of_scope:
+      - Broad memoization or refactoring of the viewer-shell projection pipeline.
+      - Changes to hybrid-rendering architecture, deep-star selection logic, optics math, settings, or public interfaces unrelated to these review comments.
+      - Unrelated test rewrites outside the touched behavior.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: star-point-canvas.tsx only rewrites canvas.width and canvas.height when the DPR-scaled backing size actually changes.
+      - id: AC-2
+        text: Canvas clearing remains correct for fractional viewport sizes by clearing the full logical viewport before redraw.
+      - id: AC-3
+        text: mainViewDeepStarCanvasPoints is memoized only if the implementation uses a stable local dependency boundary that prevents unnecessary redraw triggers; otherwise the code remains unchanged rather than adding ineffective memoization.
+      - id: AC-4
+        text: Targeted tests and required type/build checks for the touched area pass.
+    deliverables:
+      - Updated shared star canvas resize/clear implementation
+      - Focused unit coverage for the resize/clear behavior
+      - Viewer-shell memoization decision implemented or explicitly left unchanged based on applicability
+    risks:
+      - A resize guard could accidentally skip the initial transform setup or a later DPR change.
+      - A naive viewer-shell useMemo could add noise without improving redraw behavior.
+      - Test coverage could miss stale-pixel behavior if fractional dimensions are not asserted.
+    rollback:
+      - Revert the shared canvas resize/clear change if any DPR-scaling or redraw regression appears.
+      - Revert any viewer-shell memoization independently if it is ineffective or destabilizes the render path.

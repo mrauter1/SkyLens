@@ -1,0 +1,2 @@
+{"ts": "2026-04-09T17:05:40.135418+00:00", "run_id": "run-20260409T170539Z-927906c3", "seq": 1, "event_type": "run_started", "workspace": "/workspace/SkyLens", "pairs": ["implement", "test"], "max_iterations": 15, "use_git": true, "task_id": "memoize-main-view-deep-star-canvas-points-20260409", "task_root": ".autoloop/tasks/memoize-main-view-deep-star-canvas-points-20260409"}
+{"ts": "2026-04-09T17:05:40.144939+00:00", "run_id": "run-20260409T170539Z-927906c3", "seq": 2, "event_type": "run_finished", "status": "fatal_error", "exit_code": 1}

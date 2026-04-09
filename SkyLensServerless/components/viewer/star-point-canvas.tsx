@@ -49,10 +49,16 @@ export function StarPointCanvas({
     }
 
     const devicePixelRatio = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1
-    canvas.width = Math.round(widthPx * devicePixelRatio)
-    canvas.height = Math.round(heightPx * devicePixelRatio)
-    context.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0)
-    context.clearRect(0, 0, widthPx, heightPx)
+    const backingWidthPx = Math.round(widthPx * devicePixelRatio)
+    const backingHeightPx = Math.round(heightPx * devicePixelRatio)
+
+    if (canvas.width !== backingWidthPx || canvas.height !== backingHeightPx) {
+      canvas.width = backingWidthPx
+      canvas.height = backingHeightPx
+      context.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0)
+    }
+
+    context.clearRect(0, 0, Math.ceil(widthPx), Math.ceil(heightPx))
 
     for (const point of points) {
       context.beginPath()

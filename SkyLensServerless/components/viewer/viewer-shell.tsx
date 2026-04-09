@@ -11,6 +11,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -1062,91 +1063,121 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       ),
     }))
   const observationJulianYear = getObservationJulianYear(sceneTimeMs)
-  const projectedDeepStars: ProjectedDeepStarObject[] =
-    hasMounted && activeDeepStarsEnabled && observer
-      ? scopeLoadedDeepStars.flatMap((star) => {
-          const adjustedPosition = applyScopeProperMotion(star, observationJulianYear)
-          const horizontalPosition = convertScopeEquatorialToHorizontal(
-            adjustedPosition,
-            observer,
-            sceneTimeMs,
-          )
-          if (horizontalPosition.elevationDeg < 0) {
-            return []
-          }
+  const projectedDeepStars = useMemo<ProjectedDeepStarObject[]>(
+    () =>
+      hasMounted && activeDeepStarsEnabled && observer
+        ? scopeLoadedDeepStars.flatMap((star) => {
+            const adjustedPosition = applyScopeProperMotion(star, observationJulianYear)
+            const horizontalPosition = convertScopeEquatorialToHorizontal(
+              adjustedPosition,
+              observer,
+              sceneTimeMs,
+            )
+            if (horizontalPosition.elevationDeg < 0) {
+              return []
+            }
 
-          const scopeRender = computeScopeRenderProfile({
-            magnitude: star.vMag,
-            altitudeDeg: horizontalPosition.elevationDeg,
-            optics: activeOptics,
-          })
-          const emergenceAlpha = computeScopeDeepStarEmergenceAlpha(
-            scopeRender.effectiveLimitMag - star.vMag,
-          )
+            const scopeRender = computeScopeRenderProfile({
+              magnitude: star.vMag,
+              altitudeDeg: horizontalPosition.elevationDeg,
+              optics: activeOptics,
+            })
+            const emergenceAlpha = computeScopeDeepStarEmergenceAlpha(
+              scopeRender.effectiveLimitMag - star.vMag,
+            )
 
-          if (emergenceAlpha <= 0) {
-            return []
-          }
-          const activeProjection = scopeModeActive
-            ? projectWorldPointToScreenWithProfile(
-                cameraPose,
-                horizontalPosition,
-                {
-                  width: scopeLensDiameterPx,
-                  height: scopeLensDiameterPx,
-                },
-                activeProjectionProfile,
-              )
-            : stageProjectionContext.projectWorldPoint(horizontalPosition)
-          const scopeProjection = scopeModeActive ? activeProjection : null
-          const scopeOffsetX = (scopeProjection?.x ?? 0) - scopeLensRadiusPx
-          const scopeOffsetY = (scopeProjection?.y ?? 0) - scopeLensRadiusPx
-          const scopeInLensCircle =
-            scopeProjection !== null &&
-            scopeProjection.visible &&
-            scopeOffsetX * scopeOffsetX + scopeOffsetY * scopeOffsetY <=
-              scopeLensRadiusPx * scopeLensRadiusPx
-          const projection =
-            scopeProjection === null
-              ? activeProjection
-              : offsetScopeProjectionToStage(
-                  scopeProjection,
-                  scopeLensOffsetX,
-                  scopeLensOffsetY,
+            if (emergenceAlpha <= 0) {
+              return []
+            }
+            const activeProjection = scopeModeActive
+              ? projectWorldPointToScreenWithProfile(
+                  cameraPose,
+                  horizontalPosition,
+                  {
+                    width: scopeLensDiameterPx,
+                    height: scopeLensDiameterPx,
+                  },
+                  activeProjectionProfile,
                 )
+              : stageProjectionContext.projectWorldPoint(horizontalPosition)
+            const scopeProjection = scopeModeActive ? activeProjection : null
+            const scopeOffsetX = (scopeProjection?.x ?? 0) - scopeLensRadiusPx
+            const scopeOffsetY = (scopeProjection?.y ?? 0) - scopeLensRadiusPx
+            const scopeInLensCircle =
+              scopeProjection !== null &&
+              scopeProjection.visible &&
+              scopeOffsetX * scopeOffsetX + scopeOffsetY * scopeOffsetY <=
+                scopeLensRadiusPx * scopeLensRadiusPx
+            const projection =
+              scopeProjection === null
+                ? activeProjection
+                : offsetScopeProjectionToStage(
+                    scopeProjection,
+                    scopeLensOffsetX,
+                    scopeLensOffsetY,
+                  )
 
-          return [{
-            id: star.id,
-            type: 'star' as const,
-            label: star.displayName ?? 'Deep star',
-            displayName: star.displayName,
-            bMinusV: star.bMinusV,
-            azimuthDeg: horizontalPosition.azimuthDeg,
-            elevationDeg: horizontalPosition.elevationDeg,
-            magnitude: star.vMag,
-            importance: getScopeDeepStarImportance(star.vMag, Boolean(star.displayName)),
-            metadata: {
-              detail: {
-                typeLabel: 'Star',
-                magnitude: star.vMag,
-                elevationDeg: horizontalPosition.elevationDeg,
-                bMinusV: star.bMinusV,
+            return [{
+              id: star.id,
+              type: 'star' as const,
+              label: star.displayName ?? 'Deep star',
+              displayName: star.displayName,
+              bMinusV: star.bMinusV,
+              azimuthDeg: horizontalPosition.azimuthDeg,
+              elevationDeg: horizontalPosition.elevationDeg,
+              magnitude: star.vMag,
+              importance: getScopeDeepStarImportance(star.vMag, Boolean(star.displayName)),
+              metadata: {
+                detail: {
+                  typeLabel: 'Star',
+                  magnitude: star.vMag,
+                  elevationDeg: horizontalPosition.elevationDeg,
+                  bMinusV: star.bMinusV,
+                },
+                scopeRender: {
+                  typeLabel: 'Scope render',
+                  ...scopeRender,
+                },
+                scopeFilter: {
+                  effectiveLimitMag: scopeRender.effectiveLimitMag,
+                },
               },
-              scopeRender: {
-                typeLabel: 'Scope render',
-                ...scopeRender,
-              },
-              scopeFilter: {
-                effectiveLimitMag: scopeRender.effectiveLimitMag,
-              },
-            },
-            projection,
-            scopeProjection,
-            scopeInLensCircle,
-            source: 'scope-deep-star' as const,
-          }]
-        })
-      : []
+              projection,
+              scopeProjection,
+              scopeInLensCircle,
+              source: 'scope-deep-star' as const,
+            }]
+          })
+        : [],
+    [
+      activeDeepStarsEnabled,
+      activeOptics.apertureMm,
+      activeOptics.magnificationX,
+      activeProjectionProfile.verticalFovDeg,
+      cameraPose.quaternion[0],
+      cameraPose.quaternion[1],
+      cameraPose.quaternion[2],
+      cameraPose.quaternion[3],
+      hasMounted,
+      observationJulianYear,
+      observer?.altMeters,
+      observer?.lat,
+      observer?.lon,
+      observer?.timestampMs,
+      sceneTimeMs,
+      scopeLensDiameterPx,
+      scopeLensOffsetX,
+      scopeLensOffsetY,
+      scopeLensRadiusPx,
+      scopeLoadedDeepStars,
+      scopeModeActive,
+      stageProjectionContext.profile.verticalFovDeg,
+      stageProjectionContext.viewport.height,
+      stageProjectionContext.viewport.sourceHeight,
+      stageProjectionContext.viewport.sourceWidth,
+      stageProjectionContext.viewport.width,
+    ],
+  )
   const scopeCenterLockedCandidate = scopeModeActive
     ? pickCenterLockedCandidate(
         [...scopeActiveBrightObjects, ...projectedDeepStars.filter((object) => object.scopeInLensCircle)]
@@ -1160,7 +1191,10 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         ) ??
         null
       : null
-  const mainViewRenderedDeepStars = projectedDeepStars.filter((object) => object.projection.visible)
+  const mainViewRenderedDeepStars = useMemo(
+    () => projectedDeepStars.filter((object) => object.projection.visible),
+    [projectedDeepStars],
+  )
   const mainCenterLockedCandidate = pickCenterLockedCandidate(
     [...projectedObjects, ...mainViewRenderedDeepStars]
       .filter((object) => object.projection.visible)
@@ -1183,15 +1217,18 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         object.id === wideSceneCenterLockedObject?.id ||
         object.id === selectedObjectId),
   )
-  const mainViewDeepStarCanvasPoints: MainStarCanvasPoint[] =
-    hasMounted && !scopeModeActive
-      ? mainViewRenderedDeepStars.map((object) =>
-          toDeepStarCanvasPoint(object, {
-            x: object.projection.x,
-            y: object.projection.y,
-          }),
-        )
-      : []
+  const mainViewDeepStarCanvasPoints = useMemo<MainStarCanvasPoint[]>(
+    () =>
+      hasMounted && !scopeModeActive
+        ? mainViewRenderedDeepStars.map((object) =>
+            toDeepStarCanvasPoint(object, {
+              x: object.projection.x,
+              y: object.projection.y,
+            }),
+          )
+        : [],
+    [hasMounted, mainViewRenderedDeepStars, scopeModeActive],
+  )
   const interactiveMarkerObjects: ActiveProjectedSkyObject[] = mainViewInteractiveMarkerObjects
   const labelObjects: ActiveProjectedSkyObject[] = scopeModeActive
     ? [...scopeActiveBrightObjects, ...projectedDeepStars.filter((object) => object.scopeInLensCircle)]

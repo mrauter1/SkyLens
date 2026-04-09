@@ -5,12 +5,10 @@ import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { SKYLENS_PERMISSIONS_POLICY } from '../../next.config'
-import {
-  createStaticExportServer,
-  resolveRequestPath,
-} from '../../scripts/serve-export.mjs'
+// @ts-expect-error Runtime-tested script module has no TypeScript declaration file.
+import { createStaticExportServer, resolveRequestPath } from '../../scripts/serve-export.mjs'
 
-const TEMP_DIRECTORIES = []
+const TEMP_DIRECTORIES: string[] = []
 
 afterEach(async () => {
   while (TEMP_DIRECTORIES.length > 0) {
@@ -45,7 +43,7 @@ describe('static export preview server', () => {
       await expect(response.text()).resolves.toContain('embed validation')
     } finally {
       await new Promise((resolvePromise, rejectPromise) => {
-        server.close((error) => {
+        server.close((error?: Error | null) => {
           if (error) {
             rejectPromise(error)
             return

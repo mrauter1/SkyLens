@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+// @ts-expect-error Runtime-tested script module has no TypeScript declaration file.
 import { parseBaseUrlOverrides } from '../../scripts/scope/download-core.mjs'
 
 describe('scope data download', () => {

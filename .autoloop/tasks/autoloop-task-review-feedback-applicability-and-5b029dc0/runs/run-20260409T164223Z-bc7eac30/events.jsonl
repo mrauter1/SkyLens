@@ -1,0 +1,2 @@
+{"ts": "2026-04-09T16:42:23.166523+00:00", "run_id": "run-20260409T164223Z-bc7eac30", "seq": 1, "event_type": "run_started", "workspace": "/workspace/SkyLens", "pairs": ["implement", "test"], "max_iterations": 15, "use_git": true, "task_id": "autoloop-task-review-feedback-applicability-and-5b029dc0", "task_root": ".autoloop/tasks/autoloop-task-review-feedback-applicability-and-5b029dc0"}
+{"ts": "2026-04-09T16:42:23.172868+00:00", "run_id": "run-20260409T164223Z-bc7eac30", "seq": 2, "event_type": "run_finished", "status": "fatal_error", "exit_code": 1}

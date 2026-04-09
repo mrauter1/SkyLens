@@ -129,6 +129,7 @@ type CanvasFillCall = {
 }
 
 let canvasFillCalls: CanvasFillCall[] = []
+let canvasRedrawCount = 0
 let container: HTMLDivElement
 let root: Root
 let originalFetch: typeof global.fetch | undefined
@@ -202,6 +203,7 @@ describe('ViewerShell scope runtime', () => {
     mockResolveAircraftMotionObjects.mockReturnValue([])
     mockResolveSatelliteMotionObjects.mockReturnValue([])
     canvasFillCalls = []
+    canvasRedrawCount = 0
 
     window.localStorage.clear()
     resetScopeCatalogSessionCacheForTests()
@@ -476,6 +478,50 @@ describe('ViewerShell scope runtime', () => {
 
     expect(labels.some((label) => label.textContent?.includes('Scope Star 1'))).toBe(true)
     expect(labels.some((label) => label.textContent?.includes('Scope Star 2'))).toBe(true)
+  })
+
+  it('does not redraw the main-view deep-star canvas on an unrelated same-mounted viewer rerender', async () => {
+    const scenario = getDemoScenario('tokyo-iss')
+    const dataset = createMultiBandScopeDataset([
+      {
+        azimuthDeg: 0,
+        elevationDeg: scenario.initialPitchDeg,
+        vMag: 2.1,
+        nameId: 1,
+      },
+      {
+        azimuthDeg: 8,
+        elevationDeg: scenario.initialPitchDeg,
+        vMag: 2.3,
+        nameId: 2,
+      },
+    ])
+    global.fetch = vi.fn().mockImplementation(dataset.fetcher) as typeof fetch
+    const dateNowSpy = vi.spyOn(Date, 'now').mockReturnValue(scenario.observer.timestampMs)
+
+    try {
+      setStoredViewerSettings({
+        scopeModeEnabled: false,
+        labelDisplayMode: 'center_only',
+      })
+
+      await renderViewer()
+
+      expect(container.querySelector('[data-testid="main-star-canvas"]')).not.toBeNull()
+      expect(getCanvasStars()).toHaveLength(2)
+      const initialCanvasRedrawCount = canvasRedrawCount
+
+      await openDesktopViewerPanel()
+
+      expect(container.querySelector('[data-testid="desktop-viewer-panel"]')).not.toBeNull()
+      expect(getCanvasStars()).toHaveLength(2)
+      expect(canvasRedrawCount).toBe(initialCanvasRedrawCount)
+      expect(container.querySelector('[data-testid="center-lock-chip"]')?.textContent ?? '').toContain(
+        'Scope Star 1',
+      )
+    } finally {
+      dateNowSpy.mockRestore()
+    }
   })
 
   it('keeps non-scope deep stars in top-list labels while visible-marker diagnostics stay DOM-only', async () => {
@@ -1143,6 +1189,7 @@ describe('ViewerShell scope runtime', () => {
     })
     root = createRoot(container)
     canvasFillCalls = []
+    canvasRedrawCount = 0
     setStoredViewerSettings(settings)
     await renderViewer()
   }
@@ -1664,9 +1711,12 @@ function jsonResponse(payload: unknown) {
 }
 
 function binaryResponse(payload: Uint8Array) {
+  const buffer = new ArrayBuffer(payload.byteLength)
+  new Uint8Array(buffer).set(payload)
+
   return {
     ok: true,
-    arrayBuffer: async () => payload.buffer.slice(0),
+    arrayBuffer: async () => buffer,
   } satisfies Partial<Response> as Response
 }
 
@@ -1695,6 +1745,7 @@ function stubCanvasContext() {
     | null = null
   const context = {
     clearRect: vi.fn(() => {
+      canvasRedrawCount += 1
       canvasFillCalls = []
       currentArc = null
     }),

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
+// @ts-expect-error Runtime-tested script module has no TypeScript declaration file.
 import { SCOPE_DATASET_BANDS } from '../../scripts/scope/constants.mjs'
+// @ts-expect-error Runtime-tested script module has no TypeScript declaration file.
 import { createDatasetBandIndex, wrapRaDeg } from '../../scripts/scope/shared.mjs'
 
 describe('scope data tiling', () => {

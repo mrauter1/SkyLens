@@ -914,9 +914,12 @@ function jsonResponse(payload: unknown) {
 }
 
 function binaryResponse(payload: Uint8Array) {
+  const buffer = new ArrayBuffer(payload.byteLength)
+  new Uint8Array(buffer).set(payload)
+
   return {
     ok: true,
-    arrayBuffer: async () => payload.buffer.slice(0),
+    arrayBuffer: async () => buffer,
   } satisfies Partial<Response> as Response
 }
 

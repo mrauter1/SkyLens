@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+// @ts-expect-error Runtime-tested script module has no TypeScript declaration file.
 import { derivePhotometry, parseTycho2Line } from '../../scripts/scope/build-core.mjs'
 
 function createTychoLine(overrides: Record<string, string>) {

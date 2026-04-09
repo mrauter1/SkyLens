@@ -1,0 +1,10 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260409T163348Z-c948d836" ts="2026-04-09T16:33:48.626793+00:00" />
+Canvas backing-size writes in `star-point-canvas.tsx` should be conditional, but DPR transform reset must stay coupled to real backing-size changes because setting canvas dimensions resets 2D context state.
+Do not accept a cosmetic `useMemo` for `mainViewDeepStarCanvasPoints`; only implement memoization if the chosen dependency boundary actually stabilizes `MainStarCanvas` input identity across unrelated `ViewerShell` rerenders.
+<autoloop-decisions-header version="1" block_seq="2" owner="planner" phase_id="task-global" pair="plan" turn_seq="2" run_id="run-20260409T163348Z-c948d836" ts="2026-04-09T16:37:05.239817+00:00" />
+<autoloop-decisions-header version="1" block_seq="3" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260409T163720Z-f99483f1" ts="2026-04-09T16:37:20.553331+00:00" />
+For `viewer-shell.tsx`, the review comment is only applicable if memoization is placed at the nearest derivation boundary that actually stabilizes `MainStarCanvas` `stars` prop identity; a cosmetic `useMemo` on a freshly rebuilt array is not acceptable.
+Use existing concrete validation commands for this task: `npm test -- tests/unit/main-star-canvas.test.tsx`, `npm test -- tests/unit/viewer-shell-scope-runtime.test.tsx`, then `npm run build` in `SkyLensServerless`.
+<autoloop-decisions-header version="1" block_seq="4" owner="planner" phase_id="task-global" pair="plan" turn_seq="3" run_id="run-20260409T163348Z-c948d836" ts="2026-04-09T16:40:55.089978+00:00" />
+The remaining `PLAN-003` blocker is a runtime-owned `phase_plan.yaml` metadata mismatch; planner turns must leave `request_snapshot_ref` untouched and only edit `phases:`.
+<autoloop-decisions-header version="1" block_seq="5" owner="implementer" phase_id="apply-hybrid-star-review-fixes" pair="implement" turn_seq="1" run_id="run-20260409T164238Z-1f2fc6f1" ts="2026-04-09T16:42:38.535367+00:00" />
