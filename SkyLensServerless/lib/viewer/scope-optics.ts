@@ -146,6 +146,20 @@ const DEEP_STAR_CORE_RADIUS_MAG_RANGE = {
 const DEEP_STAR_CORE_RADIUS_CURVE = 0.85
 const DEEP_STAR_EMERGENCE_CURVE = 1.35
 const MAIN_VIEW_FIXED_MAGNIFICATION_X = MAIN_VIEW_OPTICS_RANGES.magnificationX.defaultValue
+const SCOPE_LIMITING_MAGNITUDE_ANCHOR_LOW = {
+  apertureMm: 40,
+  magnitude: 3,
+} as const
+const SCOPE_LIMITING_MAGNITUDE_ANCHOR_HIGH = {
+  apertureMm: 240,
+  magnitude: 10,
+} as const
+const SCOPE_LIMITING_MAGNITUDE_MAX = 15.5
+const SCOPE_LIMITING_MAGNITUDE_SLOPE =
+  (SCOPE_LIMITING_MAGNITUDE_ANCHOR_HIGH.magnitude -
+    SCOPE_LIMITING_MAGNITUDE_ANCHOR_LOW.magnitude) /
+  (SCOPE_LIMITING_MAGNITUDE_ANCHOR_HIGH.apertureMm -
+    SCOPE_LIMITING_MAGNITUDE_ANCHOR_LOW.apertureMm)
 
 export function normalizeScopeOptics(
   scopeOptics: Partial<ScopeOptics> | null | undefined,
@@ -684,10 +698,13 @@ function computeRawScopeLimitingMagnitude({
   apertureMm: number
   altitudeDeg: number
 }) {
-  const base = 2.7 + 2.0 * Math.log10(apertureMm)
+  const base =
+    SCOPE_LIMITING_MAGNITUDE_ANCHOR_LOW.magnitude +
+    (apertureMm - SCOPE_LIMITING_MAGNITUDE_ANCHOR_LOW.apertureMm) *
+      SCOPE_LIMITING_MAGNITUDE_SLOPE
   const altitudePenalty = getAltitudePenalty(altitudeDeg)
 
-  return Math.min(base - altitudePenalty, 15.5)
+  return Math.min(base - altitudePenalty, SCOPE_LIMITING_MAGNITUDE_MAX)
 }
 
 function clamp(value: number, min: number, max: number) {

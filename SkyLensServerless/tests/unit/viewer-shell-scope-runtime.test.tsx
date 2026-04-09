@@ -439,13 +439,13 @@ describe('ViewerShell scope runtime', () => {
       {
         azimuthDeg: 0,
         elevationDeg: scenario.initialPitchDeg,
-        vMag: 5.2,
+        vMag: 2.1,
         nameId: 1,
       },
       {
         azimuthDeg: 8,
         elevationDeg: scenario.initialPitchDeg,
-        vMag: 5.4,
+        vMag: 2.3,
         nameId: 2,
       },
     ])
@@ -484,7 +484,7 @@ describe('ViewerShell scope runtime', () => {
       {
         azimuthDeg: 0,
         elevationDeg: scenario.initialPitchDeg,
-        vMag: 5.2,
+        vMag: 2.1,
         bMinusV: 0.95,
         nameId: 1,
       },
@@ -515,7 +515,7 @@ describe('ViewerShell scope runtime', () => {
       {
         azimuthDeg: 0,
         elevationDeg: sharedElevationDeg,
-        vMag: 5.2,
+        vMag: 2.1,
         nameId: 1,
       },
     ])
@@ -612,7 +612,7 @@ describe('ViewerShell scope runtime', () => {
       {
         azimuthDeg: 1.2,
         elevationDeg: getDemoScenario('tokyo-iss').initialPitchDeg + 0.2,
-        vMag: 8,
+        vMag: 10.2,
       },
     ])
     global.fetch = vi.fn().mockImplementation(dataset.fetcher) as typeof fetch
@@ -638,13 +638,13 @@ describe('ViewerShell scope runtime', () => {
       {
         azimuthDeg: 0,
         elevationDeg: scenario.initialPitchDeg,
-        vMag: 5.2,
+        vMag: 2.1,
         nameId: 1,
       },
       {
         azimuthDeg: 6,
         elevationDeg: scenario.initialPitchDeg,
-        vMag: 6.8,
+        vMag: 5.2,
         nameId: 2,
       },
     ])
@@ -669,12 +669,12 @@ describe('ViewerShell scope runtime', () => {
     expect(container.querySelectorAll('[data-testid="sky-object-marker"]')).toHaveLength(2)
   })
 
-  it('progressively reveals deep stars as aperture increases while keeping radius fixed', async () => {
+  it('progressively reveals deep stars across the 20mm to 400mm anchored aperture range while keeping radius fixed', async () => {
     const dataset = createMultiBandScopeDataset([
       {
         azimuthDeg: 0,
         elevationDeg: getDemoScenario('tokyo-iss').initialPitchDeg,
-        vMag: 5.4,
+        vMag: 2.7,
       },
     ])
     global.fetch = vi.fn().mockImplementation(dataset.fetcher) as typeof fetch
@@ -682,7 +682,7 @@ describe('ViewerShell scope runtime', () => {
     setStoredViewerSettings({
       scopeModeEnabled: true,
       scopeOptics: {
-        apertureMm: 40,
+        apertureMm: 20,
         magnificationX: 50,
         transparencyPct: 85,
       },
@@ -692,21 +692,42 @@ describe('ViewerShell scope runtime', () => {
     await renderViewer()
 
     const dimStars = getCanvasStars()
-    const expectedRadius = computeScopeDeepStarCoreRadiusPx(5.4)
-    const dimLimit = computeScopeLimitingMagnitude({
+    const edgeDimLimit = computeScopeLimitingMagnitude({
+      apertureMm: 20,
+      magnificationX: 50,
+      transparencyPct: 85,
+      altitudeDeg: getDemoScenario('tokyo-iss').initialPitchDeg,
+    })
+    const expectedEdgeDimAlpha = computeScopeDeepStarEmergenceAlpha(edgeDimLimit - 2.7)
+
+    expect(expectedEdgeDimAlpha).toBe(0)
+    expect(dimStars).toHaveLength(0)
+
+    await rerenderViewerWithSettings({
+      scopeModeEnabled: true,
+      scopeOptics: {
+        apertureMm: 40,
+        magnificationX: 50,
+        transparencyPct: 85,
+      },
+      labelDisplayMode: 'center_only',
+    })
+
+    const lowAnchorStars = getCanvasStars()
+    const expectedRadius = computeScopeDeepStarCoreRadiusPx(2.7)
+    const lowAnchorLimit = computeScopeLimitingMagnitude({
       apertureMm: 40,
       magnificationX: 50,
       transparencyPct: 85,
       altitudeDeg: getDemoScenario('tokyo-iss').initialPitchDeg,
     })
-    const expectedDimAlpha = computeScopeDeepStarEmergenceAlpha(dimLimit - 5.4)
+    const expectedLowAnchorAlpha = computeScopeDeepStarEmergenceAlpha(lowAnchorLimit - 2.7)
 
-    expect(dimStars).toHaveLength(1)
-    expect(dimStars[0]?.radii).toHaveLength(1)
-    expect(dimStars[0]?.radii[0]).toBeCloseTo(expectedRadius)
-    expect(dimStars[0]?.alphas[0]).toBeCloseTo(expectedDimAlpha)
-    expect(Math.max(...(dimStars[0]?.alphas ?? [0]))).toBeGreaterThan(0)
-    expect(Math.max(...(dimStars[0]?.alphas ?? [1]))).toBeLessThan(1)
+    expect(lowAnchorStars).toHaveLength(1)
+    expect(lowAnchorStars[0]?.radii[0]).toBeCloseTo(expectedRadius)
+    expect(lowAnchorStars[0]?.alphas[0]).toBeCloseTo(expectedLowAnchorAlpha)
+    expect(Math.max(...(lowAnchorStars[0]?.alphas ?? [0]))).toBeGreaterThan(0)
+    expect(Math.max(...(lowAnchorStars[0]?.alphas ?? [1]))).toBeLessThan(1)
 
     await rerenderViewerWithSettings({
       scopeModeEnabled: true,
@@ -718,19 +739,46 @@ describe('ViewerShell scope runtime', () => {
       labelDisplayMode: 'center_only',
     })
 
-    const brightStars = getCanvasStars()
-    const brightLimit = computeScopeLimitingMagnitude({
+    const highAnchorStars = getCanvasStars()
+    const highAnchorLimit = computeScopeLimitingMagnitude({
       apertureMm: 240,
       magnificationX: 50,
       transparencyPct: 85,
       altitudeDeg: getDemoScenario('tokyo-iss').initialPitchDeg,
     })
-    const expectedBrightAlpha = computeScopeDeepStarEmergenceAlpha(brightLimit - 5.4)
+    const expectedHighAnchorAlpha = computeScopeDeepStarEmergenceAlpha(highAnchorLimit - 2.7)
+
+    expect(highAnchorStars).toHaveLength(1)
+    expect(highAnchorStars[0]?.radii[0]).toBeCloseTo(expectedRadius)
+    expect(highAnchorStars[0]?.alphas[0]).toBeCloseTo(expectedHighAnchorAlpha)
+
+    await rerenderViewerWithSettings({
+      scopeModeEnabled: true,
+      scopeOptics: {
+        apertureMm: 400,
+        magnificationX: 50,
+        transparencyPct: 85,
+      },
+      labelDisplayMode: 'center_only',
+    })
+
+    const brightStars = getCanvasStars()
+    const brightLimit = computeScopeLimitingMagnitude({
+      apertureMm: 400,
+      magnificationX: 50,
+      transparencyPct: 85,
+      altitudeDeg: getDemoScenario('tokyo-iss').initialPitchDeg,
+    })
+    const expectedBrightAlpha = computeScopeDeepStarEmergenceAlpha(brightLimit - 2.7)
 
     expect(brightStars).toHaveLength(1)
     expect(brightStars[0]?.radii[0]).toBeCloseTo(expectedRadius)
     expect(brightStars[0]?.alphas[0]).toBeCloseTo(expectedBrightAlpha)
-    expect(Math.max(...brightStars[0].alphas)).toBeGreaterThan(Math.max(...dimStars[0].alphas))
+    expect(highAnchorLimit).toBeGreaterThan(lowAnchorLimit)
+    expect(brightLimit).toBeGreaterThan(highAnchorLimit)
+    expect(Math.max(...highAnchorStars[0].alphas)).toBeGreaterThan(
+      Math.max(...lowAnchorStars[0].alphas),
+    )
     expect(Math.max(...brightStars[0].alphas)).toBe(1)
   })
 
@@ -1140,7 +1188,7 @@ function createScopeDataset(name: string, deferredTile?: ReturnType<typeof creat
     decMicroDeg: Math.round(centeredEquatorial.decDeg * 1_000_000),
     pmRaMasPerYear: 0,
     pmDecMasPerYear: 0,
-    vMagMilli: 5800,
+    vMagMilli: 5200,
     bMinusVMilli: 200,
     nameId: 1,
   })

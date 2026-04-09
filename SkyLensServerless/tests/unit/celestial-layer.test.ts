@@ -287,6 +287,42 @@ describe('celestial layer', () => {
     ).toBe(true)
   })
 
+  it('keeps scope render and scope filter limiting magnitudes aligned across anchor and edge apertures', () => {
+    const apertures = [20, 40, 240, 400]
+
+    for (const apertureMm of apertures) {
+      const opticsStars = normalizeVisibleStars({
+        observer: nyDayObserver as ObserverState,
+        timeMs: nyDayObserver.timestampMs,
+        enabledLayers: ENABLED_LAYERS,
+        likelyVisibleOnly: false,
+        sunAltitudeDeg: 12.61,
+        activeOptics: {
+          apertureMm,
+          magnificationX: 50,
+        },
+      })
+
+      expect(opticsStars.length).toBeGreaterThan(0)
+      expect(
+        opticsStars.every((entry) => {
+          const scopeRender = entry.object.metadata.scopeRender as
+            | {
+                effectiveLimitMag?: number
+              }
+            | undefined
+          const scopeFilter = entry.object.metadata.scopeFilter as
+            | {
+                effectiveLimitMag?: number
+              }
+            | undefined
+
+          return scopeRender?.effectiveLimitMag === scopeFilter?.effectiveLimitMag
+        }),
+      ).toBe(true)
+    }
+  })
+
   it('locks celestial, star, and constellation detail payload fields', () => {
     const celestial = normalizeCelestialObjects({
       observer: sfEveningObserver as ObserverState,

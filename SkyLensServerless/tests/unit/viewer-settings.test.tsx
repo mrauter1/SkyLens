@@ -517,6 +517,41 @@ describe('ViewerShell settings integration', () => {
     })
   })
 
+  it('keeps the main-view 40mm and 1x defaults when persisted scope optics use the 400mm edge', () => {
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabledLayers: {
+          aircraft: false,
+          satellites: true,
+          planets: true,
+          stars: true,
+          constellations: true,
+        },
+        likelyVisibleOnly: false,
+        labelDisplayMode: 'on_objects',
+        motionQuality: 'balanced',
+        verticalFovAdjustmentDeg: 6,
+        scopeOptics: {
+          apertureMm: 400,
+          magnificationX: 75,
+          transparencyPct: 92,
+        },
+        onboardingCompleted: false,
+      }),
+    )
+
+    expect(readViewerSettings().mainViewOptics).toEqual({
+      apertureMm: 40,
+      magnificationX: 1,
+    })
+    expect(readViewerSettings().scopeOptics).toEqual({
+      apertureMm: 400,
+      magnificationX: 75,
+      transparencyPct: 92,
+    })
+  })
+
   it('persists normal-view aperture independently from scope optics and keeps main-view magnification fixed at 1x', () => {
     writeViewerSettings({
       ...readViewerSettings(),

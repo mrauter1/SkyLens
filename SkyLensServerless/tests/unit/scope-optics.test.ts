@@ -21,6 +21,37 @@ import {
   scopeVerticalFovDegToMagnificationX,
 } from '../../lib/viewer/scope-optics'
 
+const SCOPE_LIMITING_MAGNITUDE_ANCHOR_LOW = {
+  apertureMm: 40,
+  magnitude: 3,
+} as const
+const SCOPE_LIMITING_MAGNITUDE_ANCHOR_HIGH = {
+  apertureMm: 240,
+  magnitude: 10,
+} as const
+const SCOPE_LIMITING_MAGNITUDE_MAX = 15.5
+const SCOPE_LIMITING_MAGNITUDE_SLOPE =
+  (SCOPE_LIMITING_MAGNITUDE_ANCHOR_HIGH.magnitude -
+    SCOPE_LIMITING_MAGNITUDE_ANCHOR_LOW.magnitude) /
+  (SCOPE_LIMITING_MAGNITUDE_ANCHOR_HIGH.apertureMm -
+    SCOPE_LIMITING_MAGNITUDE_ANCHOR_LOW.apertureMm)
+
+function getAltitudePenaltyForTest(altitudeDeg: number) {
+  const zenithDistanceDeg = Math.min(Math.max(90 - altitudeDeg, 0), 80)
+  const airmass = 1 / Math.cos((zenithDistanceDeg * Math.PI) / 180)
+
+  return 0.22 * (airmass - 1)
+}
+
+function getExpectedScopeLimitingMagnitudeForTest(apertureMm: number, altitudeDeg: number) {
+  const base =
+    SCOPE_LIMITING_MAGNITUDE_ANCHOR_LOW.magnitude +
+    (apertureMm - SCOPE_LIMITING_MAGNITUDE_ANCHOR_LOW.apertureMm) *
+      SCOPE_LIMITING_MAGNITUDE_SLOPE
+
+  return Math.min(base - getAltitudePenaltyForTest(altitudeDeg), SCOPE_LIMITING_MAGNITUDE_MAX)
+}
+
 describe('scope optics helpers', () => {
   it('normalizes malformed optics inputs to finite shared-range defaults', () => {
     const optics = normalizeScopeOptics({
@@ -59,16 +90,10 @@ describe('scope optics helpers', () => {
     expect(computeScopeDeepStarCoreRadiusPx(Number.NaN)).toBe(1)
   })
 
-  it('derives the deep-star render limit from the raw aperture-altitude formula', () => {
+  it('derives the deep-star render limit from the anchored aperture-altitude line', () => {
     const apertureMm = 20
     const altitudeDeg = -90
-    const zenithDistanceDeg = 80
-    const airmass = 1 / Math.cos((zenithDistanceDeg * Math.PI) / 180)
-    const altitudePenalty = 0.22 * (airmass - 1)
-    const expectedLimitMag = Math.min(
-      2.7 + 2.0 * Math.log10(apertureMm) - altitudePenalty,
-      15.5,
-    )
+    const expectedLimitMag = getExpectedScopeLimitingMagnitudeForTest(apertureMm, altitudeDeg)
     const renderProfile = computeScopeRenderProfile({
       magnitude: 6,
       altitudeDeg,
@@ -89,26 +114,37 @@ describe('scope optics helpers', () => {
     expect(renderProfile.effectiveLimitMag).toBeCloseTo(expectedLimitMag)
   })
 
-  it('keeps the helper and render profile aligned at the highest supported aperture', () => {
-    const expectedLimitMag = Math.min(2.7 + 2.0 * Math.log10(400), 15.5)
-    const limitingMagnitude = computeScopeLimitingMagnitude({
-      apertureMm: 400,
-      magnificationX: 50,
-      transparencyPct: 85,
-      altitudeDeg: 90,
-    })
-    const renderProfile = computeScopeRenderProfile({
-      magnitude: 6,
-      altitudeDeg: 90,
-      optics: {
-        apertureMm: 400,
+  it('keeps the helper and render profile aligned across anchor and edge apertures', () => {
+    const cases = [
+      { apertureMm: 20, expectedAtZenith: 2.3 },
+      { apertureMm: 40, expectedAtZenith: 3 },
+      { apertureMm: 240, expectedAtZenith: 10 },
+      { apertureMm: 400, expectedAtZenith: 15.5 },
+    ]
+
+    for (const { apertureMm, expectedAtZenith } of cases) {
+      const limitingMagnitude = computeScopeLimitingMagnitude({
+        apertureMm,
         magnificationX: 50,
         transparencyPct: 85,
-      },
-    })
+        altitudeDeg: 90,
+      })
+      const renderProfile = computeScopeRenderProfile({
+        magnitude: 6,
+        altitudeDeg: 90,
+        optics: {
+          apertureMm,
+          magnificationX: 50,
+          transparencyPct: 85,
+        },
+      })
 
-    expect(limitingMagnitude).toBeCloseTo(expectedLimitMag)
-    expect(renderProfile.effectiveLimitMag).toBeCloseTo(expectedLimitMag)
+      expect(limitingMagnitude).toBeCloseTo(expectedAtZenith)
+      expect(limitingMagnitude).toBeCloseTo(
+        getExpectedScopeLimitingMagnitudeForTest(apertureMm, 90),
+      )
+      expect(renderProfile.effectiveLimitMag).toBeCloseTo(expectedAtZenith)
+    }
   })
 
   it('brightens the render profile and limiting magnitude under stronger aperture and better altitude', () => {
@@ -187,7 +223,7 @@ describe('scope optics helpers', () => {
   })
 
   it('retains threshold stars monotonically as aperture and altitude improve', () => {
-    const magnitude = 6.15
+    const magnitude = 5.7
 
     expect(
       passesScopeLimitingMagnitude({
@@ -463,7 +499,7 @@ describe('scope optics helpers', () => {
       mainViewDeepStarsEnabled: true,
       magnificationX: startupOptics.magnificationX,
     })
-    const startupFixtureMagnitudes = [5.2, 5.8, 6.1, 6.7, 7.2]
+    const startupFixtureMagnitudes = [2.2, 2.6, 3.1, 3.4, 4.2]
     const visibleStartupCount = startupFixtureMagnitudes
       .filter((magnitude) => magnitude <= (startupGovernor.band?.maxMagnitude ?? 0))
       .filter((magnitude) => {

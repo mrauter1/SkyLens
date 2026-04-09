@@ -1,21 +1,27 @@
-Autoloop correction pass:
+Autoloop implementation task.
 
-Goal:
-- Remove the hard lower limiting-magnitude floor completely from optics logic.
-- Keep normal-view default aperture at 40mm.
-
-Strict requirements:
-1) In SkyLensServerless/lib/viewer/scope-optics.ts, no limiting-magnitude path should clamp to a fixed minimum floor of 3.
-2) computeScopeLimitingMagnitude and deep-star render limit behavior should both be floor-free on the low end.
-3) Keep any upper safety cap if needed (e.g., max 15.5) and invalid input handling.
-4) Main-view default aperture remains 40mm.
-
-Update tests accordingly and run:
-- pnpm --dir SkyLensServerless exec vitest run tests/unit/scope-optics.test.ts
-- pnpm --dir SkyLensServerless exec vitest run tests/unit/viewer-settings.test.tsx
-- pnpm --dir SkyLensServerless test
+Important formatting rule for autoloop planning artifacts:
+- Do not use backticks or markdown inline code in phase_plan yaml content fields.
+- Use plain text only.
 
 Execution requirements:
 - full_auto answers
 - pairs plan,implement,test
-- no max_iterations
+- do not set max_iterations
+- implement only via autoloop
+
+Required model change:
+- Normalize limiting magnitude to anchored linear aperture mapping:
+  at 40 mm gives limiting magnitude 3
+  at 240 mm gives limiting magnitude 10
+  linear interpolation between these anchors
+- Keep altitude penalty behavior in place.
+- Keep main view default aperture at 40 mm.
+- Ensure helper and render profile stay consistent.
+- Update tests for anchors and regressions.
+
+Validation commands:
+pnpm --dir SkyLensServerless exec vitest run tests/unit/scope-optics.test.ts
+pnpm --dir SkyLensServerless exec vitest run tests/unit/viewer-settings.test.tsx
+pnpm --dir SkyLensServerless exec vitest run tests/unit/viewer-shell-scope-runtime.test.tsx
+pnpm --dir SkyLensServerless test
