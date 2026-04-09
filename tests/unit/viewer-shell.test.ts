@@ -806,6 +806,13 @@ describe('ViewerShell startup gating', () => {
     expect(initialApertureSlider).not.toBeNull()
     expect(initialApertureSlider?.min).toBe('20')
     expect(initialApertureSlider?.max).toBe('100')
+
+    await act(async () => {
+      setInputValue(initialApertureSlider!, '30')
+    })
+    await flushEffects()
+
+    expect(readViewerSettings().scopeOptics.apertureMm).toBe(30)
     expect(container.querySelector('[data-testid="mobile-scope-magnification-slider"]')).toBeNull()
     expect(container.querySelector('[data-testid="mobile-marker-scale-slider"]')).toBeNull()
     expect(latestSettingsProps()).toMatchObject({

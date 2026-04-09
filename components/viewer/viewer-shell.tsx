@@ -2376,15 +2376,20 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     key: Key,
     value: ScopeOpticsSettings[Key],
   ) => {
-    const range = SCOPE_OPTICS_RANGES[key]
+    setViewerSettings((current) => {
+      const range =
+        key === 'apertureMm' && !current.scopeModeEnabled
+          ? NORMAL_VIEW_APERTURE_RANGE
+          : SCOPE_OPTICS_RANGES[key]
 
-    setViewerSettings((current) => ({
-      ...current,
-      scopeOptics: {
-        ...current.scopeOptics,
-        [key]: clampNumber(value, range.min, range.max),
-      },
-    }))
+      return {
+        ...current,
+        scopeOptics: {
+          ...current.scopeOptics,
+          [key]: clampNumber(value, range.min, range.max),
+        },
+      }
+    })
   }
 
   const settingsSheetProps = {
