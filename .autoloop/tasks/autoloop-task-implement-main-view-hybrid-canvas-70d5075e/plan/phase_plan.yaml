@@ -1,0 +1,71 @@
+version: 1
+task_id: autoloop-task-implement-main-view-hybrid-canvas-70d5075e
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/autoloop-task-implement-main-view-hybrid-canvas-70d5075e/runs/run-20260409T134236Z-e7c2ee06/request.md
+phases:
+  - phase_id: main-view-canvas-runtime
+    title: Split non-scope deep stars onto a visual-only canvas surface
+    objective: Introduce the main-view deep-star canvas path and separate logical deep-star participation from interactive DOM markers without changing scope mode.
+    status: planned
+    in_scope:
+      - Add a main-view star canvas component or a minimal shared star-point canvas primitive reused by the scope canvas.
+      - Derive non-scope deep-star canvas points from visible projected deep stars in viewer-shell.
+      - Exclude non-scope deep stars from interactive DOM marker rendering while preserving their logical projected-object membership.
+      - Keep scope lens overlay behavior, optics, and canvas semantics unchanged.
+    out_of_scope:
+      - New settings, feature flags, or persisted schema changes.
+      - Changes to deep-star catalog loading, tile selection, or optics math beyond what is required for the render-surface split.
+      - Broader viewer UI redesign or accessibility changes outside the interactive-marker surface.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: Non-scope deep stars render via a pointer-inert canvas layer sized to the full stage viewport.
+      - id: AC-2
+        text: Non-scope deep stars no longer produce sky-object-marker DOM buttons, while center-lock and label candidate membership still includes them.
+      - id: AC-3
+        text: Scope mode remains on the existing lens overlay canvas path with no functional behavior change.
+      - id: AC-4
+        text: Main-view deep-star color, alpha, and radius semantics match the current scope-canvas rules.
+    deliverables:
+      - Updated viewer-shell runtime data split and canvas mount
+      - New main-view star canvas component or minimal shared canvas primitive
+      - Preserved scope star canvas contract
+    risks:
+      - Label behavior could silently regress if non-scope labels keep reading from the interactive marker list.
+      - Shared-canvas extraction could accidentally change scope sizing or test ids.
+      - Visible-marker diagnostics will drop unless they are explicitly treated as DOM-marker-only counts.
+    rollback:
+      - Remove the non-scope canvas mount and restore non-scope deep stars to the markerObjects DOM path.
+      - Revert any shared-canvas extraction while keeping scope canvas behavior as the source of truth.
+  - phase_id: hybrid-regression-validation
+    title: Rebaseline tests around the hybrid main-view contract
+    objective: Update unit coverage to assert the new non-scope canvas behavior while guarding center-lock, label, scope-mode, settings, and interaction regressions.
+    status: planned
+    in_scope:
+      - Add focused unit tests for the main-view star canvas draw behavior and DPR/clamping semantics.
+      - Update viewer-shell scope-runtime expectations from main-view deep-star DOM markers to canvas-only rendering.
+      - Validate unchanged center-lock, label-mode, bright-object interaction, scope-mode, and settings behavior in targeted suites.
+      - Run full SkyLensServerless vitest coverage if targeted suites pass.
+    out_of_scope:
+      - New end-to-end coverage unrelated to the hybrid renderer.
+      - Broad rewrites of existing viewer tests that are unaffected by the rendering split.
+    dependencies:
+      - main-view-canvas-runtime
+    acceptance_criteria:
+      - id: AC-1
+        text: Unit tests cover main-view canvas draws, B-V parity, and alpha/radius clamping.
+      - id: AC-2
+        text: Viewer-shell tests assert that non-scope deep stars remain in center-lock and label flows but are absent from interactive marker DOM.
+      - id: AC-3
+        text: Scope runtime coverage confirms the scope lens path is unchanged by the main-view hybrid change.
+      - id: AC-4
+        text: Targeted suites pass and the full SkyLensServerless vitest run is executed if feasible.
+    deliverables:
+      - Updated targeted unit coverage for hybrid main-view rendering
+      - Passing targeted test results and full-suite result if feasible
+      - Explicit residual-risk note if any full-suite execution is blocked
+    risks:
+      - Existing assertions may overfit old DOM marker behavior and require careful replacement rather than deletion.
+      - Full-suite failures may expose unrelated existing instability and need triage without expanding scope.
+    rollback:
+      - Restore prior test expectations only if the runtime change is reverted.
+      - Keep new tests narrowly scoped so runtime rollback does not require unrelated test churn.

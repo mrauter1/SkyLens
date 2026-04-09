@@ -415,6 +415,8 @@ describe('ViewerShell scope runtime', () => {
     await renderViewer()
 
     expect(container.querySelector('[data-testid="scope-lens-overlay"]')).toBeNull()
+    expect(container.querySelector('[data-testid="main-star-canvas"]')).not.toBeNull()
+    expect(container.querySelectorAll('[data-testid="sky-object-marker"]')).toHaveLength(0)
     expect(container.querySelector('[data-testid="center-lock-chip"]')?.textContent).toContain(
       'Scope Star 1',
     )
@@ -433,7 +435,7 @@ describe('ViewerShell scope runtime', () => {
     expect(labels.some((label) => label.textContent?.includes('Scope Star 1'))).toBe(true)
   })
 
-  it('renders visible normal-view deep stars as the same set used for center-lock', async () => {
+  it('renders visible normal-view deep stars on canvas while preserving center-lock and label membership', async () => {
     const scenario = getDemoScenario('tokyo-iss')
     const dataset = createMultiBandScopeDataset([
       {
@@ -458,11 +460,9 @@ describe('ViewerShell scope runtime', () => {
 
     await renderViewer()
 
-    const markers = Array.from(container.querySelectorAll('[data-testid="sky-object-marker"]'))
-
-    expect(getSkyObjectMarkerPositionByLabel('Scope Star 1')).not.toBeNull()
-    expect(getSkyObjectMarkerPositionByLabel('Scope Star 2')).not.toBeNull()
-    expect(markers).toHaveLength(2)
+    expect(container.querySelector('[data-testid="main-star-canvas"]')).not.toBeNull()
+    expect(container.querySelectorAll('[data-testid="sky-object-marker"]')).toHaveLength(0)
+    expect(getCanvasStars()).toHaveLength(2)
     expect(container.querySelector('[data-testid="center-lock-chip"]')?.textContent ?? '').toContain(
       'Scope Star 1',
     )
@@ -478,7 +478,47 @@ describe('ViewerShell scope runtime', () => {
     expect(labels.some((label) => label.textContent?.includes('Scope Star 2'))).toBe(true)
   })
 
-  it('shares the B-V deep-star color mapping for focused main-view markers', async () => {
+  it('keeps non-scope deep stars in top-list labels while visible-marker diagnostics stay DOM-only', async () => {
+    const scenario = getDemoScenario('tokyo-iss')
+    const dataset = createMultiBandScopeDataset([
+      {
+        azimuthDeg: 0,
+        elevationDeg: scenario.initialPitchDeg,
+        vMag: 2.1,
+        nameId: 1,
+      },
+      {
+        azimuthDeg: 8,
+        elevationDeg: scenario.initialPitchDeg,
+        vMag: 2.3,
+        nameId: 2,
+      },
+    ])
+    global.fetch = vi.fn().mockImplementation(dataset.fetcher) as typeof fetch
+
+    setStoredViewerSettings({
+      scopeModeEnabled: false,
+      labelDisplayMode: 'top_list',
+    })
+
+    await renderViewer()
+
+    const topList = container.querySelector('[data-testid="sky-object-top-list"]')
+    const topListItems = Array.from(container.querySelectorAll('[data-testid="sky-object-top-list-item"]'))
+
+    expect(container.querySelector('[data-testid="main-star-canvas"]')).not.toBeNull()
+    expect(container.querySelectorAll('[data-testid="sky-object-marker"]')).toHaveLength(0)
+    expect(topList).not.toBeNull()
+    expect(topListItems).toHaveLength(2)
+    expect(topList?.textContent).toContain('Scope Star 1')
+    expect(topList?.textContent).toContain('Scope Star 2')
+
+    await openDesktopViewerPanel()
+
+    expect(container.textContent).toContain('Visible markers 0')
+  })
+
+  it('shares the B-V deep-star color mapping for main-view canvas stars', async () => {
     const scenario = getDemoScenario('tokyo-iss')
     const dataset = createMultiBandScopeDataset([
       {
@@ -498,14 +538,10 @@ describe('ViewerShell scope runtime', () => {
 
     await renderViewer()
 
-    const marker = Array.from(
-      container.querySelectorAll('[data-testid="sky-object-marker"]'),
-    ).find((element) => element.getAttribute('aria-label')?.includes('Scope Star 1'))
-      ?.querySelector('span:not(.sr-only)') as HTMLSpanElement | null
-
-    expect(marker).not.toBeNull()
-    expect(marker?.style.backgroundColor).toContain('255, 222, 186')
-    expect(marker?.style.boxShadow).toContain('255, 222, 186')
+    expect(container.querySelector('[data-testid="main-star-canvas"]')).not.toBeNull()
+    expect(container.querySelectorAll('[data-testid="sky-object-marker"]')).toHaveLength(0)
+    expect(canvasFillCalls).toHaveLength(1)
+    expect(canvasFillCalls[0]?.fillStyle).toBe('rgba(255, 222, 186, 0.88)')
   })
 
   it('keeps center-lock ordering unchanged when a brighter object wins focus under magnified projection', async () => {
@@ -555,10 +591,10 @@ describe('ViewerShell scope runtime', () => {
     await openDesktopViewerPanel()
 
     const markerPosition = getSkyObjectMarkerPosition('planet-jupiter')
-    const deepStarMarkerPosition = getSkyObjectMarkerPositionByLabel('Scope Star 1')
+    const deepStarCanvasStar = getCanvasStars()[0] ?? null
 
     expect(markerPosition).not.toBeNull()
-    expect(deepStarMarkerPosition).not.toBeNull()
+    expect(deepStarCanvasStar).not.toBeNull()
     expect(container.querySelector('[data-testid="center-lock-chip"]')?.textContent).toContain(
       'Jupiter',
     )
@@ -657,16 +693,15 @@ describe('ViewerShell scope runtime', () => {
 
     await renderViewer()
 
-    expect(getSkyObjectMarkerPositionByLabel('Scope Star 1')).not.toBeNull()
-    expect(getSkyObjectMarkerPositionByLabel('Scope Star 2')).toBeNull()
-    expect(container.querySelectorAll('[data-testid="sky-object-marker"]')).toHaveLength(1)
+    expect(container.querySelector('[data-testid="main-star-canvas"]')).not.toBeNull()
+    expect(getCanvasStars()).toHaveLength(1)
+    expect(container.querySelectorAll('[data-testid="sky-object-marker"]')).toHaveLength(0)
 
     await openDesktopViewerPanel()
     await setSliderValue('desktop-scope-aperture-slider', '100')
 
-    expect(getSkyObjectMarkerPositionByLabel('Scope Star 1')).not.toBeNull()
-    expect(getSkyObjectMarkerPositionByLabel('Scope Star 2')).not.toBeNull()
-    expect(container.querySelectorAll('[data-testid="sky-object-marker"]')).toHaveLength(2)
+    expect(getCanvasStars()).toHaveLength(2)
+    expect(container.querySelectorAll('[data-testid="sky-object-marker"]')).toHaveLength(0)
   })
 
   it('progressively reveals deep stars across the 20mm to 400mm anchored aperture range while keeping radius fixed', async () => {

@@ -191,6 +191,7 @@ import {
   ScopeLensOverlay,
   type ScopeLensOverlayObject,
 } from './scope-lens-overlay'
+import { MainStarCanvas, type MainStarCanvasPoint } from './main-star-canvas'
 import type { ScopeStarCanvasPoint } from './scope-star-canvas'
 
 type ViewerShellProps = {
@@ -1175,19 +1176,26 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const centerLockedObject: SummarySkyObject | null = scopeModeActive
     ? scopeCenterLockedObject
     : mainCenterLockedObject
-  const markerObjects: ActiveProjectedSkyObject[] = [
-    ...projectedObjects,
-    ...(scopeModeActive ? [] : mainViewRenderedDeepStars),
-  ].filter(
+  const mainViewInteractiveMarkerObjects: ProjectedSkyObject[] = projectedObjects.filter(
     (object) =>
       object.projection.visible &&
       (!isCelestialDaylightLabelSuppressed(object) ||
         object.id === wideSceneCenterLockedObject?.id ||
         object.id === selectedObjectId),
   )
+  const mainViewDeepStarCanvasPoints: MainStarCanvasPoint[] =
+    hasMounted && !scopeModeActive
+      ? mainViewRenderedDeepStars.map((object) =>
+          toDeepStarCanvasPoint(object, {
+            x: object.projection.x,
+            y: object.projection.y,
+          }),
+        )
+      : []
+  const interactiveMarkerObjects: ActiveProjectedSkyObject[] = mainViewInteractiveMarkerObjects
   const labelObjects: ActiveProjectedSkyObject[] = scopeModeActive
     ? [...scopeActiveBrightObjects, ...projectedDeepStars.filter((object) => object.scopeInLensCircle)]
-    : markerObjects
+    : [...mainViewInteractiveMarkerObjects, ...mainViewRenderedDeepStars]
   const markerLabelCandidates = labelObjects.map((object) => ({
     object,
     projection: object.projection,
@@ -1241,24 +1249,12 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     hasMounted && scopeModeActive
       ? projectedDeepStars
           .filter((object) => object.scopeInLensCircle)
-          .map((object) => {
-            const scopeRender = getScopeRenderProfile(object)
-            const safeMagnitude =
-              typeof object.magnitude === 'number' && Number.isFinite(object.magnitude)
-                ? object.magnitude
-                : 12
-            const deltaMag =
-              (scopeRender?.effectiveLimitMag ?? safeMagnitude) - safeMagnitude
-
-            return {
-              id: object.id,
+          .map((object) =>
+            toDeepStarCanvasPoint(object, {
               x: object.scopeProjection?.x ?? 0,
               y: object.scopeProjection?.y ?? 0,
-              bMinusV: object.bMinusV,
-              alpha: computeScopeDeepStarEmergenceAlpha(deltaMag),
-              radius: computeScopeDeepStarCoreRadiusPx(safeMagnitude),
-            }
-          })
+            }),
+          )
       : []
   const scopeLensObjects: ScopeLensOverlayObject[] =
     hasMounted && scopeModeActive
@@ -1284,7 +1280,8 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
           }))
       : []
   const renderedLineSegments = hasMounted ? constellationScene.lineSegments : []
-  const renderedMarkerObjects = hasMounted ? markerObjects : []
+  const renderedMainViewDeepStarCanvasPoints = hasMounted ? mainViewDeepStarCanvasPoints : []
+  const renderedMarkerObjects = hasMounted ? interactiveMarkerObjects : []
   const renderedOnObjectLabels = hasMounted ? onObjectLabels : []
   const renderedTopListObjects = hasMounted ? topListObjects : []
   const renderedCenterLockedObject = hasMounted ? centerLockedObject : null
@@ -2163,13 +2160,13 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   useEffect(() => {
     if (
       hoveredObjectId !== null &&
-      !markerObjects.some(
+      !interactiveMarkerObjects.some(
         (object) => object.id === hoveredObjectId && object.projection.visible,
       )
     ) {
       setHoveredObjectId(null)
     }
-  }, [hoveredObjectId, markerObjects])
+  }, [hoveredObjectId, interactiveMarkerObjects])
 
   useEffect(() => {
     liveObserverRef.current = liveObserver
@@ -3928,6 +3925,13 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             </div>
           </div>
         ) : null}
+        {!scopeModeActive && renderedMainViewDeepStarCanvasPoints.length > 0 ? (
+          <MainStarCanvas
+            widthPx={viewport.width}
+            heightPx={viewport.height}
+            stars={renderedMainViewDeepStarCanvasPoints}
+          />
+        ) : null}
         {renderedMarkerObjects.map((object) => {
           const markerSizePx = getMarkerSizePxForEffectiveVerticalFovDeg(
             object,
@@ -5387,6 +5391,31 @@ function getScopeRenderProfile(object: SkyObject): ScopeRenderProfile | null {
     intensity,
     corePx,
     haloPx,
+  }
+}
+
+function toDeepStarCanvasPoint(
+  object: ProjectedDeepStarObject,
+  position: {
+    x: number
+    y: number
+  },
+): ScopeStarCanvasPoint {
+  const scopeRender = getScopeRenderProfile(object)
+  const safeMagnitude =
+    typeof object.magnitude === 'number' && Number.isFinite(object.magnitude)
+      ? object.magnitude
+      : 12
+  const deltaMag =
+    (scopeRender?.effectiveLimitMag ?? safeMagnitude) - safeMagnitude
+
+  return {
+    id: object.id,
+    x: position.x,
+    y: position.y,
+    bMinusV: object.bMinusV,
+    alpha: computeScopeDeepStarEmergenceAlpha(deltaMag),
+    radius: computeScopeDeepStarCoreRadiusPx(safeMagnitude),
   }
 }
 
