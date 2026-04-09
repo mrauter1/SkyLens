@@ -170,7 +170,7 @@ export function readViewerSettings(storage = getBrowserStorage()): ViewerSetting
     }
 
     const parsed = SettingsSchema.partial().parse(JSON.parse(rawValue))
-    const scopeOptics = getSettingsObject(parsed.scopeOptics)
+    const scopeOptics = ScopeOpticsSettingsSchema.partial().safeParse(parsed.scopeOptics)
 
     return normalizeViewerSettings({
       ...defaults,
@@ -181,9 +181,7 @@ export function readViewerSettings(storage = getBrowserStorage()): ViewerSetting
       },
       scopeOptics: {
         ...defaults.scopeOptics,
-        apertureMm: scopeOptics.apertureMm,
-        magnificationX: scopeOptics.magnificationX,
-        transparencyPct: scopeOptics.transparencyPct,
+        ...(scopeOptics.success ? scopeOptics.data : {}),
       },
     })
   } catch {
@@ -263,14 +261,6 @@ function normalizeManualObserver(
     lon: clamp(manualObserver.lon, -180, 180),
     altMeters: clamp(manualObserver.altMeters, -500, 10_000),
   }
-}
-
-function getSettingsObject(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return {}
-  }
-
-  return value as Record<string, unknown>
 }
 
 function normalizeMotionQuality(

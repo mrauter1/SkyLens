@@ -227,6 +227,11 @@ const MOTION_AFFORDANCE_SAMPLE_LIMITS: Record<MotionQuality, number> = {
   balanced: 8,
   high: 16,
 }
+const NORMAL_VIEW_APERTURE_RANGE = {
+  min: 20,
+  max: 100,
+  step: 1,
+} as const
 
 type ScopeQuickControlsProps = {
   layout: 'mobile' | 'desktop'
@@ -259,6 +264,10 @@ function ScopeQuickControls({
     return null
   }
 
+  const apertureRange = scopeModeEnabled
+    ? SCOPE_OPTICS_RANGES.apertureMm
+    : NORMAL_VIEW_APERTURE_RANGE
+
   return (
     <div
       className={containerClassName}
@@ -276,29 +285,29 @@ function ScopeQuickControls({
           />
         </label>
       ) : null}
+      <label className={labelClassName}>
+        <span className="flex items-center justify-between gap-3">
+          <span>Aperture</span>
+          <span
+            className="text-xs uppercase tracking-[0.16em] text-sky-200/65"
+            data-testid={`${testIdPrefix}-scope-aperture-value`}
+          >
+            {formatScopeApertureValue(scopeOptics.apertureMm)}
+          </span>
+        </span>
+        <input
+          aria-label="Quick scope aperture"
+          data-testid={`${testIdPrefix}-scope-aperture-slider`}
+          type="range"
+          min={apertureRange.min}
+          max={apertureRange.max}
+          step={apertureRange.step}
+          value={clampNumber(scopeOptics.apertureMm, apertureRange.min, apertureRange.max)}
+          onChange={(event) => onApertureChange(Number(event.target.value))}
+        />
+      </label>
       {scopeModeEnabled ? (
         <>
-          <label className={labelClassName}>
-            <span className="flex items-center justify-between gap-3">
-              <span>Aperture</span>
-              <span
-                className="text-xs uppercase tracking-[0.16em] text-sky-200/65"
-                data-testid={`${testIdPrefix}-scope-aperture-value`}
-              >
-                {formatScopeApertureValue(scopeOptics.apertureMm)}
-              </span>
-            </span>
-            <input
-              aria-label="Quick scope aperture"
-              data-testid={`${testIdPrefix}-scope-aperture-slider`}
-              type="range"
-              min={SCOPE_OPTICS_RANGES.apertureMm.min}
-              max={SCOPE_OPTICS_RANGES.apertureMm.max}
-              step={SCOPE_OPTICS_RANGES.apertureMm.step}
-              value={scopeOptics.apertureMm}
-              onChange={(event) => onApertureChange(Number(event.target.value))}
-            />
-          </label>
           <label className={labelClassName}>
             <span className="flex items-center justify-between gap-3">
               <span>Magnification</span>
@@ -3140,7 +3149,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
               style={{
                 left: `${object.projection.x}px`,
                 top: `${object.projection.y}px`,
-                opacity: getObjectMotionOpacity(object),
+                opacity: getObjectMarkerOpacity(object),
               }}
             >
               <span className="sr-only">
@@ -3853,6 +3862,9 @@ export function getScopeRenderMetadata(object: SkyObject): ScopeRenderMetadata |
   if (
     !candidate ||
     typeof candidate !== 'object' ||
+    !('displayIntensity' in candidate) ||
+    !('corePx' in candidate) ||
+    !('haloPx' in candidate) ||
     !isFiniteNumber(candidate.displayIntensity) ||
     !isFiniteNumber(candidate.corePx) ||
     !isFiniteNumber(candidate.haloPx)
@@ -4683,6 +4695,22 @@ function getObjectMotionOpacity(object: SkyObject) {
   }
 
   return clampNumber(motionOpacity, 0, 1)
+}
+
+function getObjectMarkerOpacity(object: SkyObject) {
+  const motionOpacity = getObjectMotionOpacity(object)
+
+  if (object.type !== 'star') {
+    return motionOpacity
+  }
+
+  const magnitude =
+    typeof object.magnitude === 'number' && Number.isFinite(object.magnitude)
+      ? object.magnitude
+      : 6
+  const starOpacity = clampNumber(1 - magnitude / 10, 0.35, 1)
+
+  return Number((motionOpacity * starOpacity).toFixed(3))
 }
 
 function formatDegrees(value: unknown) {
