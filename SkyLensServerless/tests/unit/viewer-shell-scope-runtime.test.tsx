@@ -392,7 +392,7 @@ describe('ViewerShell scope runtime', () => {
       {
         azimuthDeg: 0,
         elevationDeg: scenario.initialPitchDeg,
-        vMag: 5.2,
+        vMag: 4.8,
         nameId: 1,
       },
     ])
@@ -401,11 +401,11 @@ describe('ViewerShell scope runtime', () => {
     setStoredViewerSettings({
       scopeModeEnabled: false,
       mainViewOptics: {
-        apertureMm: 240,
+        apertureMm: 100,
         magnificationX: 1,
       },
       scopeOptics: {
-        apertureMm: 240,
+        apertureMm: 100,
         magnificationX: 50,
         transparencyPct: 85,
       },
@@ -422,7 +422,7 @@ describe('ViewerShell scope runtime', () => {
     await rerenderViewerWithSettings({
       scopeModeEnabled: false,
       scopeOptics: {
-        apertureMm: 240,
+        apertureMm: 100,
         magnificationX: 50,
         transparencyPct: 85,
       },
@@ -644,7 +644,7 @@ describe('ViewerShell scope runtime', () => {
       {
         azimuthDeg: 6,
         elevationDeg: scenario.initialPitchDeg,
-        vMag: 5.2,
+        vMag: 4.8,
         nameId: 2,
       },
     ])
@@ -662,7 +662,7 @@ describe('ViewerShell scope runtime', () => {
     expect(container.querySelectorAll('[data-testid="sky-object-marker"]')).toHaveLength(1)
 
     await openDesktopViewerPanel()
-    await setSliderValue('desktop-scope-aperture-slider', '240')
+    await setSliderValue('desktop-scope-aperture-slider', '100')
 
     expect(getSkyObjectMarkerPositionByLabel('Scope Star 1')).not.toBeNull()
     expect(getSkyObjectMarkerPositionByLabel('Scope Star 2')).not.toBeNull()
