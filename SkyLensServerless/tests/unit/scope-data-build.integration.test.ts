@@ -4,11 +4,10 @@ import path from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
+// @ts-expect-error Runtime-tested script module has no TypeScript declaration file.
 import { buildScopeDataset } from '../../scripts/scope/build-core.mjs'
-import {
-  DEV_FALLBACK_SEED_COUNT,
-  DEV_FALLBACK_TILE_FILE_CAP,
-} from '../../scripts/scope/constants.mjs'
+// @ts-expect-error Runtime-tested script module has no TypeScript declaration file.
+import { DEV_FALLBACK_SEED_COUNT, DEV_FALLBACK_TILE_FILE_CAP } from '../../scripts/scope/constants.mjs'
 
 async function hashTree(root: string) {
   const hash = createHash('sha256')

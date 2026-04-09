@@ -1,0 +1,37 @@
+version: 1
+task_id: autoloop-task-review-feedback-applicability-and-5b029dc0
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/autoloop-task-review-feedback-applicability-and-5b029dc0/runs/run-20260409T163720Z-f99483f1/request.md
+phases:
+  - phase_id: apply-hybrid-star-review-fixes
+    title: Apply safe canvas redraw fixes and effective deep-star memoization
+    objective: Implement only the review suggestions that are technically correct and materially reduce unnecessary redraw work without changing hybrid viewer behavior.
+    status: planned
+    in_scope:
+      - Conditionally resize the StarPointCanvas backing store only when rounded backing dimensions change.
+      - Keep 2D transform reset coupled to real backing-store resizes and clear the canvas safely for fractional viewport sizes.
+      - Re-evaluate the viewer-shell.tsx memoization suggestion and apply memoization only at the nearest boundary that stabilizes MainStarCanvas input identity.
+      - Add or update focused unit coverage and run npm test -- tests/unit/main-star-canvas.test.tsx, npm test -- tests/unit/viewer-shell-scope-runtime.test.tsx, and npm run build in SkyLensServerless.
+    out_of_scope:
+      - Refactoring unrelated viewer rendering pipelines.
+      - Changing public props, routing, settings, or scope dataset behavior.
+      - Adding speculative caching or shared abstractions outside the reviewed files.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: star-point-canvas.tsx only writes canvas.width and canvas.height when the rounded backing dimensions actually change.
+      - id: AC-2
+        text: Canvas clearing remains correct for fractional viewport sizes and redraw behavior remains visually unchanged.
+      - id: AC-3
+        text: viewer-shell.tsx either memoizes the main-view deep-star canvas input at the nearest effective derivation boundary or explicitly leaves it unchanged because no safe stabilizing boundary exists.
+      - id: AC-4
+        text: npm test -- tests/unit/main-star-canvas.test.tsx, npm test -- tests/unit/viewer-shell-scope-runtime.test.tsx, and npm run build pass in SkyLensServerless for the changed area.
+    deliverables:
+      - Updated planner guidance in plan.md for the applicable review fixes and their regression controls.
+      - An implementation-ready single phase covering code changes, tests, and rollback boundaries.
+    risks:
+      - Incomplete memo dependencies could freeze stale deep-star positions or visibility.
+      - Skipping redundant canvas resizes could miss a needed transform reset if resize detection is wrong.
+      - Tests may need lightweight harness updates to observe redraw-input identity rather than only visible DOM output.
+    rollback:
+      - Revert backing-store resize guarding if DPR or resize rendering regresses.
+      - Revert viewer-shell memoization separately if it fails to stabilize input identity or changes rendered behavior.

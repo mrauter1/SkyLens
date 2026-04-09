@@ -1,0 +1,43 @@
+{
+  "task_id": "memoize-main-view-deep-star-canvas-points-20260409",
+  "created_at": "2026-04-09T17:01:28.035858+00:00",
+  "request_text": "# Autoloop Task: Implement applicable memoization for mainViewDeepStarCanvasPoints\n\n## Goal\nImplement the inline review suggestion to memoize the `mainViewDeepStarCanvasPoints` pipeline in `SkyLensServerless/components/viewer/viewer-shell.tsx` so canvas redraws are not triggered by unnecessary array reference churn.\n\n## Scope\n- Analyze correctness and applicability of memoizing `mainViewDeepStarCanvasPoints`.\n- Implement memoization at the safest, nearest effective boundary (direct `useMemo` on the derived array, or a clearly justified nearby derivation boundary).\n- Keep behavior identical for deep-star visibility, projection, center-lock logic, and label candidate pipelines.\n- Update tests as needed to validate that unrelated rerenders do not trigger redundant deep-star canvas redraws.\n\n## Constraints\n- Keep changes minimal and focused to the memoization review item.\n- Do not introduce unrelated refactors.\n- Preserve existing architecture split between canvas-rendered deep stars and interactive DOM markers.\n\n## Acceptance criteria\n1. `mainViewDeepStarCanvasPoints` (or the closest effective derivation input used by `MainStarCanvas`) is memoized with correct dependencies.\n2. No stale render behavior from incorrect memo dependencies.\n3. Existing relevant tests pass and any necessary new/updated tests pass.\n4. Build/typecheck pass for `SkyLensServerless`.\n\n## Required execution mode\nRun autoloop with:\n- `--full-auto-answers`\n- pairs: `plan,implement,test`\n- no `--max-iterations` flag\n\n## Run Intent (2026-04-09T18:35:53.936919+00:00)\n# Autoloop Task: Resume memoization implementation and clean PR scope\n\n## Objective\nResume autoloop and complete the memoization fix for `viewer-shell.tsx` while ensuring the patch scope is correct for review:\n- Keep applicable canvas optimization and deep-star memoization behavior.\n- Avoid committing `.autoloop` artifacts and unrelated generated outputs.\n- Ensure runtime behavior remains correct and tests pass.\n\n## Required outcomes\n1. `SkyLensServerless/components/viewer/viewer-shell.tsx`\n   - Memoization must be applied only at effective boundaries that stabilize `MainStarCanvas` input identity.\n   - No behavior regressions in deep-star projection, visibility, center-lock, or labels.\n2. `SkyLensServerless/components/viewer/star-point-canvas.tsx`\n   - Keep guarded backing-size writes and ceil clearRect behavior.\n3. PR scope hygiene\n   - Exclude `.autoloop/**` and generated export artifacts from committed diff.\n4. Validation\n   - Run:\n     - `npm test -- tests/unit/main-star-canvas.test.tsx`\n     - `npm test -- tests/unit/viewer-shell-scope-runtime.test.tsx`\n     - `npm run build`\n   - Record outcomes.\n\n## Execution constraints\n- Run with autoloop full-auto answers.\n- Use pairs: `plan,implement,test`.\n- Do not pass `--max-iterations`.\n- Do not perform manual implementation outside autoloop.",
+  "request_updated_at": "2026-04-09T18:35:53.936993+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/memoize-main-view-deep-star-canvas-points-20260409/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260409T170551Z-a13290fe",
+    "mode": "single",
+    "phase_ids": [
+      "stabilize-main-view-deep-star-canvas-points"
+    ],
+    "explicit": true,
+    "current_phase_index": 1,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "memoize-main-view-deep-star-canvas-points": "in_progress",
+    "stabilize-main-view-deep-star-canvas-points": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "memoize-main-view-deep-star-canvas-points",
+      "run_id": "run-20260409T170409Z-93bd519c",
+      "status": "in_progress",
+      "ts": "2026-04-09T17:04:09.704100+00:00"
+    },
+    {
+      "phase_id": "stabilize-main-view-deep-star-canvas-points",
+      "run_id": "run-20260409T170128Z-2382da1b",
+      "status": "in_progress",
+      "ts": "2026-04-09T17:05:14.053092+00:00"
+    },
+    {
+      "phase_id": "stabilize-main-view-deep-star-canvas-points",
+      "run_id": "run-20260409T170551Z-a13290fe",
+      "status": "completed",
+      "ts": "2026-04-09T18:54:03.621667+00:00",
+      "pair": "test"
+    }
+  ]
+}

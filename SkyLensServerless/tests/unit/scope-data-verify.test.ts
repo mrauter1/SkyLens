@@ -3,7 +3,9 @@ import path from 'node:path'
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
+// @ts-expect-error Runtime-tested script module has no TypeScript declaration file.
 import { buildScopeDataset } from '../../scripts/scope/build-core.mjs'
+// @ts-expect-error Runtime-tested script module has no TypeScript declaration file.
 import { verifyScopeDataset } from '../../scripts/scope/verify-core.mjs'
 
 describe('scope data verify', () => {

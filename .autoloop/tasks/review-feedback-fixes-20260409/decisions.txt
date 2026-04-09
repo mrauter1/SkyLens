@@ -1,0 +1,3 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260409T163942Z-d40cfe4c" ts="2026-04-09T16:39:42.216191+00:00" />
+The `star-point-canvas.tsx` review note is applicable: guard backing-store size writes by current DPR-scaled dimensions, keep transform resets coupled to real size changes, and clear the logical viewport with ceil-rounded dimensions to avoid fractional-size stale pixels.
+Do not add a naive `useMemo` around `mainViewDeepStarCanvasPoints` if its dependencies are freshly recreated render-path arrays; only change `viewer-shell.tsx` when a stable local dependency boundary makes the memoization materially effective.

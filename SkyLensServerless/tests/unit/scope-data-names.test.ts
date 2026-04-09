@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  assignDisplayNames,
-  loadBrightStarNameMap,
-} from '../../scripts/scope/build-core.mjs'
+// @ts-expect-error Runtime-tested script module has no TypeScript declaration file.
+import { assignDisplayNames, loadBrightStarNameMap } from '../../scripts/scope/build-core.mjs'
+// @ts-expect-error Runtime-tested script module has no TypeScript declaration file.
 import { normalizeName } from '../../scripts/scope/shared.mjs'
 
 describe('scope data names', () => {

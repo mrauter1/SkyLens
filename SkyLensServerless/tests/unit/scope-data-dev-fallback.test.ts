@@ -1,11 +1,22 @@
 import { describe, expect, it } from 'vitest'
 
+// @ts-expect-error Runtime-tested script module has no TypeScript declaration file.
 import { buildDevSyntheticStars } from '../../scripts/scope/build-core.mjs'
+// @ts-expect-error Runtime-tested script module has no TypeScript declaration file.
 import { DEV_FALLBACK_SEED_COUNT } from '../../scripts/scope/constants.mjs'
+
+type SyntheticStar = {
+  sourceId: string
+  vMag: number
+  displayName?: string
+  pmRaMasPerYear: number
+  pmDecMasPerYear: number
+  bMinusV: number
+}
 
 describe('scope data dev fallback', () => {
   it('builds the fixed 12-seed fallback with deterministic six-row synthetic clusters', async () => {
-    const { stars } = await buildDevSyntheticStars()
+    const { stars } = (await buildDevSyntheticStars()) as { stars: SyntheticStar[] }
     const siriusRows = stars.filter((star) => star.sourceId.startsWith('DEV:hip-32349:'))
     const polarisRows = stars.filter((star) => star.sourceId.startsWith('DEV:hip-11767:'))
 
