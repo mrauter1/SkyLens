@@ -27,7 +27,7 @@ export const SCOPE_OPTICS_RANGES = {
 export const MAIN_VIEW_OPTICS_RANGES = {
   apertureMm: {
     min: 20,
-    max: 400,
+    max: 100,
     step: 5,
     defaultValue: 40,
   },

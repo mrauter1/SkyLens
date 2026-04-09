@@ -27,7 +27,7 @@ export interface ScopeOpticsSettings {
 
 export const SCOPE_OPTICS_RANGES = {
   apertureMm: {
-    min: 50,
+    min: 20,
     max: 400,
     step: 1,
   },
@@ -170,7 +170,7 @@ export function readViewerSettings(storage = getBrowserStorage()): ViewerSetting
     }
 
     const parsed = SettingsSchema.partial().parse(JSON.parse(rawValue))
-    const scopeOptics = getSettingsObject(parsed.scopeOptics)
+    const scopeOptics = normalizeScopeOpticsStorageInput(parsed.scopeOptics)
 
     return normalizeViewerSettings({
       ...defaults,
@@ -181,9 +181,7 @@ export function readViewerSettings(storage = getBrowserStorage()): ViewerSetting
       },
       scopeOptics: {
         ...defaults.scopeOptics,
-        apertureMm: scopeOptics.apertureMm,
-        magnificationX: scopeOptics.magnificationX,
-        transparencyPct: scopeOptics.transparencyPct,
+        ...scopeOptics,
       },
     })
   } catch {
@@ -265,12 +263,32 @@ function normalizeManualObserver(
   }
 }
 
-function getSettingsObject(value: unknown): Record<string, unknown> {
+function normalizeScopeOpticsStorageInput(
+  value: unknown,
+): Partial<ScopeOpticsSettings> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return {}
   }
 
-  return value as Record<string, unknown>
+  const candidate = value as Record<string, unknown>
+  const normalized: Partial<ScopeOpticsSettings> = {}
+
+  const apertureMmResult = z.number().safeParse(candidate.apertureMm)
+  if (apertureMmResult.success) {
+    normalized.apertureMm = apertureMmResult.data
+  }
+
+  const magnificationXResult = z.number().safeParse(candidate.magnificationX)
+  if (magnificationXResult.success) {
+    normalized.magnificationX = magnificationXResult.data
+  }
+
+  const transparencyPctResult = z.number().safeParse(candidate.transparencyPct)
+  if (transparencyPctResult.success) {
+    normalized.transparencyPct = transparencyPctResult.data
+  }
+
+  return ScopeOpticsSettingsSchema.partial().parse(normalized)
 }
 
 function normalizeMotionQuality(
