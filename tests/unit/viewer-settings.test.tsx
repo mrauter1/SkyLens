@@ -55,6 +55,7 @@ vi.mock('../../lib/satellites/client', () => ({
 
 import { ViewerShell } from '../../components/viewer/viewer-shell'
 import {
+  DEFAULT_SCOPE_OPTICS_SETTINGS,
   normalizeScopeOpticsSettings,
   SCOPE_OPTICS_RANGES,
   VIEWER_SETTINGS_STORAGE_KEY,
@@ -310,6 +311,41 @@ describe('ViewerShell settings integration', () => {
         apertureMm: SCOPE_OPTICS_RANGES.apertureMm.max,
         magnificationX: SCOPE_OPTICS_RANGES.magnificationX.min,
         transparencyPct: SCOPE_OPTICS_RANGES.transparencyPct.min,
+      },
+    })
+  })
+
+  it('preserves valid persisted scope optics fields even when one field is malformed', () => {
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabledLayers: {
+          aircraft: false,
+          satellites: true,
+          planets: true,
+          stars: true,
+          constellations: true,
+        },
+        likelyVisibleOnly: false,
+        scopeModeEnabled: true,
+        scopeOptics: {
+          apertureMm: 90,
+          magnificationX: 'bad-value',
+          transparencyPct: 70,
+        },
+        labelDisplayMode: 'on_objects',
+        motionQuality: 'balanced',
+        verticalFovAdjustmentDeg: 6,
+        onboardingCompleted: false,
+      }),
+    )
+
+    expect(readViewerSettings()).toMatchObject({
+      scopeModeEnabled: true,
+      scopeOptics: {
+        apertureMm: 90,
+        magnificationX: DEFAULT_SCOPE_OPTICS_SETTINGS.magnificationX,
+        transparencyPct: 70,
       },
     })
   })

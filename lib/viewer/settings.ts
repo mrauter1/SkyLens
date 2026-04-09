@@ -170,7 +170,7 @@ export function readViewerSettings(storage = getBrowserStorage()): ViewerSetting
     }
 
     const parsed = SettingsSchema.partial().parse(JSON.parse(rawValue))
-    const scopeOptics = getSettingsObject(parsed.scopeOptics)
+    const scopeOptics = normalizeScopeOpticsStorageInput(parsed.scopeOptics)
 
     return normalizeViewerSettings({
       ...defaults,
@@ -181,9 +181,7 @@ export function readViewerSettings(storage = getBrowserStorage()): ViewerSetting
       },
       scopeOptics: {
         ...defaults.scopeOptics,
-        apertureMm: scopeOptics.apertureMm,
-        magnificationX: scopeOptics.magnificationX,
-        transparencyPct: scopeOptics.transparencyPct,
+        ...scopeOptics,
       },
     })
   } catch {
@@ -222,6 +220,11 @@ export function markViewerOnboardingCompleted(storage = getBrowserStorage()) {
 }
 
 export function normalizeViewerSettings(settings: ViewerSettings): ViewerSettings {
+  const scopeOptics = normalizeScopeOpticsForMode(
+    settings.scopeOptics,
+    settings.scopeModeEnabled === true,
+  )
+
   return {
     enabledLayers: {
       aircraft: settings.enabledLayers.aircraft,
@@ -232,7 +235,7 @@ export function normalizeViewerSettings(settings: ViewerSettings): ViewerSetting
     },
     likelyVisibleOnly: settings.likelyVisibleOnly,
     scopeModeEnabled: settings.scopeModeEnabled === true,
-    scopeOptics: normalizeScopeOpticsSettings(settings.scopeOptics),
+    scopeOptics,
     labelDisplayMode: settings.labelDisplayMode,
     motionQuality: normalizeMotionQuality(settings.motionQuality),
     markerScale: normalizeMarkerScale(settings.markerScale),
@@ -251,6 +254,36 @@ export function normalizeViewerSettings(settings: ViewerSettings): ViewerSetting
   }
 }
 
+function normalizeScopeOpticsForMode(
+  scopeOptics: ScopeOpticsSettings | null | undefined,
+  scopeModeEnabled: boolean,
+): ScopeOpticsSettings {
+  const apertureRange = scopeModeEnabled
+    ? SCOPE_OPTICS_RANGES.apertureMm
+    : { min: 20, max: 100 }
+
+  return {
+    apertureMm: normalizeFiniteNumber(
+      scopeOptics?.apertureMm,
+      DEFAULT_SCOPE_OPTICS_SETTINGS.apertureMm,
+      apertureRange.min,
+      apertureRange.max,
+    ),
+    magnificationX: normalizeFiniteNumber(
+      scopeOptics?.magnificationX,
+      DEFAULT_SCOPE_OPTICS_SETTINGS.magnificationX,
+      SCOPE_OPTICS_RANGES.magnificationX.min,
+      SCOPE_OPTICS_RANGES.magnificationX.max,
+    ),
+    transparencyPct: normalizeFiniteNumber(
+      scopeOptics?.transparencyPct,
+      DEFAULT_SCOPE_OPTICS_SETTINGS.transparencyPct,
+      SCOPE_OPTICS_RANGES.transparencyPct.min,
+      SCOPE_OPTICS_RANGES.transparencyPct.max,
+    ),
+  }
+}
+
 function normalizeManualObserver(
   manualObserver: ManualObserverSettings | null | undefined,
 ) {
@@ -265,12 +298,32 @@ function normalizeManualObserver(
   }
 }
 
-function getSettingsObject(value: unknown): Record<string, unknown> {
+function normalizeScopeOpticsStorageInput(
+  value: unknown,
+): Partial<ScopeOpticsSettings> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return {}
   }
 
-  return value as Record<string, unknown>
+  const candidate = value as Record<string, unknown>
+  const normalized: Partial<ScopeOpticsSettings> = {}
+
+  const apertureMmResult = z.number().safeParse(candidate.apertureMm)
+  if (apertureMmResult.success) {
+    normalized.apertureMm = apertureMmResult.data
+  }
+
+  const magnificationXResult = z.number().safeParse(candidate.magnificationX)
+  if (magnificationXResult.success) {
+    normalized.magnificationX = magnificationXResult.data
+  }
+
+  const transparencyPctResult = z.number().safeParse(candidate.transparencyPct)
+  if (transparencyPctResult.success) {
+    normalized.transparencyPct = transparencyPctResult.data
+  }
+
+  return ScopeOpticsSettingsSchema.partial().parse(normalized)
 }
 
 function normalizeMotionQuality(

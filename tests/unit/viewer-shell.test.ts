@@ -800,7 +800,19 @@ describe('ViewerShell startup gating', () => {
 
     expect(quickActions).not.toBeNull()
     expect(scopeModeToggle?.checked).toBe(false)
-    expect(container.querySelector('[data-testid="mobile-scope-aperture-slider"]')).toBeNull()
+    const initialApertureSlider = container.querySelector(
+      '[data-testid="mobile-scope-aperture-slider"]',
+    ) as HTMLInputElement | null
+    expect(initialApertureSlider).not.toBeNull()
+    expect(initialApertureSlider?.min).toBe('20')
+    expect(initialApertureSlider?.max).toBe('100')
+
+    await act(async () => {
+      setInputValue(initialApertureSlider!, '30')
+    })
+    await flushEffects()
+
+    expect(readViewerSettings().scopeOptics.apertureMm).toBe(30)
     expect(container.querySelector('[data-testid="mobile-scope-magnification-slider"]')).toBeNull()
     expect(container.querySelector('[data-testid="mobile-marker-scale-slider"]')).toBeNull()
     expect(latestSettingsProps()).toMatchObject({
@@ -853,7 +865,12 @@ describe('ViewerShell startup gating', () => {
       (container.querySelector('[data-testid="mobile-scope-mode-toggle"]') as HTMLInputElement)
         .checked,
     ).toBe(false)
-    expect(container.querySelector('[data-testid="mobile-scope-aperture-slider"]')).toBeNull()
+    const disabledApertureSlider = container.querySelector(
+      '[data-testid="mobile-scope-aperture-slider"]',
+    ) as HTMLInputElement | null
+    expect(disabledApertureSlider).not.toBeNull()
+    expect(disabledApertureSlider?.min).toBe('20')
+    expect(disabledApertureSlider?.max).toBe('100')
     expect(container.querySelector('[data-testid="mobile-scope-magnification-slider"]')).toBeNull()
   })
 
@@ -875,7 +892,12 @@ describe('ViewerShell startup gating', () => {
           }
         | undefined
 
-    expect(container.querySelector('[data-testid="desktop-scope-aperture-slider"]')).toBeNull()
+    const initialApertureSlider = container.querySelector(
+      '[data-testid="desktop-scope-aperture-slider"]',
+    ) as HTMLInputElement | null
+    expect(initialApertureSlider).not.toBeNull()
+    expect(initialApertureSlider?.min).toBe('20')
+    expect(initialApertureSlider?.max).toBe('100')
     expect(container.querySelector('[data-testid="desktop-scope-magnification-slider"]')).toBeNull()
 
     await act(async () => {
@@ -919,7 +941,12 @@ describe('ViewerShell startup gating', () => {
     })
     await flushEffects()
 
-    expect(container.querySelector('[data-testid="desktop-scope-aperture-slider"]')).toBeNull()
+    const disabledApertureSlider = container.querySelector(
+      '[data-testid="desktop-scope-aperture-slider"]',
+    ) as HTMLInputElement | null
+    expect(disabledApertureSlider).not.toBeNull()
+    expect(disabledApertureSlider?.min).toBe('20')
+    expect(disabledApertureSlider?.max).toBe('100')
     expect(container.querySelector('[data-testid="desktop-scope-magnification-slider"]')).toBeNull()
   })
 

@@ -101,7 +101,7 @@ test('main-view optics reset on reload while scope optics stay persisted', async
   await expect(mainMagnificationSlider).toHaveValue('1')
   await mainApertureSlider.evaluate((element) => {
     const input = element as HTMLInputElement
-    input.value = '180'
+    input.value = '90'
     input.dispatchEvent(new Event('input', { bubbles: true }))
     input.dispatchEvent(new Event('change', { bubbles: true }))
   })
@@ -111,7 +111,7 @@ test('main-view optics reset on reload while scope optics stay persisted', async
     input.dispatchEvent(new Event('input', { bubbles: true }))
     input.dispatchEvent(new Event('change', { bubbles: true }))
   })
-  await expect(mainApertureSlider).toHaveValue('180')
+  await expect(mainApertureSlider).toHaveValue('90')
   await expect(mainMagnificationSlider).toHaveValue('2')
 
   await mobileOverlay.getByRole('button', { name: 'Settings' }).click()

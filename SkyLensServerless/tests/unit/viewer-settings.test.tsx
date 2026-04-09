@@ -494,7 +494,7 @@ describe('ViewerShell settings integration', () => {
         motionQuality: 'balanced',
         verticalFovAdjustmentDeg: 6,
         mainViewOptics: {
-          apertureMm: 180,
+          apertureMm: 90,
           magnificationX: 12,
         },
         scopeOptics: {
@@ -507,7 +507,7 @@ describe('ViewerShell settings integration', () => {
     )
 
     expect(readViewerSettings().mainViewOptics).toEqual({
-      apertureMm: 180,
+      apertureMm: 90,
       magnificationX: 1,
     })
     expect(readViewerSettings().scopeOptics).toEqual({

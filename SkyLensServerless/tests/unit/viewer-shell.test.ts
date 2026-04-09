@@ -4545,12 +4545,12 @@ describe('ViewerShell startup gating', () => {
     expect(currentApertureValue()).toBe('40 mm')
     expect(currentMagnificationValue()).toBeUndefined()
 
-    await setSliderValue('desktop-scope-aperture-slider', '180')
+    await setSliderValue('desktop-scope-aperture-slider', '90')
 
-    expect(currentApertureValue()).toBe('180 mm')
+    expect(currentApertureValue()).toBe('90 mm')
     expect(currentMagnificationValue()).toBeUndefined()
     expect(readViewerSettings().mainViewOptics).toMatchObject({
-      apertureMm: 180,
+      apertureMm: 90,
       magnificationX: 1,
     })
     expect(readViewerSettings().scopeOptics).toMatchObject({
@@ -4579,10 +4579,10 @@ describe('ViewerShell startup gating', () => {
     })
     await flushEffects()
 
-    expect(currentApertureValue()).toBe('180 mm')
+    expect(currentApertureValue()).toBe('90 mm')
     expect(currentMagnificationValue()).toBeUndefined()
     expect(readViewerSettings().mainViewOptics).toMatchObject({
-      apertureMm: 180,
+      apertureMm: 90,
       magnificationX: 1,
     })
     expect(readViewerSettings().scopeOptics).toMatchObject({
