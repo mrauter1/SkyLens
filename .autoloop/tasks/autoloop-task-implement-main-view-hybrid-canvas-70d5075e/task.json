@@ -1,0 +1,51 @@
+{
+  "task_id": "autoloop-task-implement-main-view-hybrid-canvas-70d5075e",
+  "created_at": "2026-04-09T13:42:36.529223+00:00",
+  "request_text": "# Autoloop Task: Implement Main-View Hybrid Canvas/DOM Renderer in SkyLensServerless\n\n## Goal\nImplement the approved hybrid rendering architecture in `SkyLensServerless`:\n- Use **canvas** for dense/deep star field rendering in **normal (non-scope) mode**.\n- Keep **DOM** rendering only for interactive/selectable objects and label surfaces.\n- Preserve all existing center-lock, label, optics, selection/hover, and accessibility semantics.\n\n## Context\nStart from the latest plan in:\n- `SkyLensServerless/CANVAS_HYBRID_MAIN_VIEW_PLAN.md`\n\nAddress any unresolved review concerns from the prior planning PR by fully implementing and validating the runtime change.\n\n## Execution mode requirements\n- Run with pairs: `plan,implement,test`.\n- Perform work in plan/implement/test pairs and complete all three.\n- Do not add arbitrary scope outside this feature.\n- Minimize risk of regressions.\n\n## Required implementation scope\n1. Implement a non-scope canvas rendering path for deep stars in main view.\n2. Ensure deep stars are removed from non-scope interactive DOM markers.\n3. Preserve deep-star participation in center-lock and label candidate pipelines.\n4. Keep scope mode lens/canvas behavior unchanged.\n5. Maintain visual parity for B-V color mapping and star alpha/radius semantics.\n\n## Suggested file targets\n- `SkyLensServerless/components/viewer/viewer-shell.tsx`\n- `SkyLensServerless/components/viewer/main-star-canvas.tsx` (new) OR a shared reusable canvas primitive\n- `SkyLensServerless/components/viewer/scope-star-canvas.tsx` (only if refactoring to shared primitive)\n- Relevant tests under `SkyLensServerless/tests/unit/*`\n\n## Regression requirements\nDo not regress:\n- Center-lock ranking behavior.\n- Label mode behavior (`center_only`, `on_objects`, `top_list`).\n- Selection/hover/detail card behavior for interactive objects.\n- Scope mode behavior and lens overlay rendering.\n- Accessibility semantics for interactive markers.\n\n## Testing requirements\nAt minimum run and pass targeted tests that cover:\n- canvas star rendering behavior,\n- viewer-shell scope runtime behavior,\n- viewer-shell rendering/interaction behavior,\n- celestial/viewer settings regressions relevant to this change.\n\nThen run full project tests for `SkyLensServerless` if feasible.\n\n## Deliverables\n1. Implemented code changes.\n2. Updated/added tests with passing results.\n3. Clear summary of changed files and why.\n4. Any residual risks or follow-ups explicitly listed.",
+  "request_updated_at": "2026-04-09T13:42:36.529281+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/autoloop-task-implement-main-view-hybrid-canvas-70d5075e/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260409T134236Z-e7c2ee06",
+    "mode": "single",
+    "phase_ids": [
+      "main-view-canvas-runtime",
+      "hybrid-regression-validation"
+    ],
+    "explicit": true,
+    "current_phase_index": 2,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "main-view-canvas-runtime": "completed",
+    "hybrid-regression-validation": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "main-view-canvas-runtime",
+      "run_id": "run-20260409T134236Z-e7c2ee06",
+      "status": "in_progress",
+      "ts": "2026-04-09T13:46:28.509680+00:00"
+    },
+    {
+      "phase_id": "main-view-canvas-runtime",
+      "run_id": "run-20260409T134236Z-e7c2ee06",
+      "status": "completed",
+      "ts": "2026-04-09T13:57:12.331508+00:00",
+      "pair": "test"
+    },
+    {
+      "phase_id": "hybrid-regression-validation",
+      "run_id": "run-20260409T134236Z-e7c2ee06",
+      "status": "in_progress",
+      "ts": "2026-04-09T13:57:12.332829+00:00"
+    },
+    {
+      "phase_id": "hybrid-regression-validation",
+      "run_id": "run-20260409T134236Z-e7c2ee06",
+      "status": "completed",
+      "ts": "2026-04-09T14:02:50.271596+00:00",
+      "pair": "test"
+    }
+  ]
+}

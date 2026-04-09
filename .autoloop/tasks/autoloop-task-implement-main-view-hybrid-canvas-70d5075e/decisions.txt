@@ -1,0 +1,9 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260409T134236Z-e7c2ee06" ts="2026-04-09T13:42:36.706860+00:00" />
+In non-scope mode, deep stars are intentionally canvas-only and must no longer emit `sky-object-marker` buttons or pointer-driven selection/hover affordances.
+Non-scope label and center-lock candidate membership must still include visible deep stars even after the interactive DOM marker list excludes them.
+Visible-marker diagnostics should continue to reflect interactive DOM markers only after the hybrid split; do not add deep stars back into that count for debug copy.
+<autoloop-decisions-header version="1" block_seq="2" owner="implementer" phase_id="main-view-canvas-runtime" pair="implement" turn_seq="1" run_id="run-20260409T134236Z-e7c2ee06" ts="2026-04-09T13:46:28.606342+00:00" />
+Scope and main-view deep-star canvases now share a single star-point renderer so B-V color, alpha clamp, radius clamp, and DPR sizing stay identical across both surfaces.
+Non-scope labels now source from the full visible logical object set (`projectedObjects` plus visible deep stars) while DOM marker buttons remain limited to visible projected non-deep-star objects.
+<autoloop-decisions-header version="1" block_seq="3" owner="test_author" phase_id="hybrid-regression-validation" pair="test" turn_seq="1" run_id="run-20260409T134236Z-e7c2ee06" ts="2026-04-09T14:01:09.072419+00:00" />
+Hybrid regression coverage is anchored in the dedicated main/scope star-canvas unit suites plus `viewer-shell-scope-runtime`, which already encode AC-1 through AC-4 without requiring additional test-file churn in this phase.
