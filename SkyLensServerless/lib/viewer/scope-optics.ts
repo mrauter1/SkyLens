@@ -5,7 +5,7 @@ import {
 
 export const SCOPE_OPTICS_RANGES = {
   apertureMm: {
-    min: 40,
+    min: 20,
     max: 400,
     step: 5,
     defaultValue: 120,
@@ -25,7 +25,12 @@ export const SCOPE_OPTICS_RANGES = {
 } as const
 
 export const MAIN_VIEW_OPTICS_RANGES = {
-  apertureMm: SCOPE_OPTICS_RANGES.apertureMm,
+  apertureMm: {
+    min: 20,
+    max: 400,
+    step: 5,
+    defaultValue: 40,
+  },
   magnificationX: {
     min: 0.25,
     max: 300,
@@ -140,6 +145,21 @@ const DEEP_STAR_CORE_RADIUS_MAG_RANGE = {
 
 const DEEP_STAR_CORE_RADIUS_CURVE = 0.85
 const DEEP_STAR_EMERGENCE_CURVE = 1.35
+const MAIN_VIEW_FIXED_MAGNIFICATION_X = MAIN_VIEW_OPTICS_RANGES.magnificationX.defaultValue
+const SCOPE_LIMITING_MAGNITUDE_ANCHOR_LOW = {
+  apertureMm: 40,
+  magnitude: 3,
+} as const
+const SCOPE_LIMITING_MAGNITUDE_ANCHOR_HIGH = {
+  apertureMm: 240,
+  magnitude: 10,
+} as const
+const SCOPE_LIMITING_MAGNITUDE_MAX = 15.5
+const SCOPE_LIMITING_MAGNITUDE_SLOPE =
+  (SCOPE_LIMITING_MAGNITUDE_ANCHOR_HIGH.magnitude -
+    SCOPE_LIMITING_MAGNITUDE_ANCHOR_LOW.magnitude) /
+  (SCOPE_LIMITING_MAGNITUDE_ANCHOR_HIGH.apertureMm -
+    SCOPE_LIMITING_MAGNITUDE_ANCHOR_LOW.apertureMm)
 
 export function normalizeScopeOptics(
   scopeOptics: Partial<ScopeOptics> | null | undefined,
@@ -160,7 +180,7 @@ export function normalizeScopeOptics(
 export function getDefaultMainViewOptics(): MainViewOptics {
   return {
     apertureMm: MAIN_VIEW_OPTICS_RANGES.apertureMm.defaultValue,
-    magnificationX: MAIN_VIEW_OPTICS_RANGES.magnificationX.defaultValue,
+    magnificationX: MAIN_VIEW_FIXED_MAGNIFICATION_X,
   }
 }
 
@@ -169,7 +189,7 @@ export function normalizeMainViewOptics(
 ): MainViewOptics {
   return {
     apertureMm: normalizeMainViewOpticsValue('apertureMm', optics?.apertureMm),
-    magnificationX: normalizeMainViewOpticsValue('magnificationX', optics?.magnificationX),
+    magnificationX: MAIN_VIEW_FIXED_MAGNIFICATION_X,
   }
 }
 
@@ -333,10 +353,12 @@ export function computeScopeLimitingMagnitude({
     transparencyPct: _transparencyPct,
   })
   const safeAltitudeDeg = normalizeAltitudeDeg(altitudeDeg)
-  const base = 2.7 + 2.0 * Math.log10(optics.apertureMm)
-  const altitudePenalty = getAltitudePenalty(safeAltitudeDeg)
+  const limitingMagnitude = computeRawScopeLimitingMagnitude({
+    apertureMm: optics.apertureMm,
+    altitudeDeg: safeAltitudeDeg,
+  })
 
-  return clamp(base - altitudePenalty, 3, 15.5)
+  return limitingMagnitude
 }
 
 export function passesScopeLimitingMagnitude({
@@ -375,8 +397,8 @@ export function computeScopeRenderProfile({
   const normalizedOptics = normalizeScopeOptics(optics)
   const safeMagnitude = normalizeMagnitude(magnitude) ?? 12
   const safeAltitudeDeg = normalizeAltitudeDeg(altitudeDeg)
-  const effectiveLimitMag = computeScopeLimitingMagnitude({
-    ...normalizedOptics,
+  const effectiveLimitMag = computeRawScopeLimitingMagnitude({
+    apertureMm: normalizedOptics.apertureMm,
     altitudeDeg: safeAltitudeDeg,
   })
   const relativeFlux = clamp(
@@ -667,6 +689,22 @@ function getAltitudePenalty(altitudeDeg: number) {
   const airmass = 1 / Math.cos((zenithDistanceDeg * Math.PI) / 180)
 
   return 0.22 * (airmass - 1)
+}
+
+function computeRawScopeLimitingMagnitude({
+  apertureMm,
+  altitudeDeg,
+}: {
+  apertureMm: number
+  altitudeDeg: number
+}) {
+  const base =
+    SCOPE_LIMITING_MAGNITUDE_ANCHOR_LOW.magnitude +
+    (apertureMm - SCOPE_LIMITING_MAGNITUDE_ANCHOR_LOW.apertureMm) *
+      SCOPE_LIMITING_MAGNITUDE_SLOPE
+  const altitudePenalty = getAltitudePenalty(altitudeDeg)
+
+  return Math.min(base - altitudePenalty, SCOPE_LIMITING_MAGNITUDE_MAX)
 }
 
 function clamp(value: number, min: number, max: number) {
