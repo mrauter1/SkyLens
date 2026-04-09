@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS,
+  MAIN_VIEW_DEEP_STAR_GOVERNOR_LIMITING_MAGNITUDE_THRESHOLDS,
   MAIN_VIEW_DEEP_STAR_STARTUP_VISIBLE_COUNT_BAND,
   MAIN_VIEW_OPTICS_RANGES,
   SCOPE_APPARENT_FIELD_DEG_RANGE,
@@ -362,6 +362,7 @@ describe('scope optics helpers', () => {
         starsLayerEnabled: true,
         daylightSuppressed: false,
         mainViewDeepStarsEnabled: false,
+        apertureMm: 120,
         magnificationX: 12,
       }),
     ).toMatchObject({
@@ -377,6 +378,7 @@ describe('scope optics helpers', () => {
         starsLayerEnabled: false,
         daylightSuppressed: true,
         mainViewDeepStarsEnabled: false,
+        apertureMm: 120,
         magnificationX: 12,
       }),
     ).toMatchObject({
@@ -392,6 +394,7 @@ describe('scope optics helpers', () => {
         starsLayerEnabled: true,
         daylightSuppressed: true,
         mainViewDeepStarsEnabled: false,
+        apertureMm: 120,
         magnificationX: 12,
       }),
     ).toMatchObject({
@@ -407,6 +410,7 @@ describe('scope optics helpers', () => {
         starsLayerEnabled: true,
         daylightSuppressed: false,
         mainViewDeepStarsEnabled: false,
+        apertureMm: 120,
         magnificationX: 12,
       }),
     ).toMatchObject({
@@ -423,14 +427,16 @@ describe('scope optics helpers', () => {
       starsLayerEnabled: true,
       daylightSuppressed: false,
       mainViewDeepStarsEnabled: true,
-      magnificationX: MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.standard.enter,
+      apertureMm: 140,
+      magnificationX: 1,
     })
     const standardHeld = resolveMainViewDeepStarGovernor({
       hasObserver: true,
       starsLayerEnabled: true,
       daylightSuppressed: false,
       mainViewDeepStarsEnabled: true,
-      magnificationX: MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.standard.exit + 0.01,
+      apertureMm: 132,
+      magnificationX: 1,
       previousTier: 'standard',
       previousTransitionReason: 'magnification-promoted-standard',
     })
@@ -439,7 +445,8 @@ describe('scope optics helpers', () => {
       starsLayerEnabled: true,
       daylightSuppressed: false,
       mainViewDeepStarsEnabled: true,
-      magnificationX: MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.standard.exit - 0.01,
+      apertureMm: 124,
+      magnificationX: 1,
       previousTier: 'standard',
       previousTransitionReason: 'magnification-promoted-standard',
     })
@@ -448,7 +455,8 @@ describe('scope optics helpers', () => {
       starsLayerEnabled: true,
       daylightSuppressed: false,
       mainViewDeepStarsEnabled: true,
-      magnificationX: MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.detailed.enter,
+      apertureMm: 200,
+      magnificationX: 1,
       previousTier: 'standard',
       previousTransitionReason: 'magnification-promoted-standard',
     })
@@ -457,7 +465,8 @@ describe('scope optics helpers', () => {
       starsLayerEnabled: true,
       daylightSuppressed: false,
       mainViewDeepStarsEnabled: true,
-      magnificationX: MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.precision.exit + 0.01,
+      apertureMm: 241,
+      magnificationX: 1,
       previousTier: 'precision',
       previousTransitionReason: 'magnification-promoted-precision',
     })
@@ -466,7 +475,8 @@ describe('scope optics helpers', () => {
       starsLayerEnabled: true,
       daylightSuppressed: false,
       mainViewDeepStarsEnabled: true,
-      magnificationX: MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.precision.exit - 0.01,
+      apertureMm: 239,
+      magnificationX: 1,
       previousTier: 'precision',
       previousTransitionReason: 'magnification-promoted-precision',
     })
@@ -497,6 +507,7 @@ describe('scope optics helpers', () => {
       starsLayerEnabled: true,
       daylightSuppressed: false,
       mainViewDeepStarsEnabled: true,
+      apertureMm: startupOptics.apertureMm,
       magnificationX: startupOptics.magnificationX,
     })
     const startupFixtureMagnitudes = [2.2, 2.6, 3.1, 3.4, 4.2]
@@ -521,6 +532,43 @@ describe('scope optics helpers', () => {
       MAIN_VIEW_DEEP_STAR_STARTUP_VISIBLE_COUNT_BAND.max,
     )
     expect(visibleStartupCount).toBe(3)
+  })
+
+  it('promotes main-view deep-star bands from aperture-driven limiting magnitude even at fixed 1x', () => {
+    const baseline = resolveMainViewDeepStarGovernor({
+      hasObserver: true,
+      starsLayerEnabled: true,
+      daylightSuppressed: false,
+      mainViewDeepStarsEnabled: true,
+      apertureMm: 40,
+      magnificationX: 1,
+    })
+    const detailed = resolveMainViewDeepStarGovernor({
+      hasObserver: true,
+      starsLayerEnabled: true,
+      daylightSuppressed: false,
+      mainViewDeepStarsEnabled: true,
+      apertureMm: 240,
+      magnificationX: 1,
+      previousTier: baseline.tier,
+    })
+    const precision = resolveMainViewDeepStarGovernor({
+      hasObserver: true,
+      starsLayerEnabled: true,
+      daylightSuppressed: false,
+      mainViewDeepStarsEnabled: true,
+      apertureMm: 400,
+      magnificationX: 1,
+      previousTier: detailed.tier,
+    })
+
+    expect(baseline.band?.maxMagnitude).toBeLessThanOrEqual(
+      MAIN_VIEW_DEEP_STAR_GOVERNOR_LIMITING_MAGNITUDE_THRESHOLDS.standard.enter,
+    )
+    expect(detailed.tier).toBe('detailed')
+    expect(detailed.band).toEqual(getMainViewDeepStarBand('detailed'))
+    expect(precision.tier).toBe('precision')
+    expect(precision.band).toEqual(getMainViewDeepStarBand('precision'))
   })
 
   it('round-trips the shared default apparent-field conversion for legacy scope FOV migration', () => {

@@ -917,6 +917,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     starsLayerEnabled: enabledLayers.stars,
     daylightSuppressed: scopeDeepStarsDaylightSuppressed,
     mainViewDeepStarsEnabled: viewerSettings.mainViewDeepStarsEnabled,
+    apertureMm: normalizedMainViewOptics.apertureMm,
     magnificationX: normalizedMainViewOptics.magnificationX,
     previousTier: mainViewDeepStarGovernorStateRef.current?.tier,
     previousTransitionReason: mainViewDeepStarGovernorStateRef.current?.transitionReason,

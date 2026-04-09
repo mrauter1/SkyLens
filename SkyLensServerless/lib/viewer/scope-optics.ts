@@ -98,18 +98,18 @@ export type MainViewDeepStarGovernorSnapshot = {
   transitionReason: MainViewDeepStarTransitionReason
 }
 
-export const MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS = {
+export const MAIN_VIEW_DEEP_STAR_GOVERNOR_LIMITING_MAGNITUDE_THRESHOLDS = {
   standard: {
-    enter: 1.5,
-    exit: 1.25,
+    enter: 6.5,
+    exit: 6,
   },
   detailed: {
-    enter: 3,
-    exit: 2.5,
+    enter: 8.5,
+    exit: 8,
   },
   precision: {
-    enter: 6,
-    exit: 5,
+    enter: 10.5,
+    exit: 10,
   },
 } as const
 
@@ -204,6 +204,7 @@ export function resolveMainViewDeepStarGovernor({
   starsLayerEnabled,
   daylightSuppressed,
   mainViewDeepStarsEnabled,
+  apertureMm,
   magnificationX,
   previousTier,
   previousTransitionReason,
@@ -212,6 +213,7 @@ export function resolveMainViewDeepStarGovernor({
   starsLayerEnabled: boolean
   daylightSuppressed: boolean
   mainViewDeepStarsEnabled: boolean
+  apertureMm: number
   magnificationX: number
   previousTier?: MainViewDeepStarQualityTier | null
   previousTransitionReason?: MainViewDeepStarTransitionReason | null
@@ -241,10 +243,15 @@ export function resolveMainViewDeepStarGovernor({
     )
   }
 
-  const safeMagnificationX = normalizeMainViewOpticsValue('magnificationX', magnificationX)
+  void normalizeMainViewOpticsValue('magnificationX', magnificationX)
+  const safeApertureMm = normalizeMainViewOpticsValue('apertureMm', apertureMm)
+  const effectiveLimitMag = computeRawScopeLimitingMagnitude({
+    apertureMm: safeApertureMm,
+    altitudeDeg: 90,
+  })
   const normalizedPreviousTier = normalizeMainViewDeepStarGovernorTier(previousTier)
   const nextTier = selectMainViewDeepStarGovernorTier({
-    magnificationX: safeMagnificationX,
+    effectiveLimitMag,
     previousTier: normalizedPreviousTier,
   })
   const transitionReason =
@@ -529,54 +536,79 @@ function normalizeMainViewDeepStarGovernorTier(
 }
 
 function selectMainViewDeepStarGovernorTier({
-  magnificationX,
+  effectiveLimitMag,
   previousTier,
 }: {
-  magnificationX: number
+  effectiveLimitMag: number
   previousTier: Exclude<MainViewDeepStarQualityTier, 'off'> | null
 }): Exclude<MainViewDeepStarQualityTier, 'off'> {
   switch (previousTier) {
     case 'precision':
-      if (magnificationX >= MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.precision.exit) {
+      if (
+        effectiveLimitMag >=
+        MAIN_VIEW_DEEP_STAR_GOVERNOR_LIMITING_MAGNITUDE_THRESHOLDS.precision.exit
+      ) {
         return 'precision'
       }
-      return magnificationX >= MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.detailed.exit
+      return effectiveLimitMag >=
+        MAIN_VIEW_DEEP_STAR_GOVERNOR_LIMITING_MAGNITUDE_THRESHOLDS.detailed.exit
         ? 'detailed'
-        : magnificationX >=
-              MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.standard.exit
+        : effectiveLimitMag >=
+              MAIN_VIEW_DEEP_STAR_GOVERNOR_LIMITING_MAGNITUDE_THRESHOLDS.standard.exit
           ? 'standard'
           : 'baseline'
     case 'detailed':
-      if (magnificationX >= MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.precision.enter) {
+      if (
+        effectiveLimitMag >=
+        MAIN_VIEW_DEEP_STAR_GOVERNOR_LIMITING_MAGNITUDE_THRESHOLDS.precision.enter
+      ) {
         return 'precision'
       }
-      if (magnificationX >= MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.detailed.exit) {
+      if (
+        effectiveLimitMag >=
+        MAIN_VIEW_DEEP_STAR_GOVERNOR_LIMITING_MAGNITUDE_THRESHOLDS.detailed.exit
+      ) {
         return 'detailed'
       }
-      return magnificationX >=
-            MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.standard.exit
+      return effectiveLimitMag >=
+            MAIN_VIEW_DEEP_STAR_GOVERNOR_LIMITING_MAGNITUDE_THRESHOLDS.standard.exit
         ? 'standard'
         : 'baseline'
     case 'standard':
-      if (magnificationX >= MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.precision.enter) {
+      if (
+        effectiveLimitMag >=
+        MAIN_VIEW_DEEP_STAR_GOVERNOR_LIMITING_MAGNITUDE_THRESHOLDS.precision.enter
+      ) {
         return 'precision'
       }
-      if (magnificationX >= MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.detailed.enter) {
+      if (
+        effectiveLimitMag >=
+        MAIN_VIEW_DEEP_STAR_GOVERNOR_LIMITING_MAGNITUDE_THRESHOLDS.detailed.enter
+      ) {
         return 'detailed'
       }
-      return magnificationX >=
-            MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.standard.exit
+      return effectiveLimitMag >=
+            MAIN_VIEW_DEEP_STAR_GOVERNOR_LIMITING_MAGNITUDE_THRESHOLDS.standard.exit
         ? 'standard'
         : 'baseline'
     case 'baseline':
     default:
-      if (magnificationX >= MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.precision.enter) {
+      if (
+        effectiveLimitMag >=
+        MAIN_VIEW_DEEP_STAR_GOVERNOR_LIMITING_MAGNITUDE_THRESHOLDS.precision.enter
+      ) {
         return 'precision'
       }
-      if (magnificationX >= MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.detailed.enter) {
+      if (
+        effectiveLimitMag >=
+        MAIN_VIEW_DEEP_STAR_GOVERNOR_LIMITING_MAGNITUDE_THRESHOLDS.detailed.enter
+      ) {
         return 'detailed'
       }
-      if (magnificationX >= MAIN_VIEW_DEEP_STAR_GOVERNOR_MAGNIFICATION_THRESHOLDS.standard.enter) {
+      if (
+        effectiveLimitMag >=
+        MAIN_VIEW_DEEP_STAR_GOVERNOR_LIMITING_MAGNITUDE_THRESHOLDS.standard.enter
+      ) {
         return 'standard'
       }
       return 'baseline'
