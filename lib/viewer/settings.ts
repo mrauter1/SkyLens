@@ -27,7 +27,7 @@ export interface ScopeOpticsSettings {
 
 export const SCOPE_OPTICS_RANGES = {
   apertureMm: {
-    min: 50,
+    min: 20,
     max: 400,
     step: 1,
   },

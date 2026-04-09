@@ -364,6 +364,27 @@ describe('ViewerShell settings integration', () => {
     })
   })
 
+  it('preserves scope aperture above 100mm even when scope mode is disabled', () => {
+    writeViewerSettings({
+      ...readViewerSettings(),
+      scopeModeEnabled: false,
+      scopeOptics: {
+        apertureMm: 220,
+        magnificationX: 95,
+        transparencyPct: 65,
+      },
+    })
+
+    expect(readViewerSettings()).toMatchObject({
+      scopeModeEnabled: false,
+      scopeOptics: {
+        apertureMm: 220,
+        magnificationX: 95,
+        transparencyPct: 65,
+      },
+    })
+  })
+
   it('round-trips nested scope optics settings through persisted storage', () => {
     writeViewerSettings({
       ...readViewerSettings(),
