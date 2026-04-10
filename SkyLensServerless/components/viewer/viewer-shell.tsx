@@ -1006,16 +1006,27 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         scopeProjectionProfile,
       ),
   }
-  const constellationProjectionContext = scopeModeActive
-    ? scopeProjectionContext
-    : stageProjectionContext
-  const constellationScene =
+  const stageConstellationScene =
     observer && sceneSnapshot.error === null
       ? buildVisibleConstellations({
           cameraPose,
-          viewport: constellationProjectionContext.viewport,
+          viewport: stageProjectionContext.viewport,
           verticalFovAdjustmentDeg: viewerSettings.verticalFovAdjustmentDeg,
-          projectLinePoint: constellationProjectionContext.projectWorldPoint,
+          projectLinePoint: stageProjectionContext.projectWorldPoint,
+          enabledLayers,
+          likelyVisibleOnly,
+          sunAltitudeDeg: sceneSnapshot.sunAltitudeDeg,
+          visibleStars: sceneSnapshot.visibleStars,
+          starCatalog: STAR_CATALOG,
+        })
+      : EMPTY_CONSTELLATION_SCENE
+  const scopeConstellationLineScene =
+    observer && sceneSnapshot.error === null && scopeModeActive
+      ? buildVisibleConstellations({
+          cameraPose,
+          viewport: scopeProjectionContext.viewport,
+          verticalFovAdjustmentDeg: viewerSettings.verticalFovAdjustmentDeg,
+          projectLinePoint: scopeProjectionContext.projectWorldPoint,
           enabledLayers,
           likelyVisibleOnly,
           sunAltitudeDeg: sceneSnapshot.sunAltitudeDeg,
@@ -1025,7 +1036,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       : EMPTY_CONSTELLATION_SCENE
   const sceneObjects = sceneSnapshot.error
     ? EMPTY_SCENE_SNAPSHOT.objects
-    : [...sceneSnapshot.objects, ...constellationScene.objects]
+    : [...sceneSnapshot.objects, ...stageConstellationScene.objects]
   const defaultAlignmentTargetPreference = resolveDefaultAlignmentTargetPreference(
     sceneObjects,
     sceneSnapshot.sunAltitudeDeg,
@@ -1361,7 +1372,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       : []
   const scopeLensConstellationLineSegments: ScopeLensOverlayLineSegment[] =
     hasMounted && scopeModeActive
-      ? constellationScene.lineSegments
+      ? scopeConstellationLineScene.lineSegments
           .map((segment, segmentIndex) => ({
             id: `${segment.constellationId}-${segmentIndex}`,
             x1: segment.start.x,
@@ -1370,7 +1381,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             y2: segment.end.y,
           }))
       : []
-  const renderedLineSegments = hasMounted ? constellationScene.lineSegments : []
+  const renderedLineSegments = hasMounted ? stageConstellationScene.lineSegments : []
   const renderedMainViewDeepStarCanvasPoints = hasMounted ? mainViewDeepStarCanvasPoints : []
   const renderedMarkerObjects = hasMounted ? interactiveMarkerObjects : []
   const renderedOnObjectLabels = hasMounted ? onObjectLabels : []

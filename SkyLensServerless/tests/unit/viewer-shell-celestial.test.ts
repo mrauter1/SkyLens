@@ -958,6 +958,72 @@ describe('ViewerShell celestial behavior', () => {
     expect(label!.compareDocumentPosition(overlay!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
   })
 
+  it('keeps constellation object markers sourced from wide-stage projection while rendering scope lens lines', async () => {
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        ...readViewerSettings(),
+        labelDisplayMode: 'on_objects',
+        scopeModeEnabled: true,
+        scope: {
+          verticalFovDeg: 10,
+        },
+      }),
+    )
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -18,
+      objects: [],
+    })
+    mockBuildVisibleConstellations.mockImplementation((input: { viewport: { width: number } }) => {
+      if (input.viewport.width >= 300) {
+        return {
+          objects: [
+            {
+              id: 'constellation-orion',
+              type: 'constellation',
+              label: 'Orion',
+              azimuthDeg: 12,
+              elevationDeg: 16,
+              importance: 12,
+              metadata: {
+                detail: {
+                  typeLabel: 'Constellation',
+                  summaryText: 'Belt and shoulders',
+                },
+              },
+            },
+          ],
+          lineSegments: [],
+        }
+      }
+
+      return {
+        objects: [],
+        lineSegments: [
+          {
+            constellationId: 'orion',
+            start: { x: 30, y: 30 },
+            end: { x: 140, y: 140 },
+          },
+        ],
+      }
+    })
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
+
+    expect(
+      container.querySelector(
+        '[data-testid="sky-object-marker"][data-object-id="constellation-orion"]',
+      ),
+    ).not.toBeNull()
+    expect(container.querySelector('[data-testid="scope-constellation-line"]')).not.toBeNull()
+  })
+
   it('keeps constellation line endpoints aligned with marker projections in normal view', async () => {
     mockNormalizeCelestialObjects.mockReturnValue({
       sunAltitudeDeg: -18,
