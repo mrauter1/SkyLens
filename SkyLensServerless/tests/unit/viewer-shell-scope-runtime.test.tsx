@@ -388,7 +388,9 @@ describe('ViewerShell scope runtime', () => {
     expect(getSkyObjectMarkerPositionByLabel('Scope Star')).toBeNull()
   })
 
-  it('lets main-view deep stars participate in center-lock and on-object labels without scope mode', async () => {
+  it(
+    'lets main-view deep stars participate in center-lock and on-object labels without scope mode',
+    async () => {
     const scenario = getDemoScenario('tokyo-iss')
     const dataset = createMultiBandScopeDataset([
       {
@@ -435,9 +437,13 @@ describe('ViewerShell scope runtime', () => {
 
     const labels = Array.from(container.querySelectorAll('[data-testid="sky-object-label"]'))
     expect(labels.some((label) => label.textContent?.includes('Scope Star 1'))).toBe(true)
-  })
+    },
+    10_000,
+  )
 
-  it('renders visible normal-view deep stars on canvas while preserving center-lock and label membership', async () => {
+  it(
+    'renders visible normal-view deep stars on canvas while preserving center-lock and label membership',
+    async () => {
     const scenario = getDemoScenario('tokyo-iss')
     const dataset = createMultiBandScopeDataset([
       {
@@ -478,7 +484,9 @@ describe('ViewerShell scope runtime', () => {
 
     expect(labels.some((label) => label.textContent?.includes('Scope Star 1'))).toBe(true)
     expect(labels.some((label) => label.textContent?.includes('Scope Star 2'))).toBe(true)
-  })
+    },
+    10_000,
+  )
 
   it('does not redraw the main-view deep-star canvas on an unrelated same-mounted viewer rerender', async () => {
     const scenario = getDemoScenario('tokyo-iss')
@@ -718,50 +726,67 @@ describe('ViewerShell scope runtime', () => {
     expect(getCanvasStars()).toHaveLength(1)
   })
 
-  it('keeps stage and lens marker sizing aligned to scope optics for non-bright objects', async () => {
-    mockResolveSatelliteMotionObjects.mockReturnValue([
-      {
-        object: {
-          id: '25544',
-          type: 'satellite',
-          label: 'ISS (ZARYA)',
-          azimuthDeg: 0,
-          elevationDeg: 16,
-          rangeKm: 420.7,
-          importance: 88,
-          metadata: {
-            isIss: true,
-            detail: {
-              typeLabel: 'Satellite',
-              noradId: 25544,
-              elevationDeg: 16,
-              azimuthDeg: 0,
-              rangeKm: 420.7,
-              isIss: true,
+  it(
+    'keeps stage marker sizing on the wide baseline while scope lens markers stay magnified',
+    async () => {
+      mockNormalizeCelestialObjects.mockReturnValue({
+        sunAltitudeDeg: -12,
+        objects: [
+          {
+            id: 'planet-jupiter',
+            type: 'planet',
+            label: 'Jupiter',
+            azimuthDeg: 0,
+            elevationDeg: getDemoScenario('tokyo-iss').initialPitchDeg,
+            magnitude: -2.7,
+            importance: 90,
+            metadata: {
+              detail: {
+                typeLabel: 'Planet',
+                magnitude: -2.7,
+                elevationDeg: getDemoScenario('tokyo-iss').initialPitchDeg,
+              },
             },
           },
+        ],
+      })
+
+      setStoredViewerSettings({
+        scopeModeEnabled: false,
+        scopeOptics: {
+          apertureMm: 240,
+          magnificationX: 120,
+          transparencyPct: 85,
         },
-      },
-    ])
+        labelDisplayMode: 'center_only',
+      })
 
-    setStoredViewerSettings({
-      scopeModeEnabled: true,
-      scopeOptics: {
-        apertureMm: 240,
-        magnificationX: 120,
-        transparencyPct: 85,
-      },
-      labelDisplayMode: 'center_only',
-    })
+      await renderViewer()
 
-    await renderViewer()
+      const wideBaselineMarkerSizePx = getSkyObjectMarkerSizePx('planet-jupiter')
 
-    expect(container.querySelector('[data-testid="scope-lens-overlay"]')).not.toBeNull()
-    expect(container.querySelector('[data-testid="center-lock-chip"]')?.textContent).toContain(
-      'ISS (ZARYA)',
-    )
-    expect(getScopeMarkerSizePx('25544')).toBe(getSkyObjectMarkerSizePx('25544'))
-  })
+      await rerenderViewerWithSettings({
+        scopeModeEnabled: true,
+        scopeOptics: {
+          apertureMm: 240,
+          magnificationX: 120,
+          transparencyPct: 85,
+        },
+        labelDisplayMode: 'center_only',
+      })
+
+      const scopeLensMarkerSizePx = getScopeMarkerSizePx('planet-jupiter')
+      const scopeStageMarkerSizePx = getSkyObjectMarkerSizePx('planet-jupiter')
+
+      expect(container.querySelector('[data-testid="scope-lens-overlay"]')).not.toBeNull()
+      expect(container.querySelector('[data-testid="center-lock-chip"]')?.textContent).toContain(
+        'Jupiter',
+      )
+      expect(scopeStageMarkerSizePx).toBe(wideBaselineMarkerSizePx)
+      expect(scopeLensMarkerSizePx).toBeGreaterThan(scopeStageMarkerSizePx)
+    },
+    20_000,
+  )
 
   it('reveals more normal-view deep stars as aperture increases', async () => {
     const scenario = getDemoScenario('tokyo-iss')

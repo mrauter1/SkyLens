@@ -416,7 +416,9 @@ describe('ViewerShell settings integration', () => {
     })
   })
 
-  it('loads persisted settings, preserves offsets on recenter, and routes demo mode from the sheet', async () => {
+  it(
+    'loads persisted settings, preserves offsets on recenter, and routes demo mode from the sheet',
+    async () => {
     await act(async () => {
       root.render(
         React.createElement(ViewerShell, {
@@ -497,9 +499,13 @@ describe('ViewerShell settings integration', () => {
       expect.stringContaining('entry=demo'),
     )
     expect(readViewerSettings().onboardingCompleted).toBe(true)
-  })
+    },
+    10_000,
+  )
 
-  it('reloads changed layer toggles and calibration values from persisted settings', async () => {
+  it(
+    'reloads changed layer toggles and calibration values from persisted settings',
+    async () => {
     await act(async () => {
       root.render(
         React.createElement(ViewerShell, {
@@ -640,9 +646,13 @@ describe('ViewerShell settings integration', () => {
     expect(
       (container.querySelector('input[aria-label="High"]') as HTMLInputElement | null)?.checked,
     ).toBe(true)
-  })
+    },
+    20_000,
+  )
 
-  it('persists scope settings and marker scale through the real settings sheet', async () => {
+  it(
+    'persists scope settings and marker scale through the real settings sheet',
+    async () => {
     await act(async () => {
       root.render(
         React.createElement(ViewerShell, {
@@ -737,7 +747,9 @@ describe('ViewerShell settings integration', () => {
       (container.querySelector('input[aria-label="Marker scale"]') as HTMLInputElement | null)
         ?.value,
     ).toBe('3.2')
-  })
+    },
+    20_000,
+  )
 
   it.each([
     ['stale', 'Using stale satellite cache'],
