@@ -190,6 +190,7 @@ import {
 } from '../ui/dismissable-layer'
 import {
   ScopeLensOverlay,
+  type ScopeLensOverlayLineSegment,
   type ScopeLensOverlayObject,
 } from './scope-lens-overlay'
 import { MainStarCanvas, type MainStarCanvasPoint } from './main-star-canvas'
@@ -990,7 +991,22 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         stageProjectionProfile,
       ),
   }
-  const constellationScene =
+  const scopeProjectionViewport: ProjectViewport = {
+    width: scopeLensDiameterPx,
+    height: scopeLensDiameterPx,
+  }
+  const scopeProjectionContext: StageProjectionContext = {
+    profile: scopeProjectionProfile,
+    viewport: scopeProjectionViewport,
+    projectWorldPoint: (worldPoint) =>
+      projectWorldPointToScreenWithProfile(
+        cameraPose,
+        worldPoint,
+        scopeProjectionViewport,
+        scopeProjectionProfile,
+      ),
+  }
+  const stageConstellationScene =
     observer && sceneSnapshot.error === null
       ? buildVisibleConstellations({
           cameraPose,
@@ -1004,9 +1020,23 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
           starCatalog: STAR_CATALOG,
         })
       : EMPTY_CONSTELLATION_SCENE
+  const scopeConstellationLineScene =
+    observer && sceneSnapshot.error === null && scopeModeActive
+      ? buildVisibleConstellations({
+          cameraPose,
+          viewport: scopeProjectionContext.viewport,
+          verticalFovAdjustmentDeg: viewerSettings.verticalFovAdjustmentDeg,
+          projectLinePoint: scopeProjectionContext.projectWorldPoint,
+          enabledLayers,
+          likelyVisibleOnly,
+          sunAltitudeDeg: sceneSnapshot.sunAltitudeDeg,
+          visibleStars: sceneSnapshot.visibleStars,
+          starCatalog: STAR_CATALOG,
+        })
+      : EMPTY_CONSTELLATION_SCENE
   const sceneObjects = sceneSnapshot.error
     ? EMPTY_SCENE_SNAPSHOT.objects
-    : [...sceneSnapshot.objects, ...constellationScene.objects]
+    : [...sceneSnapshot.objects, ...stageConstellationScene.objects]
   const defaultAlignmentTargetPreference = resolveDefaultAlignmentTargetPreference(
     sceneObjects,
     sceneSnapshot.sunAltitudeDeg,
@@ -1340,7 +1370,18 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             }).className,
           }))
       : []
-  const renderedLineSegments = hasMounted ? constellationScene.lineSegments : []
+  const scopeLensConstellationLineSegments: ScopeLensOverlayLineSegment[] =
+    hasMounted && scopeModeActive
+      ? scopeConstellationLineScene.lineSegments
+          .map((segment, segmentIndex) => ({
+            id: `${segment.constellationId}-${segmentIndex}`,
+            x1: segment.start.x,
+            y1: segment.start.y,
+            x2: segment.end.x,
+            y2: segment.end.y,
+          }))
+      : []
+  const renderedLineSegments = hasMounted ? stageConstellationScene.lineSegments : []
   const renderedMainViewDeepStarCanvasPoints = hasMounted ? mainViewDeepStarCanvasPoints : []
   const renderedMarkerObjects = hasMounted ? interactiveMarkerObjects : []
   const renderedOnObjectLabels = hasMounted ? onObjectLabels : []
@@ -3951,18 +3992,20 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             />
           ))}
           {renderMotionAffordance(activeMotionAffordance, activeMotionAffordanceKind)}
-          {renderedLineSegments.map((segment, index) => (
-            <line
-              key={`${segment.constellationId}-${index}`}
-              x1={segment.start.x}
-              y1={segment.start.y}
-              x2={segment.end.x}
-              y2={segment.end.y}
-              stroke="rgba(186, 230, 253, 0.42)"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-            />
-          ))}
+          {!scopeModeActive
+            ? renderedLineSegments.map((segment, index) => (
+                <line
+                  key={`${segment.constellationId}-${index}`}
+                  x1={segment.start.x}
+                  y1={segment.start.y}
+                  x2={segment.end.x}
+                  y2={segment.end.y}
+                  stroke="rgba(186, 230, 253, 0.42)"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+              ))
+            : null}
         </svg>
         {viewerSettings.labelDisplayMode === 'top_list' && renderedTopListObjects.length > 0 ? (
           <div className="pointer-events-none absolute inset-x-4 top-24 z-20 flex justify-center px-2">
@@ -4079,6 +4122,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             cameraStream={cameraStreamRef.current}
             cameraStreamActive={cameraStreamActive}
             stars={scopeStarCanvasPoints}
+            lineSegments={scopeLensConstellationLineSegments}
             objects={scopeLensObjects}
           />
         ) : null}
