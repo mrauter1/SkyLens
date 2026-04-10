@@ -1,0 +1,8 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260410T014749Z-62f02a15" ts="2026-04-10T01:47:50.189699+00:00" />
+In scope mode, wide-stage markers must keep wide-stage ownership for eligible marker set, sizing baseline, and highlight state; only the lens overlay should use scope-specific optics and center-lock styling.
+Selected and hovered summary or motion-affordance coordinates must come from the same projection surface that owns the active interaction target, so scope-surface interactions do not render summaries from wide-space coordinates.
+Treat the root viewer disabled-scope aperture clamp to 100mm as the intended current behavior unless a later authoritative clarification explicitly reverses it.
+<autoloop-decisions-header version="1" block_seq="2" owner="implementer" phase_id="scope-mode-parity-regression-fixes" pair="implement" turn_seq="1" run_id="run-20260410T014749Z-62f02a15" ts="2026-04-10T01:50:30.242920+00:00" />
+Selected and hovered summary objects now resolve through the stage-interactive marker set by default, with explicit interaction-surface state reserved for scope-surface lookups so motion-affordance coordinates stay on the same projection surface as the owning marker interaction.
+The celestial highlight regression test forces a wide-stage winner and scope winner apart by mocking pickCenterLockedCandidate inside the test; this keeps the assertion deterministic without depending on async scope catalog loading in that suite.
+<autoloop-decisions-header version="1" block_seq="3" owner="test_author" phase_id="scope-mode-parity-regression-fixes" pair="test" turn_seq="1" run_id="run-20260410T014749Z-62f02a15" ts="2026-04-10T02:15:30.841551+00:00" />

@@ -1,0 +1,29 @@
+{
+  "task_id": "scope-mode-parity-skylensserverless-20260410",
+  "created_at": "2026-04-10T00:39:41.501121+00:00",
+  "request_text": "# Scope Mode Parity Task (SkyLensServerless)\n\n## Objective\nImplement scope-mode parity so **scope mode shows the same classes of sky elements as normal view** (constellations, satellites, aircraft, stars, etc.), while still applying **scope-specific aperture/magnification optics**.\n\n## Required outcomes\n1. In scope mode (`skylensserverless` scope mode), object-class visibility parity with normal view is restored.\n2. Scope optics remain distinct from normal view (projection, FOV, and magnification behavior should remain scope-specific).\n3. Labels/top-list candidate sets in scope mode include the same relevant classes as normal mode (not only bright objects + deep stars).\n\n## Issues to address\n### Issue 1 \u2014 Scope lens excludes non-bright object types\n- Current scope overlay object derivation uses `scopeProjectedBrightObjects` via `isScopeBrightObject()` and excludes non-bright classes.\n- Result: satellites and other markers disappear in scope pipeline.\n\n### Issue 2 \u2014 Scope mode uses main-view sizing/projection baseline\n- Marker sizing in scope mode still references `baseEffectiveVerticalFovDeg` in `getMarkerSizePxForEffectiveVerticalFovDeg(...)`.\n- Stage markers are derived from normal-view projection objects.\n- Result: apparent scale/projection mismatch relative to scope optics.\n\n### Issue 3 \u2014 Scope labels/top-list restricted to bright objects + deep stars\n- `labelObjects` in scope mode currently pulls from `scopeActiveBrightObjects` + deep stars.\n- Result: labels/top-list suppress satellites and other classes that appear in normal mode.\n\n## Implementation strategy\n1. Build a shared marker-eligible object resolver used by both normal and scope branches.\n2. Split projection cleanly into stage vs lens variants.\n3. Rewire lens markers + labels to use the scope marker set with parity classes.\n4. Use active optics/FOV consistently in scope mode for marker sizing and visibility.\n\n## Constraints\n- Preserve existing normal-view behavior.\n- Keep scope mode optics behavior distinct and coherent.\n- Keep changes focused and test-backed.\n\n## Execution mode\nRun with autoloop in **full-auto answers** mode, using **plan, implement, test** pairs.",
+  "request_updated_at": "2026-04-10T00:39:41.501178+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/scope-mode-parity-skylensserverless-20260410/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260410T003941Z-9456d438",
+    "mode": "single",
+    "phase_ids": [
+      "restore-scope-mode-parity"
+    ],
+    "explicit": true,
+    "current_phase_index": 0,
+    "current_phase_id": "restore-scope-mode-parity"
+  },
+  "phase_status": {
+    "restore-scope-mode-parity": "in_progress"
+  },
+  "phase_history": [
+    {
+      "phase_id": "restore-scope-mode-parity",
+      "run_id": "run-20260410T003941Z-9456d438",
+      "status": "in_progress",
+      "ts": "2026-04-10T00:44:01.954713+00:00"
+    }
+  ]
+}
