@@ -60,6 +60,15 @@ describe('ScopeLensOverlay', () => {
               radius: 1.7,
             },
           ]}
+          lineSegments={[
+            {
+              id: 'orion-0',
+              x1: 24,
+              y1: 36,
+              x2: 140,
+              y2: 124,
+            },
+          ]}
           objects={[
             {
               id: 'scope-star',
@@ -86,6 +95,7 @@ describe('ScopeLensOverlay', () => {
     const starCanvas = container.querySelector('[data-testid="scope-star-canvas"]') as
       | HTMLCanvasElement
       | null
+    const constellationLines = container.querySelectorAll('[data-testid="scope-constellation-line"]')
     const markers = container.querySelectorAll('[data-testid="scope-bright-object-marker"]')
 
     expect(overlay).not.toBeNull()
@@ -97,6 +107,7 @@ describe('ScopeLensOverlay', () => {
     expect(frame?.style.width).toBe('280px')
     expect(frame?.style.height).toBe('280px')
     expect(hitArea?.style.clipPath).toBe('circle(50% at 50% 50%)')
+    expect(constellationLines).toHaveLength(1)
     expect(markers).toHaveLength(1)
     expect(overlay?.querySelector(FOCUSABLE_SELECTOR)).toBeNull()
   })

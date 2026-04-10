@@ -875,7 +875,7 @@ describe('ViewerShell celestial behavior', () => {
     40_000,
   )
 
-  it('renders the scope overlay after wide lines, markers, and labels for lens occlusion ordering', async () => {
+  it('renders constellation line segments inside the scope overlay when scope mode is active', async () => {
     window.localStorage.setItem(
       VIEWER_SETTINGS_STORAGE_KEY,
       JSON.stringify({
@@ -948,17 +948,14 @@ describe('ViewerShell celestial behavior', () => {
     const label = container.querySelector(
       '[data-testid="sky-object-label"][data-object-id="star-sirius"]',
     )
-    const constellationLine = container.querySelector('svg line')
+    const scopeConstellationLine = overlay?.querySelector('[data-testid="scope-constellation-line"]')
 
     expect(overlay).not.toBeNull()
     expect(marker).not.toBeNull()
     expect(label).not.toBeNull()
-    expect(constellationLine).not.toBeNull()
+    expect(scopeConstellationLine).not.toBeNull()
     expect(marker!.compareDocumentPosition(overlay!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
     expect(label!.compareDocumentPosition(overlay!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
-    expect(
-      constellationLine!.compareDocumentPosition(overlay!) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).not.toBe(0)
   })
 
   it('keeps constellation line endpoints aligned with marker projections in normal view', async () => {

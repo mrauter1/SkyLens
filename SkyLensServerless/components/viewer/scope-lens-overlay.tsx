@@ -13,6 +13,14 @@ export type ScopeLensOverlayObject = {
   className: string
 }
 
+export type ScopeLensOverlayLineSegment = {
+  id: string
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+}
+
 type ScopeLensOverlayProps = {
   diameterPx: number
   lensVisualScale: number
@@ -20,6 +28,7 @@ type ScopeLensOverlayProps = {
   cameraStream: MediaStream | null
   cameraStreamActive: boolean
   stars: ScopeStarCanvasPoint[]
+  lineSegments: ScopeLensOverlayLineSegment[]
   objects: ScopeLensOverlayObject[]
 }
 
@@ -30,6 +39,7 @@ export function ScopeLensOverlay({
   cameraStream,
   cameraStreamActive,
   stars,
+  lineSegments,
   objects,
 }: ScopeLensOverlayProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -114,6 +124,27 @@ export function ScopeLensOverlay({
             diameterPx={diameterPx}
             stars={stars}
           />
+          {lineSegments.length > 0 ? (
+            <svg
+              className="pointer-events-none absolute inset-0 h-full w-full"
+              data-testid="scope-constellation-svg"
+            >
+              {lineSegments.map((segment) => (
+                <line
+                  key={segment.id}
+                  data-testid="scope-constellation-line"
+                  data-segment-id={segment.id}
+                  x1={segment.x1}
+                  y1={segment.y1}
+                  x2={segment.x2}
+                  y2={segment.y2}
+                  stroke="rgba(186, 230, 253, 0.42)"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+              ))}
+            </svg>
+          ) : null}
           {objects.map((object) => (
             <div
               key={object.id}
