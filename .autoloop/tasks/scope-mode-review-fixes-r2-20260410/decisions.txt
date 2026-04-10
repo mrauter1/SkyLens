@@ -1,0 +1,9 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260410T015523Z-5a0c63d4" ts="2026-04-10T01:55:23.631366+00:00" />
+In scope mode, wide-stage marker eligibility/sizing/highlight ownership are authoritative for stage rendering; scope magnification and lens clipping are lens-only concerns.
+Interaction summaries and motion-affordance anchors must use coordinates from the same interaction surface projection that produced the active marker to prevent stage/scope drift.
+Treat disabled-mode scope aperture normalization to 100mm as intended unless a later explicit clarification overrides it; keep tests/docs explicit about that scope.
+<autoloop-decisions-header version="1" block_seq="2" owner="implementer" phase_id="scope-mode-parity-review-fixes" pair="implement" turn_seq="1" run_id="run-20260410T015523Z-5a0c63d4" ts="2026-04-10T01:58:11.704150+00:00" />
+<autoloop-decisions-header version="1" block_seq="3" owner="implementer" phase_id="scope-mode-parity-review-fixes" pair="implement" turn_seq="2" run_id="run-20260410T015523Z-5a0c63d4" ts="2026-04-10T02:06:01.568807+00:00" />
+Selected/hovered summary resolution now consumes marker-eligible stage/scope object sets so motion-affordance anchors follow the same projection surface as the interaction source.
+Stabilization for scope parity tests keeps root/settings and serverless scope-runtime expectations intact while adding targeted timeout headroom only to long-running integration tests.
+For celestial parity coverage, keep targeted scope-mode invariants (outside-lens stage marker visibility, wide-scene highlight ownership, and stage-marker motion-affordance alignment) validated via focused test selection because an unrelated long-running aircraft-trail test remains timing-sensitive.

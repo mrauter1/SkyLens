@@ -222,6 +222,8 @@ type ScopeLoadedDeepStar = ScopeDecodedTileRow & {
   displayName?: string
 }
 
+type InteractionSurface = 'stage' | 'scope'
+
 type ActiveProjectedSkyObject = ProjectedSkyObject | ProjectedDeepStarObject
 type SummarySkyObject = ActiveProjectedSkyObject
 
@@ -622,7 +624,11 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   )
   const [viewerSettings, setViewerSettings] = useState(persistedViewerSettings)
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null)
+  const [selectedObjectInteractionSurface, setSelectedObjectInteractionSurface] =
+    useState<InteractionSurface>('stage')
   const [hoveredObjectId, setHoveredObjectId] = useState<string | null>(null)
+  const [hoveredObjectInteractionSurface, setHoveredObjectInteractionSurface] =
+    useState<InteractionSurface>('stage')
   const [astronomyFailureBanner, setAstronomyFailureBanner] = useState<string | null>(null)
   const [aircraftRevision, setAircraftRevision] = useState(0)
   const [aircraftAvailability, setAircraftAvailability] = useState<AircraftAvailability>(
@@ -1021,12 +1027,8 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   )
   const wideCenterLockedObject =
     projectedObjects.find((object) => object.id === wideCenterLockedCandidate?.id) ?? null
-  const scopeProjectedBrightObjects: ScopeProjectedSkyObject[] = projectedObjects
-    .filter(
-      (object) =>
-        isScopeBrightObject(object) &&
-        (!scopeDeepStarsDaylightSuppressed || object.type !== 'star'),
-    )
+  const scopeProjectedMarkerObjects: ScopeProjectedSkyObject[] = projectedObjects
+    .filter((object) => !scopeDeepStarsDaylightSuppressed || object.type !== 'star')
     .map((object) => {
       const scopeProjection = projectWorldPointToScreenWithProfile(
         cameraPose,
@@ -1052,7 +1054,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             scopeLensRadiusPx * scopeLensRadiusPx,
       }
     })
-  const scopeActiveBrightObjects: ScopeProjectedSkyObject[] = scopeProjectedBrightObjects
+  const scopeVisibleMarkerObjects: ScopeProjectedSkyObject[] = scopeProjectedMarkerObjects
     .filter((object) => object.scopeInLensCircle)
     .map((object) => ({
       ...object,
@@ -1180,13 +1182,13 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   )
   const scopeCenterLockedCandidate = scopeModeActive
     ? pickCenterLockedCandidate(
-        [...scopeActiveBrightObjects, ...projectedDeepStars.filter((object) => object.scopeInLensCircle)]
+        [...scopeVisibleMarkerObjects, ...projectedDeepStars.filter((object) => object.scopeInLensCircle)]
           .map((object) => toCenterLockCandidate(object)),
       )
     : null
   const scopeCenterLockedObject =
     scopeModeActive
-      ? [...scopeActiveBrightObjects, ...projectedDeepStars].find(
+      ? [...scopeVisibleMarkerObjects, ...projectedDeepStars].find(
           (object) => object.id === scopeCenterLockedCandidate?.id,
         ) ??
         null
@@ -1207,15 +1209,20 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const wideSceneCenterLockedObject = scopeModeActive
     ? wideCenterLockedObject
     : mainCenterLockedObject
+  const stageCenterLockedObjectId = wideSceneCenterLockedObject?.id ?? null
   const centerLockedObject: SummarySkyObject | null = scopeModeActive
     ? scopeCenterLockedObject
     : mainCenterLockedObject
-  const mainViewInteractiveMarkerObjects: ProjectedSkyObject[] = projectedObjects.filter(
-    (object) =>
-      object.projection.visible &&
-      (!isCelestialDaylightLabelSuppressed(object) ||
-        object.id === wideSceneCenterLockedObject?.id ||
-        object.id === selectedObjectId),
+  const mainViewInteractiveMarkerObjects = resolveMarkerEligibleProjectedObjects(projectedObjects, {
+    centerLockedObjectId: stageCenterLockedObjectId,
+    selectedObjectId,
+  })
+  const scopeInteractiveMarkerObjects = resolveMarkerEligibleProjectedObjects(
+    scopeVisibleMarkerObjects,
+    {
+      centerLockedObjectId: scopeCenterLockedObject?.id ?? null,
+      selectedObjectId,
+    },
   )
   const mainViewDeepStarCanvasPoints = useMemo<MainStarCanvasPoint[]>(
     () =>
@@ -1231,7 +1238,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   )
   const interactiveMarkerObjects: ActiveProjectedSkyObject[] = mainViewInteractiveMarkerObjects
   const labelObjects: ActiveProjectedSkyObject[] = scopeModeActive
-    ? [...scopeActiveBrightObjects, ...projectedDeepStars.filter((object) => object.scopeInLensCircle)]
+    ? [...scopeInteractiveMarkerObjects, ...projectedDeepStars.filter((object) => object.scopeInLensCircle)]
     : [...mainViewInteractiveMarkerObjects, ...mainViewRenderedDeepStars]
   const markerLabelCandidates = labelObjects.map((object) => ({
     object,
@@ -1243,7 +1250,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       ? layoutLabels(markerLabelCandidates, {
           viewport,
           maxLabels: PUBLIC_CONFIG.defaults.maxLabels,
-          centerLockedObjectId: centerLockedObject?.id ?? null,
+          centerLockedObjectId: stageCenterLockedObjectId,
         })
       : []
   const topListObjects =
@@ -1251,18 +1258,39 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       ? [...markerLabelCandidates]
           .sort((left, right) =>
             compareLabelCandidates(left, right, {
-              centerLockedObjectId: centerLockedObject?.id ?? null,
+              centerLockedObjectId: stageCenterLockedObjectId,
             }),
           )
           .map((candidate) => candidate.object)
       : []
-  const selectedObject =
-    [...projectedObjects, ...projectedDeepStars].find((object) => object.id === selectedObjectId) ??
-    null
+  const selectedObject = resolveInteractionSummaryObject(
+    selectedObjectId,
+    selectedObjectInteractionSurface,
+    {
+      scopeModeActive,
+      stageAllObjects: projectedObjects,
+      stageObjects: mainViewInteractiveMarkerObjects,
+      stageDeepStars: projectedDeepStars,
+      scopeAllObjects: scopeVisibleMarkerObjects,
+      scopeObjects: scopeInteractiveMarkerObjects,
+      scopeDeepStars: projectedDeepStars,
+    },
+  )
+  const hoveredObjectCandidate = resolveInteractionSummaryObject(
+    hoveredObjectId,
+    hoveredObjectInteractionSurface,
+    {
+      scopeModeActive,
+      stageAllObjects: projectedObjects,
+      stageObjects: mainViewInteractiveMarkerObjects,
+      stageDeepStars: projectedDeepStars,
+      scopeAllObjects: scopeVisibleMarkerObjects,
+      scopeObjects: scopeInteractiveMarkerObjects,
+      scopeDeepStars: projectedDeepStars,
+    },
+  )
   const hoveredObject =
-    [...projectedObjects, ...projectedDeepStars].find(
-      (object) => object.id === hoveredObjectId && object.projection.visible,
-    ) ?? null
+    hoveredObjectCandidate?.projection.visible === true ? hoveredObjectCandidate : null
   const selectedDetailObject = selectedObject ?? hoveredObject
   const detailObjectHeading = selectedObject ? 'Selected object' : hoveredObject ? 'Hovered object' : null
   const activeSummaryObject: SummarySkyObject | null =
@@ -1295,8 +1323,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       : []
   const scopeLensObjects: ScopeLensOverlayObject[] =
     hasMounted && scopeModeActive
-      ? scopeProjectedBrightObjects
-          .filter((object) => object.scopeInLensCircle)
+      ? scopeInteractiveMarkerObjects
           .map((object) => ({
             id: object.id,
             x: object.scopeProjection.x,
@@ -1308,10 +1335,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             }),
             opacity: getScopeMarkerOpacity(object, normalizedScopeOptics),
             className: getMarkerVisualStyle(object, {
-              centerLockedObjectId:
-                scopeCenterLockedObject && isScopeBrightObject(scopeCenterLockedObject)
-                  ? scopeCenterLockedObject.id
-                  : null,
+              centerLockedObjectId: scopeCenterLockedObject?.id ?? null,
               selectedObjectId,
             }).className,
           }))
@@ -3950,8 +3974,8 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                 <div
                   key={object.id}
                   data-testid="sky-object-top-list-item"
-                className={`rounded-full border px-3 py-1 text-xs ${
-                    object.id === selectedObject?.id || object.id === wideSceneCenterLockedObject?.id
+                  className={`rounded-full border px-3 py-1 text-xs ${
+                    object.id === selectedObject?.id || object.id === stageCenterLockedObjectId
                       ? 'border-amber-200/60 bg-amber-200/16 text-amber-50'
                       : 'border-sky-100/10 bg-white/5 text-sky-50'
                   }`}
@@ -3972,11 +3996,11 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         {renderedMarkerObjects.map((object) => {
           const markerSizePx = getMarkerSizePxForEffectiveVerticalFovDeg(
             object,
-            scopeModeActive ? baseEffectiveVerticalFovDeg : mainEffectiveVerticalFovDeg,
+            stageProjectionContext.profile.verticalFovDeg,
             viewerSettings.markerScale,
           )
           const markerVisualStyle = getMarkerVisualStyle(object, {
-            centerLockedObjectId: wideSceneCenterLockedObject?.id ?? null,
+            centerLockedObjectId: stageCenterLockedObjectId,
             selectedObjectId,
           })
 
@@ -3985,10 +4009,12 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
               key={object.id}
               type="button"
               onClick={() => {
+                setSelectedObjectInteractionSurface('stage')
                 setSelectedObjectId((current) => (current === object.id ? null : object.id))
                 setIsDesktopViewerPanelOpen(true)
               }}
               onPointerEnter={() => {
+                setHoveredObjectInteractionSurface('stage')
                 setHoveredObjectId(object.id)
               }}
               onPointerLeave={() => {
@@ -4027,7 +4053,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             data-testid="sky-object-label"
             data-object-id={object.object.id}
             className={`pointer-events-none absolute rounded-2xl border px-3 py-2 text-left text-xs shadow-[0_12px_30px_rgba(3,7,13,0.22)] ${
-              object.object.id === selectedObject?.id || object.object.id === wideSceneCenterLockedObject?.id
+              object.object.id === selectedObject?.id || object.object.id === stageCenterLockedObjectId
                 ? 'border-amber-200/70 bg-slate-950/82 text-amber-50'
                 : 'border-sky-100/18 bg-slate-950/72 text-sky-50'
             }`}
@@ -5098,6 +5124,48 @@ function renderMotionAffordance(
   )
 }
 
+function resolveInteractionSummaryObject(
+  objectId: string | null,
+  interactionSurface: InteractionSurface,
+  {
+    scopeModeActive,
+    stageAllObjects,
+    stageObjects,
+    stageDeepStars,
+    scopeAllObjects,
+    scopeObjects,
+    scopeDeepStars,
+  }: {
+    scopeModeActive: boolean
+    stageAllObjects: ProjectedSkyObject[]
+    stageObjects: ProjectedSkyObject[]
+    stageDeepStars: ProjectedDeepStarObject[]
+    scopeAllObjects: ScopeProjectedSkyObject[]
+    scopeObjects: ScopeProjectedSkyObject[]
+    scopeDeepStars: ProjectedDeepStarObject[]
+  },
+) {
+  if (objectId === null) {
+    return null
+  }
+
+  if (scopeModeActive && interactionSurface === 'scope') {
+    return (
+      scopeObjects.find((object) => object.id === objectId) ??
+      scopeAllObjects.find((object) => object.id === objectId) ??
+      scopeDeepStars.find((object) => object.id === objectId && object.scopeInLensCircle) ??
+      null
+    )
+  }
+
+  return (
+    stageObjects.find((object) => object.id === objectId) ??
+    stageAllObjects.find((object) => object.id === objectId) ??
+    stageDeepStars.find((object) => object.id === objectId) ??
+    null
+  )
+}
+
 function getMarkerVisualStyle(
   object: SkyObject,
   {
@@ -5214,6 +5282,25 @@ function getMovingObjectMarkerStateClassName(object: SkyObject) {
     default:
       return ''
   }
+}
+
+function resolveMarkerEligibleProjectedObjects<T extends ProjectedSkyObject>(
+  objects: T[],
+  {
+    centerLockedObjectId,
+    selectedObjectId,
+  }: {
+    centerLockedObjectId: string | null
+    selectedObjectId: string | null
+  },
+) {
+  return objects.filter(
+    (object) =>
+      object.projection.visible &&
+      (!isCelestialDaylightLabelSuppressed(object) ||
+        object.id === centerLockedObjectId ||
+        object.id === selectedObjectId),
+  )
 }
 
 function toCenterLockCandidate(object: SummarySkyObject) {
@@ -5464,15 +5551,6 @@ function isScopeExtendedObject(object: SkyObject): object is SkyObject & {
   type: 'sun' | 'moon' | 'planet'
 } {
   return object.type === 'sun' || object.type === 'moon' || object.type === 'planet'
-}
-
-function isScopeBrightObject(object: SkyObject) {
-  return (
-    object.type === 'sun' ||
-    object.type === 'moon' ||
-    object.type === 'planet' ||
-    object.type === 'star'
-  )
 }
 
 function getScopeExtendedObjectSizePx(

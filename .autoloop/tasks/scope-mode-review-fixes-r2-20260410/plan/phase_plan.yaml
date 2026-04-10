@@ -1,0 +1,48 @@
+version: 1
+task_id: scope-mode-review-fixes-r2-20260410
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/scope-mode-review-fixes-r2-20260410/runs/run-20260410T015523Z-5a0c63d4/request.md
+phases:
+  - phase_id: scope-mode-parity-review-fixes
+    title: Restore scope-mode parity ownership and regression coverage
+    objective: Reinstate wide-stage behavior in scope mode, confine scope optics to lens rendering, and correct tests/settings expectations that currently encode regressions.
+    status: planned
+    in_scope:
+      - Restore wide-stage marker eligibility/rendering semantics in scope mode.
+      - Restore wide-stage marker sizing baseline and wide center-lock highlight ownership.
+      - Align selected or hovered summary and motion-affordance coordinates with interaction projection surface.
+      - Update scope-runtime and celestial unit tests to enforce intended scope-lens vs stage behavior split.
+      - Reconcile root viewer-settings aperture-disabled expectation and docs with intended business logic.
+      - Run focused root and SkyLensServerless viewer/settings unit tests.
+    out_of_scope:
+      - Scope dataset generation or catalog schema changes.
+      - Broad viewer architecture refactors or UI redesign.
+      - Selector renames unless explicitly required.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: In scope mode, stage interactive markers are sourced from wide-stage eligible objects so markers outside the lens remain visible and usable.
+      - id: AC-2
+        text: Stage marker sizes in scope mode match wide-stage baseline behavior and do not use scope-magnified effective FOV.
+      - id: AC-3
+        text: Stage marker highlight or active styling follows wide-scene center-lock ownership in scope mode.
+      - id: AC-4
+        text: Selected or hovered summary and motion-affordance coordinates resolve from the same projection surface that drove the interaction, with no stage-vs-scope drift.
+      - id: AC-5
+        text: viewer-shell-scope-runtime and viewer-shell-celestial tests explicitly lock the above parity invariants, including marker visibility outside lens and highlight ownership.
+      - id: AC-6
+        text: Root viewer-settings test and any touched doc wording consistently express the intended aperture-disabled behavior.
+      - id: AC-7
+        text: Targeted test commands for touched root and SkyLensServerless suites pass.
+    deliverables:
+      - Updated viewer-shell runtime ownership logic and/or guard assertions in focused scope-mode paths.
+      - Updated SkyLensServerless scope-runtime and celestial unit tests covering parity regressions.
+      - Updated root settings test (and minimal doc wording if touched) aligned to intended aperture-disabled semantics.
+      - Focused test execution evidence captured in test phase output.
+    risks:
+      - Regressing stage marker visibility by accidentally reusing lens-clipped marker sources.
+      - Reintroducing scope-magnified FOV into stage marker sizing path.
+      - Interaction-surface mismatch causing summary or motion-affordance coordinate drift.
+      - Settings behavior ambiguity causing future test churn.
+    rollback:
+      - Revert viewer-shell and related tests as a single set if parity invariants diverge.
+      - Keep selector compatibility by retaining scope-bright-object-marker contract in any rollback.
