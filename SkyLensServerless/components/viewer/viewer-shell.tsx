@@ -1268,8 +1268,10 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     selectedObjectInteractionSurface,
     {
       scopeModeActive,
+      stageAllObjects: projectedObjects,
       stageObjects: mainViewInteractiveMarkerObjects,
       stageDeepStars: projectedDeepStars,
+      scopeAllObjects: scopeVisibleMarkerObjects,
       scopeObjects: scopeInteractiveMarkerObjects,
       scopeDeepStars: projectedDeepStars,
     },
@@ -1279,8 +1281,10 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     hoveredObjectInteractionSurface,
     {
       scopeModeActive,
+      stageAllObjects: projectedObjects,
       stageObjects: mainViewInteractiveMarkerObjects,
       stageDeepStars: projectedDeepStars,
+      scopeAllObjects: scopeVisibleMarkerObjects,
       scopeObjects: scopeInteractiveMarkerObjects,
       scopeDeepStars: projectedDeepStars,
     },
@@ -5125,14 +5129,18 @@ function resolveInteractionSummaryObject(
   interactionSurface: InteractionSurface,
   {
     scopeModeActive,
+    stageAllObjects,
     stageObjects,
     stageDeepStars,
+    scopeAllObjects,
     scopeObjects,
     scopeDeepStars,
   }: {
     scopeModeActive: boolean
+    stageAllObjects: ProjectedSkyObject[]
     stageObjects: ProjectedSkyObject[]
     stageDeepStars: ProjectedDeepStarObject[]
+    scopeAllObjects: ScopeProjectedSkyObject[]
     scopeObjects: ScopeProjectedSkyObject[]
     scopeDeepStars: ProjectedDeepStarObject[]
   },
@@ -5144,6 +5152,7 @@ function resolveInteractionSummaryObject(
   if (scopeModeActive && interactionSurface === 'scope') {
     return (
       scopeObjects.find((object) => object.id === objectId) ??
+      scopeAllObjects.find((object) => object.id === objectId) ??
       scopeDeepStars.find((object) => object.id === objectId && object.scopeInLensCircle) ??
       null
     )
@@ -5151,6 +5160,7 @@ function resolveInteractionSummaryObject(
 
   return (
     stageObjects.find((object) => object.id === objectId) ??
+    stageAllObjects.find((object) => object.id === objectId) ??
     stageDeepStars.find((object) => object.id === objectId) ??
     null
   )

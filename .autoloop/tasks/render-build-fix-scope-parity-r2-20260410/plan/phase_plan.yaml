@@ -1,0 +1,39 @@
+version: 1
+task_id: render-build-fix-scope-parity-r2-20260410
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/render-build-fix-scope-parity-r2-20260410/runs/run-20260410T151246Z-5b5a886a/request.md
+phases:
+  - phase_id: render-build-scope-parity-fix
+    title: Fix browser-safe satellite import and preserve scope parity
+    objective: Restore `SkyLensServerless` production builds by swapping in browser-safe `satellite.js` entrypoints while preserving the reviewed scope-mode rendering and interaction invariants.
+    status: planned
+    in_scope:
+      - Update `SkyLensServerless/lib/vendor/satellite.ts` to use browser-safe dist entrypoints instead of the package root.
+      - Preserve the existing local satellite wrapper export surface consumed by `SkyLensServerless/lib/viewer/motion.ts`.
+      - Make only minimal viewer-shell changes needed to maintain non-bright lens parity and wide-stage interaction ownership.
+      - Update or keep focused tests for motion, scope runtime, and viewer celestial interaction behavior.
+      - Validate with `cd SkyLensServerless && npm run build` and focused viewer tests, plus root settings regression if feasible.
+    out_of_scope:
+      - Broad refactors of motion, scope rendering, or label layout systems.
+      - New viewer settings behavior beyond compatibility-preserving regression fixes.
+      - Unrelated repository cleanup or root-app feature work.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: "`SkyLensServerless` no longer resolves Node-only `satellite.js` runtime modules during `next build`."
+      - id: AC-2
+        text: The local satellite wrapper keeps the same named exports and `SatRec` type expected by `lib/viewer/motion.ts`.
+      - id: AC-3
+        text: Scope mode still preserves non-bright lens class parity, wide-stage sizing/highlight ownership, and outside-lens interaction behavior for selected/hovered summaries.
+      - id: AC-4
+        text: Validation reports the required serverless build plus focused viewer tests, with root settings compatibility coverage if feasible.
+    deliverables:
+      - Browser-safe `SkyLensServerless/lib/vendor/satellite.ts` wrapper
+      - Minimal serverless viewer/test updates required by the wrapper or parity fixes
+      - Validation results for build and focused tests
+    risks:
+      - Incorrect `satellite.js` subpath selection could fix the build but break propagation runtime or type resolution.
+      - Viewer-shell edits could unintentionally collapse wide-stage and scope-lens ownership boundaries.
+      - Settings-compatibility regressions could slip in if parity work touches persistence logic.
+    rollback:
+      - Revert the serverless satellite wrapper import-path change and any directly associated test adjustments.
+      - Revert minimal viewer-shell parity edits if focused tests or manual verification show interaction regression.

@@ -6,5 +6,5 @@ export {
   propagate,
   radiansToDegrees,
   twoline2satrec,
-  type SatRec,
 } from 'satellite.js'
+export type { SatRec } from 'satellite.js'
