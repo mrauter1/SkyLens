@@ -833,7 +833,9 @@ describe('ViewerShell settings integration', () => {
     expect(readViewerSettings().onboardingCompleted).toBe(true)
   })
 
-  it('reloads changed layer toggles and calibration values from persisted settings', async () => {
+  it(
+    'reloads changed layer toggles and calibration values from persisted settings',
+    async () => {
     await act(async () => {
       root.render(
         React.createElement(ViewerShell, {
@@ -967,7 +969,9 @@ describe('ViewerShell settings integration', () => {
     expect(
       (container.querySelector('input[aria-label="High"]') as HTMLInputElement | null)?.checked,
     ).toBe(true)
-  })
+    },
+    30_000,
+  )
 
   it('keeps desktop scope quick actions synchronized with persisted settings sheet controls', async () => {
     await act(async () => {

@@ -1,0 +1,7 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260410T150847Z-1a59e0a1" ts="2026-04-10T15:08:47.887825+00:00" />
+Treat this task as one implementation phase: the satellite wrapper build fix and the scope-parity follow-up share the same viewer dependency chain and should be validated together.
+Scope mode may widen lens/top-list membership, but wide-stage markers remain the source of truth for stage sizing, highlight ownership, center-lock presentation, and outside-lens pointer interaction.
+Selected detail state must remain independent from hover-driven desktop summary changes.
+Run root viewer-settings tests only if shared/root settings code is actually touched; otherwise keep validation focused on SkyLensServerless build and viewer tests.
+<autoloop-decisions-header version="1" block_seq="2" owner="planner" phase_id="task-global" pair="plan" turn_seq="2" run_id="run-20260410T150847Z-1a59e0a1" ts="2026-04-10T15:11:38.231409+00:00" />
+Superseding the prior validation note: plan the root tests/unit/viewer-settings.test.tsx regression check by default for this task, and only skip it later if execution proves it infeasible and reports the concrete reason.

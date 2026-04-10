@@ -1,0 +1,36 @@
+{
+  "task_id": "render-build-fix-scope-parity-r2-20260410",
+  "created_at": "2026-04-10T15:12:46.341977+00:00",
+  "request_text": "# Autoloop Task: Fix Render build stall and apply review follow-ups\n\n## Context\nRender deploys for `SkyLensServerless` stall at:\n- `next build`\n- `Creating an optimized production build ...`\n\nLocal investigation indicates webpack reports Node scheme errors via `satellite.js` package runtime imports:\n- `node:module`\n- `node:worker_threads`\n\nImport trace reaches:\n- `SkyLensServerless/lib/vendor/satellite.ts`\n- `SkyLensServerless/lib/viewer/motion.ts`\n- `SkyLensServerless/components/viewer/viewer-shell.tsx`\n\n## Required changes\n1. **Fix build root cause for static export + Next 16 production build**\n   - Update `SkyLensServerless/lib/vendor/satellite.ts` to avoid top-level `satellite.js` import path that pulls wasm/node runtime modules into client build.\n   - Use browser-safe import paths that do not resolve `node:` scheme modules in Next build.\n\n2. **Apply related review-requested fixes already discussed**\n   - Keep scope-mode parity behavior (non-bright classes in lens) while preserving wide-stage ownership/sizing/highlighting separation.\n   - Do not regress interaction-surface handling for selected/hovered summaries.\n\n3. **Stabilize tests only as needed for deterministic validation**\n   - Update tests impacted by the build-safe satellite import correction.\n   - Avoid broad unrelated refactors.\n\n## Validation requirements\nRun and report at least:\n- `cd SkyLensServerless && npm run build`\n- focused viewer tests relevant to touched behavior\n- if feasible, root settings tests touched by recent parity changes\n\n## Constraints\n- Implement only via autoloop workflow.\n- Use plan, implement, test pairs.\n- full-auto answers enabled.\n- do not set max-iterations.",
+  "request_updated_at": "2026-04-10T15:12:46.342030+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/render-build-fix-scope-parity-r2-20260410/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260410T151847Z-26888ee2",
+    "mode": "single",
+    "phase_ids": [
+      "render-build-scope-parity-fix"
+    ],
+    "explicit": true,
+    "current_phase_index": 1,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "render-build-scope-parity-fix": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "render-build-scope-parity-fix",
+      "run_id": "run-20260410T151847Z-26888ee2",
+      "status": "in_progress",
+      "ts": "2026-04-10T15:18:47.585676+00:00"
+    },
+    {
+      "phase_id": "render-build-scope-parity-fix",
+      "run_id": "run-20260410T151847Z-26888ee2",
+      "status": "completed",
+      "ts": "2026-04-10T15:26:50.775454+00:00",
+      "pair": "test"
+    }
+  ]
+}

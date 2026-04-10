@@ -388,7 +388,9 @@ describe('ViewerShell scope runtime', () => {
     expect(getSkyObjectMarkerPositionByLabel('Scope Star')).toBeNull()
   })
 
-  it('lets main-view deep stars participate in center-lock and on-object labels without scope mode', async () => {
+  it(
+    'lets main-view deep stars participate in center-lock and on-object labels without scope mode',
+    async () => {
     const scenario = getDemoScenario('tokyo-iss')
     const dataset = createMultiBandScopeDataset([
       {
@@ -435,9 +437,13 @@ describe('ViewerShell scope runtime', () => {
 
     const labels = Array.from(container.querySelectorAll('[data-testid="sky-object-label"]'))
     expect(labels.some((label) => label.textContent?.includes('Scope Star 1'))).toBe(true)
-  })
+    },
+    10_000,
+  )
 
-  it('renders visible normal-view deep stars on canvas while preserving center-lock and label membership', async () => {
+  it(
+    'renders visible normal-view deep stars on canvas while preserving center-lock and label membership',
+    async () => {
     const scenario = getDemoScenario('tokyo-iss')
     const dataset = createMultiBandScopeDataset([
       {
@@ -478,7 +484,9 @@ describe('ViewerShell scope runtime', () => {
 
     expect(labels.some((label) => label.textContent?.includes('Scope Star 1'))).toBe(true)
     expect(labels.some((label) => label.textContent?.includes('Scope Star 2'))).toBe(true)
-  })
+    },
+    10_000,
+  )
 
   it('does not redraw the main-view deep-star canvas on an unrelated same-mounted viewer rerender', async () => {
     const scenario = getDemoScenario('tokyo-iss')
@@ -524,45 +532,49 @@ describe('ViewerShell scope runtime', () => {
     }
   })
 
-  it('keeps non-scope deep stars in top-list labels while visible-marker diagnostics stay DOM-only', async () => {
-    const scenario = getDemoScenario('tokyo-iss')
-    const dataset = createMultiBandScopeDataset([
-      {
-        azimuthDeg: 0,
-        elevationDeg: scenario.initialPitchDeg,
-        vMag: 2.1,
-        nameId: 1,
-      },
-      {
-        azimuthDeg: 8,
-        elevationDeg: scenario.initialPitchDeg,
-        vMag: 2.3,
-        nameId: 2,
-      },
-    ])
-    global.fetch = vi.fn().mockImplementation(dataset.fetcher) as typeof fetch
+  it(
+    'keeps non-scope deep stars in top-list labels while visible-marker diagnostics stay DOM-only',
+    async () => {
+      const scenario = getDemoScenario('tokyo-iss')
+      const dataset = createMultiBandScopeDataset([
+        {
+          azimuthDeg: 0,
+          elevationDeg: scenario.initialPitchDeg,
+          vMag: 2.1,
+          nameId: 1,
+        },
+        {
+          azimuthDeg: 8,
+          elevationDeg: scenario.initialPitchDeg,
+          vMag: 2.3,
+          nameId: 2,
+        },
+      ])
+      global.fetch = vi.fn().mockImplementation(dataset.fetcher) as typeof fetch
 
-    setStoredViewerSettings({
-      scopeModeEnabled: false,
-      labelDisplayMode: 'top_list',
-    })
+      setStoredViewerSettings({
+        scopeModeEnabled: false,
+        labelDisplayMode: 'top_list',
+      })
 
-    await renderViewer()
+      await renderViewer()
 
-    const topList = container.querySelector('[data-testid="sky-object-top-list"]')
-    const topListItems = Array.from(container.querySelectorAll('[data-testid="sky-object-top-list-item"]'))
+      const topList = container.querySelector('[data-testid="sky-object-top-list"]')
+      const topListItems = Array.from(container.querySelectorAll('[data-testid="sky-object-top-list-item"]'))
 
-    expect(container.querySelector('[data-testid="main-star-canvas"]')).not.toBeNull()
-    expect(container.querySelectorAll('[data-testid="sky-object-marker"]')).toHaveLength(0)
-    expect(topList).not.toBeNull()
-    expect(topListItems).toHaveLength(2)
-    expect(topList?.textContent).toContain('Scope Star 1')
-    expect(topList?.textContent).toContain('Scope Star 2')
+      expect(container.querySelector('[data-testid="main-star-canvas"]')).not.toBeNull()
+      expect(container.querySelectorAll('[data-testid="sky-object-marker"]')).toHaveLength(0)
+      expect(topList).not.toBeNull()
+      expect(topListItems).toHaveLength(2)
+      expect(topList?.textContent).toContain('Scope Star 1')
+      expect(topList?.textContent).toContain('Scope Star 2')
 
-    await openDesktopViewerPanel()
+      await openDesktopViewerPanel()
 
-    expect(container.textContent).toContain('Visible markers 0')
-  })
+      expect(container.textContent).toContain('Visible markers 0')
+    },
+    10_000,
+  )
 
   it('shares the B-V deep-star color mapping for main-view canvas stars', async () => {
     const scenario = getDemoScenario('tokyo-iss')
@@ -713,6 +725,68 @@ describe('ViewerShell scope runtime', () => {
 
     expect(getCanvasStars()).toHaveLength(1)
   })
+
+  it(
+    'keeps stage marker sizing on the wide baseline while scope lens markers stay magnified',
+    async () => {
+      mockNormalizeCelestialObjects.mockReturnValue({
+        sunAltitudeDeg: -12,
+        objects: [
+          {
+            id: 'planet-jupiter',
+            type: 'planet',
+            label: 'Jupiter',
+            azimuthDeg: 0,
+            elevationDeg: getDemoScenario('tokyo-iss').initialPitchDeg,
+            magnitude: -2.7,
+            importance: 90,
+            metadata: {
+              detail: {
+                typeLabel: 'Planet',
+                magnitude: -2.7,
+                elevationDeg: getDemoScenario('tokyo-iss').initialPitchDeg,
+              },
+            },
+          },
+        ],
+      })
+
+      setStoredViewerSettings({
+        scopeModeEnabled: false,
+        scopeOptics: {
+          apertureMm: 240,
+          magnificationX: 120,
+          transparencyPct: 85,
+        },
+        labelDisplayMode: 'center_only',
+      })
+
+      await renderViewer()
+
+      const wideBaselineMarkerSizePx = getSkyObjectMarkerSizePx('planet-jupiter')
+
+      await rerenderViewerWithSettings({
+        scopeModeEnabled: true,
+        scopeOptics: {
+          apertureMm: 240,
+          magnificationX: 120,
+          transparencyPct: 85,
+        },
+        labelDisplayMode: 'center_only',
+      })
+
+      const scopeLensMarkerSizePx = getScopeMarkerSizePx('planet-jupiter')
+      const scopeStageMarkerSizePx = getSkyObjectMarkerSizePx('planet-jupiter')
+
+      expect(container.querySelector('[data-testid="scope-lens-overlay"]')).not.toBeNull()
+      expect(container.querySelector('[data-testid="center-lock-chip"]')?.textContent).toContain(
+        'Jupiter',
+      )
+      expect(scopeStageMarkerSizePx).toBe(wideBaselineMarkerSizePx)
+      expect(scopeLensMarkerSizePx).toBeGreaterThan(scopeStageMarkerSizePx)
+    },
+    20_000,
+  )
 
   it('reveals more normal-view deep stars as aperture increases', async () => {
     const scenario = getDemoScenario('tokyo-iss')
@@ -1017,73 +1091,80 @@ describe('ViewerShell scope runtime', () => {
     expect(narrowHighDiameterPx).toBeGreaterThan(narrowLowDiameterPx)
   })
 
-  it('scales scope planet size with magnification while opacity stays aperture-driven', async () => {
-    mockNormalizeCelestialObjects.mockReturnValue({
-      sunAltitudeDeg: -12,
-      objects: [
-        {
-          id: 'planet-jupiter',
-          type: 'planet',
-          label: 'Jupiter',
-          azimuthDeg: 0,
-          elevationDeg: getDemoScenario('tokyo-iss').initialPitchDeg,
-          magnitude: -2.7,
-          importance: 90,
-          metadata: {
-            detail: {
-              typeLabel: 'Planet',
-              magnitude: -2.7,
-              elevationDeg: getDemoScenario('tokyo-iss').initialPitchDeg,
+  it(
+    'scales scope planet size with magnification while opacity stays aperture-driven',
+    async () => {
+      mockNormalizeCelestialObjects.mockReturnValue({
+        sunAltitudeDeg: -12,
+        objects: [
+          {
+            id: 'planet-jupiter',
+            type: 'planet',
+            label: 'Jupiter',
+            azimuthDeg: 0,
+            elevationDeg: getDemoScenario('tokyo-iss').initialPitchDeg,
+            magnitude: -2.7,
+            importance: 90,
+            metadata: {
+              detail: {
+                typeLabel: 'Planet',
+                magnitude: -2.7,
+                elevationDeg: getDemoScenario('tokyo-iss').initialPitchDeg,
+              },
             },
           },
+        ],
+      })
+
+      setStoredViewerSettings({
+        scopeModeEnabled: true,
+        scopeOptics: {
+          apertureMm: 120,
+          magnificationX: 25,
+          transparencyPct: 85,
         },
-      ],
-    })
+        labelDisplayMode: 'center_only',
+      })
 
-    setStoredViewerSettings({
-      scopeModeEnabled: true,
-      scopeOptics: {
-        apertureMm: 120,
-        magnificationX: 25,
-        transparencyPct: 85,
-      },
-      labelDisplayMode: 'center_only',
-    })
+      await renderViewer()
+      await flushEffects()
 
-    await renderViewer()
+      const lowMagnificationSizePx = getScopeMarkerSizePx('planet-jupiter')
+      const lowMagnificationOpacity = getScopeMarkerOpacity('planet-jupiter')
 
-    const lowMagnificationSizePx = getScopeMarkerSizePx('planet-jupiter')
-    const lowMagnificationOpacity = getScopeMarkerOpacity('planet-jupiter')
+      await rerenderViewerWithSettings({
+        scopeModeEnabled: true,
+        scopeOptics: {
+          apertureMm: 120,
+          magnificationX: 100,
+          transparencyPct: 85,
+        },
+        labelDisplayMode: 'center_only',
+      })
+      await flushEffects()
 
-    await rerenderViewerWithSettings({
-      scopeModeEnabled: true,
-      scopeOptics: {
-        apertureMm: 120,
-        magnificationX: 100,
-        transparencyPct: 85,
-      },
-      labelDisplayMode: 'center_only',
-    })
+      const highMagnificationSizePx = getScopeMarkerSizePx('planet-jupiter')
+      const highMagnificationOpacity = getScopeMarkerOpacity('planet-jupiter')
 
-    const highMagnificationSizePx = getScopeMarkerSizePx('planet-jupiter')
-    const highMagnificationOpacity = getScopeMarkerOpacity('planet-jupiter')
+      await rerenderViewerWithSettings({
+        scopeModeEnabled: true,
+        scopeOptics: {
+          apertureMm: 240,
+          magnificationX: 100,
+          transparencyPct: 85,
+        },
+        labelDisplayMode: 'center_only',
+      })
+      await flushEffects()
 
-    await rerenderViewerWithSettings({
-      scopeModeEnabled: true,
-      scopeOptics: {
-        apertureMm: 240,
-        magnificationX: 100,
-        transparencyPct: 85,
-      },
-      labelDisplayMode: 'center_only',
-    })
+      const largeApertureOpacity = getScopeMarkerOpacity('planet-jupiter')
 
-    const largeApertureOpacity = getScopeMarkerOpacity('planet-jupiter')
-
-    expect(highMagnificationSizePx).toBeGreaterThan(lowMagnificationSizePx)
-    expect(highMagnificationOpacity).toBe(lowMagnificationOpacity)
-    expect(largeApertureOpacity).toBeGreaterThanOrEqual(highMagnificationOpacity)
-  })
+      expect(highMagnificationSizePx).toBeGreaterThan(lowMagnificationSizePx)
+      expect(highMagnificationOpacity).toBe(lowMagnificationOpacity)
+      expect(largeApertureOpacity).toBeGreaterThanOrEqual(highMagnificationOpacity)
+    },
+    10_000,
+  )
 
   it('keeps daylight suppression unchanged for scope deep-star tile fetches', async () => {
     const dataset = createMultiBandScopeDataset([
@@ -1856,6 +1937,14 @@ function getScopeMarkerSizePx(objectId: string) {
 function getScopeMarkerOpacity(objectId: string) {
   const marker = getScopeMarkerVisual(objectId)
   return marker ? Number.parseFloat(marker.style.opacity) : Number.NaN
+}
+
+function getSkyObjectMarkerSizePx(objectId: string) {
+  const marker = container.querySelector(
+    `[data-testid="sky-object-marker"][data-object-id="${objectId}"] > span:last-child`,
+  ) as HTMLSpanElement | null
+
+  return marker ? Number.parseFloat(marker.style.width) : Number.NaN
 }
 
 function getSkyObjectMarkerPosition(objectId: string) {

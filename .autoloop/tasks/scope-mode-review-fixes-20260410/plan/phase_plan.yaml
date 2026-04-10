@@ -1,0 +1,39 @@
+version: 1
+task_id: scope-mode-review-fixes-20260410
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/scope-mode-review-fixes-20260410/runs/run-20260410T014749Z-62f02a15/request.md
+phases:
+  - phase_id: scope-mode-parity-regression-fixes
+    title: Restore Scope-Mode Wide-Stage Parity
+    objective: Restore the intended split between wide-stage behavior and scope-lens behavior in scope mode, then align tests and settings expectations to that behavior.
+    status: planned
+    in_scope:
+      - Restore wide-stage marker eligibility in scope mode to the full wide-stage eligible set.
+      - Keep stage marker sizing on the wide-stage baseline FOV while scope lens markers remain magnified by scope optics.
+      - Keep stage highlight ownership tied to wide-scene center lock.
+      - Align selected and hovered summary or motion-affordance coordinates with the projection surface that owns the active interaction target.
+      - Update the affected serverless viewer tests and the root settings test expectation to encode the intended behavior.
+    out_of_scope:
+      - Broad viewer-shell refactors or new abstractions outside the touched regression seam.
+      - Selector renames or behavior changes unrelated to scope-mode parity.
+      - Storage schema changes or optics model redesign.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: In scope mode, wide-stage markers still render and interact from the full wide-stage eligible marker set, including objects outside the lens.
+      - id: AC-2
+        text: In scope mode, stage marker size and highlight ownership remain driven by the wide-stage baseline and wide-scene center lock, while lens marker size and focus remain scope-specific.
+      - id: AC-3
+        text: Selected and hovered summary or motion-affordance coordinates match the projection surface of the active marker interaction and no longer drift between wide and scope space.
+      - id: AC-4
+        text: Updated viewer scope and celestial tests lock in the restored behavior, and the root settings test matches the intended disabled-scope aperture normalization behavior.
+    deliverables:
+      - Updated implementation plan in `SkyLensServerless/components/viewer/viewer-shell.tsx`.
+      - Updated regression coverage in `SkyLensServerless/tests/unit/viewer-shell-scope-runtime.test.tsx` and `SkyLensServerless/tests/unit/viewer-shell-celestial.test.ts`.
+      - Reconciled root settings expectation in `tests/unit/viewer-settings.test.tsx`.
+    risks:
+      - Marker collection changes can unintentionally alter hover clearing or click handling if stage and lens sources are not kept separate.
+      - Projection-source fixes can regress non-scope summary placement if the scope-only path is not isolated.
+      - Test updates can accidentally preserve the current regression if assertions compare the wrong stage and lens surfaces.
+    rollback:
+      - Revert the scope-mode viewer-shell parity patch and its directly related test changes.
+      - Keep rollback limited to the touched files unless validation shows a wider breakage.

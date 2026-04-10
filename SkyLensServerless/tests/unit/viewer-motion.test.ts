@@ -23,6 +23,14 @@ const ENABLED_LAYERS = {
 const stationsFixture = readFixture('stations.txt')
 
 describe('viewer motion', () => {
+  it('keeps the local satellite wrapper pinned to browser-safe dist entrypoints', () => {
+    const wrapperSource = readFileSync(join(process.cwd(), 'lib/vendor/satellite.ts'), 'utf8')
+
+    expect(wrapperSource).toContain('../../node_modules/satellite.js/dist/io.js')
+    expect(wrapperSource).toContain('../../node_modules/satellite.js/dist/propagation.js')
+    expect(wrapperSource).toContain('../../node_modules/satellite.js/dist/transforms.js')
+  })
+
   it('resolves tracker-driven aircraft with estimated motion metadata', () => {
     const tracker = createAircraftTracker()
 
