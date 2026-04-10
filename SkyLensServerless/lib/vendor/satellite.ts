@@ -2,6 +2,8 @@ export {
   degreesToRadians,
   ecfToLookAngles,
   eciToEcf,
+  gstime,
+  propagate,
   radiansToDegrees,
 } from '../../node_modules/satellite.js/dist/transforms.js'
 export {
