@@ -1,0 +1,5 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260410T005215Z-8d632d6f" ts="2026-04-10T00:52:15.473581+00:00" />
+Treat parity + scope-optics projection ownership as a single atomic implementation slice in viewer-shell so center-lock/labels cannot drift across partial rollout.
+Keep `resolveMarkerEligibleProjectedObjects(...)` as the single eligibility gate and only rewire source sets/projection ownership around it instead of introducing another filtering helper.
+Preserve existing scope overlay selector contract (`scope-bright-object-marker`) for test compatibility even though scope marker classes are parity-based and not bright-only.
+<autoloop-decisions-header version="1" block_seq="2" owner="implementer" phase_id="scope-mode-marker-projection-label-parity" pair="implement" turn_seq="1" run_id="run-20260410T005215Z-8d632d6f" ts="2026-04-10T00:54:36.578193+00:00" />

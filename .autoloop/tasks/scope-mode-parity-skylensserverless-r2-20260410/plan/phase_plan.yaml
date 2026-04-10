@@ -1,0 +1,40 @@
+version: 1
+task_id: scope-mode-parity-skylensserverless-r2-20260410
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/scope-mode-parity-skylensserverless-r2-20260410/runs/run-20260410T005215Z-8d632d6f/request.md
+phases:
+  - phase_id: scope-mode-marker-projection-label-parity
+    title: Restore scope marker/label parity with scope-optics projection ownership
+    objective: Implement one coherent viewer-shell slice that restores scope-mode object-class parity while preserving scope-specific optics and projection behavior.
+    status: planned
+    in_scope:
+      - Align scope marker eligibility with the same object classes used by normal-view marker candidates.
+      - Keep scope lens markers and scope-mode label/top-list candidates sourced from scope-active projected objects.
+      - Use scope-active effective FOV for scope-mode marker sizing where optics consistency is required.
+      - Preserve normal-view marker, label, and deep-star behavior.
+      - Add and run focused parity/sizing regression tests, then run the full SkyLensServerless unit suite.
+    out_of_scope:
+      - Any API, route, or persisted settings-schema changes.
+      - Refactoring unrelated viewer systems outside marker/projection/label parity.
+      - Scope dataset format/build pipeline changes.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: In scope mode, interactive marker classes match normal-view eligibility classes (including non-bright objects such as aircraft/satellites/constellations when enabled and visible).
+      - id: AC-2
+        text: Scope mode continues to use scope-specific optics/projection behavior, and scope-mode marker sizing no longer relies on the normal-view baseline FOV path.
+      - id: AC-3
+        text: Scope-mode on-object labels and top-list candidates include the same relevant classes as normal mode candidate sets instead of a bright-only subset.
+      - id: AC-4
+        text: Normal-view behavior remains unchanged and targeted plus full unit tests pass in SkyLensServerless.
+    deliverables:
+      - Updated scope parity/projection/sizing dataflow in SkyLensServerless/components/viewer/viewer-shell.tsx
+      - Updated parity and sizing regression assertions in SkyLensServerless/tests/unit/viewer-shell-celestial.test.ts
+      - Updated scope runtime regression assertions in SkyLensServerless/tests/unit/viewer-shell-scope-runtime.test.tsx
+      - Passing npm run test in /workspace/SkyLens/SkyLensServerless
+    risks:
+      - Center-lock and selected-object highlighting may drift if marker-source ownership changes.
+      - Scope sizing fixes may accidentally alter normal-mode marker scale behavior.
+      - Label candidate rewiring may create omissions/duplication between marker and deep-star sets.
+    rollback:
+      - Revert viewer-shell parity rewiring and restore prior scope marker source/sizing flow.
+      - Revert only parity-related unit test updates if behavior rollback is required.

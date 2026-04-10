@@ -1,0 +1,7 @@
+{"ts": "2026-04-10T15:12:46.399928+00:00", "run_id": "run-20260410T151246Z-5b5a886a", "seq": 1, "event_type": "run_started", "workspace": "/workspace/SkyLens", "pairs": ["plan", "implement", "test"], "max_iterations": 15, "use_git": true, "task_id": "render-build-fix-scope-parity-r2-20260410", "task_root": ".autoloop/tasks/render-build-fix-scope-parity-r2-20260410"}
+{"ts": "2026-04-10T15:12:46.401040+00:00", "run_id": "run-20260410T151246Z-5b5a886a", "seq": 2, "event_type": "pair_started", "pair": "plan", "phase_id": null}
+{"ts": "2026-04-10T15:12:46.401098+00:00", "run_id": "run-20260410T151246Z-5b5a886a", "seq": 3, "event_type": "cycle_started", "pair": "plan", "cycle": 1, "attempt": 1, "phase_id": null}
+{"ts": "2026-04-10T15:16:45.238821+00:00", "run_id": "run-20260410T151246Z-5b5a886a", "seq": 4, "event_type": "phase_finished", "pair": "plan", "phase": "producer", "cycle": 1, "attempt": 1, "empty_output": false, "phase_id": null}
+{"ts": "2026-04-10T15:18:14.429425+00:00", "run_id": "run-20260410T151246Z-5b5a886a", "seq": 5, "event_type": "phase_finished", "pair": "plan", "phase": "verifier", "cycle": 1, "attempt": 1, "empty_output": false, "phase_id": null}
+{"ts": "2026-04-10T15:18:14.454982+00:00", "run_id": "run-20260410T151246Z-5b5a886a", "seq": 6, "event_type": "pair_completed", "pair": "plan", "cycle": 1, "attempt": 1, "phase_id": null}
+{"ts": "2026-04-10T15:18:14.523261+00:00", "run_id": "run-20260410T151246Z-5b5a886a", "seq": 7, "event_type": "run_finished", "status": "fatal_error", "exit_code": 1}

@@ -1,0 +1,6 @@
+<autoloop-decisions-header version="1" block_seq="1" owner="planner" phase_id="task-global" pair="plan" turn_seq="1" run_id="run-20260410T151246Z-5b5a886a" ts="2026-04-10T15:12:46.460411+00:00" />
+Mirror the existing root-app browser-safe `satellite.js` dist wrapper in `SkyLensServerless` instead of inventing a new abstraction or changing downstream motion-call sites.
+Treat scope parity as a regression-prevention constraint, not new feature scope: preserve wide-stage ownership for stage sizing, highlighting, and interaction while keeping non-bright class parity inside the scope lens.
+Use focused serverless tests already covering non-bright lens parity, outside-lens clickability, stage-vs-lens marker sizing, and motion-affordance anchoring as the primary safety net for implementation.
+<autoloop-decisions-header version="1" block_seq="2" owner="implementer" phase_id="render-build-scope-parity-fix" pair="implement" turn_seq="1" run_id="run-20260410T151847Z-26888ee2" ts="2026-04-10T15:18:47.659680+00:00" />
+Mirror the root wrapper exactly with explicit `../../node_modules/satellite.js/dist/*` imports in `SkyLensServerless/lib/vendor/satellite.ts`; build and focused parity tests passed without any `viewer-shell` or motion call-site changes.

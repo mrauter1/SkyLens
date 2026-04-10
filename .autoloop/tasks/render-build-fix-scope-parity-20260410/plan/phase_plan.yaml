@@ -1,0 +1,41 @@
+version: 1
+task_id: render-build-fix-scope-parity-20260410
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/render-build-fix-scope-parity-20260410/runs/run-20260410T150847Z-1a59e0a1/request.md
+phases:
+  - phase_id: build-safe-satellite-and-scope-parity
+    title: Fix build-safe satellite imports and preserve scope parity
+    objective: Remove the client build dependency on the `satellite.js` package root while keeping the reviewed scope-mode stage/lens and summary-selection behavior intact.
+    status: planned
+    in_scope:
+      - Replace `SkyLensServerless/lib/vendor/satellite.ts` package-root exports with browser-safe subpath exports.
+      - Make only minimal downstream adjustments in viewer motion code required to keep the wrapper contract stable.
+      - Preserve scope-mode non-bright lens parity without regressing wide-stage ownership of sizing, highlight, and pointer interaction.
+      - Keep selected-detail and hovered-summary behavior separated in focused viewer interactions.
+      - Update only directly affected `SkyLensServerless` tests and run the requested build plus focused validation.
+    out_of_scope:
+      - Refactoring unrelated viewer rendering paths or label systems.
+      - Replacing `satellite.js` with another propagation library.
+      - Broad settings schema changes unless required by touched code.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: `SkyLensServerless/lib/vendor/satellite.ts` no longer imports from the `satellite.js` package root or any path that pulls Node-only runtime modules into the client bundle.
+      - id: AC-2
+        text: `cd SkyLensServerless && npm run build` completes successfully after the wrapper change.
+      - id: AC-3
+        text: Scope mode still shows widened/non-bright lens candidates without taking wide-stage sizing, highlight ownership, or outside-lens clickability away from the stage markers.
+      - id: AC-4
+        text: Desktop hovered summaries can still change independently from the explicit selected detail object.
+      - id: AC-5
+        text: Focused viewer tests covering the touched behavior pass, and the root `tests/unit/viewer-settings.test.tsx` regression check is also run unless execution later proves it infeasible and reports why.
+    deliverables:
+      - Updated `SkyLensServerless/lib/vendor/satellite.ts` and any minimal companion motion/viewer changes needed for build safety.
+      - Focused `SkyLensServerless` test updates or assertions that lock the reviewed parity behavior in place.
+      - Validation evidence for the serverless build, the touched viewer test files, and the root viewer-settings regression check or an explicit infeasibility report.
+    risks:
+      - The chosen `satellite.js` subpath may still transitively resolve a Node-only runtime entry and fail the production build.
+      - A parity adjustment could accidentally collapse stage and scope-lens ownership back into one surface.
+      - Test mocks around viewer motion could mask a regression unless the targeted celestial/scope-runtime assertions are preserved.
+    rollback:
+      - Revert the satellite wrapper and any coupled motion import edits as one unit if the build remains blocked.
+      - Revert parity-specific viewer changes separately if focused tests expose interaction or highlight regressions.
