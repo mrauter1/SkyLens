@@ -1,0 +1,39 @@
+version: 1
+task_id: scope-mode-parity-skylensserverless-20260410
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/scope-mode-parity-skylensserverless-20260410/runs/run-20260410T003941Z-9456d438/request.md
+phases:
+  - phase_id: restore-scope-mode-parity
+    title: Restore scope marker and label parity
+    objective: Reuse the normal-view marker eligibility rules in scope mode while keeping scope-specific projection, FOV, and magnification behavior confined to the lens pipeline.
+    status: planned
+    in_scope:
+      - Introduce a shared local resolver for marker-eligible projected objects used by normal-view and scope-mode branches.
+      - Split stage and scope-lens projected marker collections so each render surface uses the correct projection profile and clipping.
+      - Rebuild scope center-lock, lens markers, lens highlight styling, and label/top-list candidates from the scope marker set plus scope deep stars.
+      - Update or add unit tests covering non-bright scope objects, scope label/top-list parity, scope center-lock highlighting, and profile-specific sizing behavior.
+    out_of_scope:
+      - Changes to deep-star catalog selection, limiting-magnitude math, or scope optics persistence.
+      - Visual redesign of the scope overlay or viewer controls.
+      - Broad refactors outside the existing viewer-shell rendering pipeline.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: Scope mode includes the same marker-eligible object classes as normal view for in-lens objects, subject to the same daylight suppression and override rules.
+      - id: AC-2
+        text: Scope lens markers, scope center-lock, and scope label/top-list candidates are derived from scope projection data instead of the current bright-only subset.
+      - id: AC-3
+        text: A non-bright object that wins scope center-lock receives the active lens marker styling instead of falling through the prior bright-only highlight gate.
+      - id: AC-4
+        text: Wide-context rendering and normal-view behavior remain unchanged apart from the intended scope parity fix.
+      - id: AC-5
+        text: Automated tests cover at least one non-bright scope object class, scope label/top-list parity, scope center-lock highlighting, and no normal-view regression in deep-star participation.
+    deliverables:
+      - Updated scope-mode render planning in `viewer-shell.tsx` with shared eligibility and split stage/lens collections.
+      - Unit test coverage for scope parity and regression protection.
+    risks:
+      - Shared eligibility changes can unintentionally alter normal-view marker membership.
+      - Scope marker sizing can still regress if any consumer keeps using the wrong FOV basis.
+      - Expanded scope ranking inputs can shift center-lock or label ordering unexpectedly.
+    rollback:
+      - Revert the scope collection rewiring and restore the prior bright-only scope derivation.
+      - Revert the new scope parity regression tests if the behavior must be temporarily rolled back.

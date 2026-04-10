@@ -1021,12 +1021,8 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   )
   const wideCenterLockedObject =
     projectedObjects.find((object) => object.id === wideCenterLockedCandidate?.id) ?? null
-  const scopeProjectedBrightObjects: ScopeProjectedSkyObject[] = projectedObjects
-    .filter(
-      (object) =>
-        isScopeBrightObject(object) &&
-        (!scopeDeepStarsDaylightSuppressed || object.type !== 'star'),
-    )
+  const scopeProjectedMarkerObjects: ScopeProjectedSkyObject[] = projectedObjects
+    .filter((object) => !scopeDeepStarsDaylightSuppressed || object.type !== 'star')
     .map((object) => {
       const scopeProjection = projectWorldPointToScreenWithProfile(
         cameraPose,
@@ -1052,7 +1048,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             scopeLensRadiusPx * scopeLensRadiusPx,
       }
     })
-  const scopeActiveBrightObjects: ScopeProjectedSkyObject[] = scopeProjectedBrightObjects
+  const scopeVisibleMarkerObjects: ScopeProjectedSkyObject[] = scopeProjectedMarkerObjects
     .filter((object) => object.scopeInLensCircle)
     .map((object) => ({
       ...object,
@@ -1180,13 +1176,13 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   )
   const scopeCenterLockedCandidate = scopeModeActive
     ? pickCenterLockedCandidate(
-        [...scopeActiveBrightObjects, ...projectedDeepStars.filter((object) => object.scopeInLensCircle)]
+        [...scopeVisibleMarkerObjects, ...projectedDeepStars.filter((object) => object.scopeInLensCircle)]
           .map((object) => toCenterLockCandidate(object)),
       )
     : null
   const scopeCenterLockedObject =
     scopeModeActive
-      ? [...scopeActiveBrightObjects, ...projectedDeepStars].find(
+      ? [...scopeVisibleMarkerObjects, ...projectedDeepStars].find(
           (object) => object.id === scopeCenterLockedCandidate?.id,
         ) ??
         null
@@ -1210,12 +1206,16 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const centerLockedObject: SummarySkyObject | null = scopeModeActive
     ? scopeCenterLockedObject
     : mainCenterLockedObject
-  const mainViewInteractiveMarkerObjects: ProjectedSkyObject[] = projectedObjects.filter(
-    (object) =>
-      object.projection.visible &&
-      (!isCelestialDaylightLabelSuppressed(object) ||
-        object.id === wideSceneCenterLockedObject?.id ||
-        object.id === selectedObjectId),
+  const mainViewInteractiveMarkerObjects = resolveMarkerEligibleProjectedObjects(projectedObjects, {
+    centerLockedObjectId: wideSceneCenterLockedObject?.id ?? null,
+    selectedObjectId,
+  })
+  const scopeInteractiveMarkerObjects = resolveMarkerEligibleProjectedObjects(
+    scopeVisibleMarkerObjects,
+    {
+      centerLockedObjectId: scopeCenterLockedObject?.id ?? null,
+      selectedObjectId,
+    },
   )
   const mainViewDeepStarCanvasPoints = useMemo<MainStarCanvasPoint[]>(
     () =>
@@ -1229,9 +1229,11 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         : [],
     [hasMounted, mainViewRenderedDeepStars, scopeModeActive],
   )
-  const interactiveMarkerObjects: ActiveProjectedSkyObject[] = mainViewInteractiveMarkerObjects
+  const interactiveMarkerObjects: ActiveProjectedSkyObject[] = scopeModeActive
+    ? scopeInteractiveMarkerObjects
+    : mainViewInteractiveMarkerObjects
   const labelObjects: ActiveProjectedSkyObject[] = scopeModeActive
-    ? [...scopeActiveBrightObjects, ...projectedDeepStars.filter((object) => object.scopeInLensCircle)]
+    ? [...scopeInteractiveMarkerObjects, ...projectedDeepStars.filter((object) => object.scopeInLensCircle)]
     : [...mainViewInteractiveMarkerObjects, ...mainViewRenderedDeepStars]
   const markerLabelCandidates = labelObjects.map((object) => ({
     object,
@@ -1295,8 +1297,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       : []
   const scopeLensObjects: ScopeLensOverlayObject[] =
     hasMounted && scopeModeActive
-      ? scopeProjectedBrightObjects
-          .filter((object) => object.scopeInLensCircle)
+      ? scopeInteractiveMarkerObjects
           .map((object) => ({
             id: object.id,
             x: object.scopeProjection.x,
@@ -1308,10 +1309,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             }),
             opacity: getScopeMarkerOpacity(object, normalizedScopeOptics),
             className: getMarkerVisualStyle(object, {
-              centerLockedObjectId:
-                scopeCenterLockedObject && isScopeBrightObject(scopeCenterLockedObject)
-                  ? scopeCenterLockedObject.id
-                  : null,
+              centerLockedObjectId: scopeCenterLockedObject?.id ?? null,
               selectedObjectId,
             }).className,
           }))
@@ -3951,7 +3949,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                   key={object.id}
                   data-testid="sky-object-top-list-item"
                 className={`rounded-full border px-3 py-1 text-xs ${
-                    object.id === selectedObject?.id || object.id === wideSceneCenterLockedObject?.id
+                    object.id === selectedObject?.id || object.id === centerLockedObject?.id
                       ? 'border-amber-200/60 bg-amber-200/16 text-amber-50'
                       : 'border-sky-100/10 bg-white/5 text-sky-50'
                   }`}
@@ -3972,11 +3970,11 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         {renderedMarkerObjects.map((object) => {
           const markerSizePx = getMarkerSizePxForEffectiveVerticalFovDeg(
             object,
-            scopeModeActive ? baseEffectiveVerticalFovDeg : mainEffectiveVerticalFovDeg,
+            activeEffectiveVerticalFovDeg,
             viewerSettings.markerScale,
           )
           const markerVisualStyle = getMarkerVisualStyle(object, {
-            centerLockedObjectId: wideSceneCenterLockedObject?.id ?? null,
+            centerLockedObjectId: centerLockedObject?.id ?? null,
             selectedObjectId,
           })
 
@@ -4027,7 +4025,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             data-testid="sky-object-label"
             data-object-id={object.object.id}
             className={`pointer-events-none absolute rounded-2xl border px-3 py-2 text-left text-xs shadow-[0_12px_30px_rgba(3,7,13,0.22)] ${
-              object.object.id === selectedObject?.id || object.object.id === wideSceneCenterLockedObject?.id
+              object.object.id === selectedObject?.id || object.object.id === centerLockedObject?.id
                 ? 'border-amber-200/70 bg-slate-950/82 text-amber-50'
                 : 'border-sky-100/18 bg-slate-950/72 text-sky-50'
             }`}
@@ -5216,6 +5214,25 @@ function getMovingObjectMarkerStateClassName(object: SkyObject) {
   }
 }
 
+function resolveMarkerEligibleProjectedObjects<T extends ProjectedSkyObject>(
+  objects: T[],
+  {
+    centerLockedObjectId,
+    selectedObjectId,
+  }: {
+    centerLockedObjectId: string | null
+    selectedObjectId: string | null
+  },
+) {
+  return objects.filter(
+    (object) =>
+      object.projection.visible &&
+      (!isCelestialDaylightLabelSuppressed(object) ||
+        object.id === centerLockedObjectId ||
+        object.id === selectedObjectId),
+  )
+}
+
 function toCenterLockCandidate(object: SummarySkyObject) {
   return {
     id: object.id,
@@ -5464,15 +5481,6 @@ function isScopeExtendedObject(object: SkyObject): object is SkyObject & {
   type: 'sun' | 'moon' | 'planet'
 } {
   return object.type === 'sun' || object.type === 'moon' || object.type === 'planet'
-}
-
-function isScopeBrightObject(object: SkyObject) {
-  return (
-    object.type === 'sun' ||
-    object.type === 'moon' ||
-    object.type === 'planet' ||
-    object.type === 'star'
-  )
 }
 
 function getScopeExtendedObjectSizePx(
