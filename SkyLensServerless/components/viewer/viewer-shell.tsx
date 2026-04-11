@@ -5257,6 +5257,21 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                     {mobileArToggleLabel}
                   </button>
                 ) : null}
+                {showMobileArToggle ? (
+                  <button
+                    type="button"
+                    onClick={handleDesktopArToggleAction}
+                    disabled={state.entry === 'demo' || isPending}
+                    data-testid="mobile-permission-action"
+                    className={mobileArToggleButtonClassName}
+                  >
+                    {interactionMode === 'ar'
+                      ? 'Disable AR'
+                      : isPending
+                        ? permissionRecoveryAction.pendingLabel
+                        : 'Enable AR'}
+                  </button>
+                ) : null}
               </div>
             </div>
           </>
