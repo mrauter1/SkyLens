@@ -4457,15 +4457,17 @@ function buildSceneSnapshot({
       scopeModeEnabled,
       scopeOptics,
     })
-    const constellationStars = normalizeVisibleStars({
-      observer,
-      timeMs,
-      enabledLayers,
-      likelyVisibleOnly,
-      sunAltitudeDeg: celestial.sunAltitudeDeg,
-      scopeModeEnabled: false,
-      scopeOptics,
-    })
+    const constellationStars = scopeModeEnabled
+      ? normalizeVisibleStars({
+          observer,
+          timeMs,
+          enabledLayers,
+          likelyVisibleOnly,
+          sunAltitudeDeg: celestial.sunAltitudeDeg,
+          scopeModeEnabled: false,
+          scopeOptics,
+        })
+      : stars
     let aircraft: SkyObject[] = []
     let satellites: SkyObject[] = []
 

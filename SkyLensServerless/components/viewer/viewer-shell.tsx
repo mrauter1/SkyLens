@@ -6880,14 +6880,7 @@ function buildSceneSnapshot({
       sunAltitudeDeg: celestial.sunAltitudeDeg,
       activeOptics,
     })
-    const constellationStars = normalizeVisibleStars({
-      observer,
-      timeMs,
-      enabledLayers,
-      likelyVisibleOnly,
-      sunAltitudeDeg: celestial.sunAltitudeDeg,
-      activeOptics: null,
-    })
+    const constellationStars = stars
     let aircraft: SkyObject[] = []
     let satellites: SkyObject[] = []
 

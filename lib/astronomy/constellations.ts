@@ -238,8 +238,21 @@ function isConstellationSegmentPartiallyInView(
   end: ProjectedWorldPoint,
   viewport: { width: number; height: number },
 ) {
+  if (!start.visible || !end.visible) {
+    return false
+  }
+
   if (start.inViewport || end.inViewport) {
     return true
+  }
+
+  if (
+    !Number.isFinite(start.x) ||
+    !Number.isFinite(start.y) ||
+    !Number.isFinite(end.x) ||
+    !Number.isFinite(end.y)
+  ) {
+    return false
   }
 
   const viewportMinX = 0
