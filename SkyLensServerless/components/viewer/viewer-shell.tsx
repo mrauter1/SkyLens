@@ -625,7 +625,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   )
   const [manualPoseState, setManualPoseState] = useState(() =>
     createManualPoseState({
-      pitchDeg: initialState.entry === 'demo' ? initialDemoScenario.initialPitchDeg : 0,
+      pitchDeg: initialState.entry === 'demo' ? initialDemoScenario.initialPitchDeg : 90,
     }),
   )
   const [sensorCameraPose, setSensorCameraPose] = useState<CameraPose>(() =>
@@ -4039,28 +4039,9 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     handlePermissionRecoveryAction()
   }
 
-  const mobileArToggleButton = showMobileArToggle ? (
-    <div
-      className={`pointer-events-auto relative z-50 flex justify-center ${
-        isMobileOverlayOpen || isMobileAlignmentFocusActive ? 'pt-3' : ''
-      }`}
-      data-testid="mobile-ar-toggle-bar"
-    >
-      <button
-        type="button"
-        onClick={handleDesktopArToggleAction}
-        disabled={state.entry === 'demo' || isPending}
-        data-testid="mobile-permission-action"
-        className="min-h-11 rounded-full bg-amber-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-[0_12px_30px_rgba(251,191,36,0.22)] disabled:cursor-wait disabled:bg-amber-100"
-      >
-        {interactionMode === 'ar'
-          ? 'Disable AR'
-          : isPending
-            ? permissionRecoveryAction.pendingLabel
-            : 'Enable AR'}
-      </button>
-    </div>
-  ) : null
+  const mobileArToggleButtonClassName = showMobileScopeAction
+    ? 'min-h-11 rounded-full border border-sky-100/15 bg-slate-950/80 px-5 py-3 text-sm font-semibold text-sky-50 shadow-[0_12px_30px_rgba(3,7,13,0.32)] disabled:cursor-wait disabled:opacity-70'
+    : 'min-h-11 rounded-full bg-amber-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-[0_12px_30px_rgba(251,191,36,0.22)] disabled:cursor-wait disabled:bg-amber-100'
 
   return (
     <main
@@ -5220,11 +5201,25 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                       : `Scope off · ${formatScopeFovValue(hydratedScopeVerticalFovDeg)}`}
                   </button>
                 ) : null}
+                {showMobileArToggle ? (
+                  <button
+                    type="button"
+                    onClick={handleDesktopArToggleAction}
+                    disabled={state.entry === 'demo' || isPending}
+                    data-testid="mobile-permission-action"
+                    className={mobileArToggleButtonClassName}
+                  >
+                    {interactionMode === 'ar'
+                      ? 'Disable AR'
+                      : isPending
+                        ? permissionRecoveryAction.pendingLabel
+                        : 'Enable AR'}
+                  </button>
+                ) : null}
               </div>
             </div>
           </>
         )}
-        {mobileArToggleButton}
       </div>
     </main>
   )
