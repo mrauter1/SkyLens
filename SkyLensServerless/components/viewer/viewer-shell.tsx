@@ -1857,6 +1857,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   }, [])
 
   const stopArResources = useCallback(() => {
+    cameraRequestIdRef.current += 1
     orientationControllerRef.current?.stop()
     orientationControllerRef.current = null
     clearOrientationStartupTimeout()
