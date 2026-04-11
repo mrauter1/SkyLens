@@ -354,8 +354,10 @@ describe('ViewerShell startup gating', () => {
       })
 
       const desktopOverlay = await openDesktopViewerOverlay()
-      const startArButton = Array.from(desktopOverlay.querySelectorAll('button')).find((button) =>
-        button.textContent?.includes('Start AR'),
+      const startArButton = Array.from(desktopOverlay.querySelectorAll('button')).find(
+        (button) =>
+          button.textContent?.includes('Enable camera and motion') ||
+          button.textContent?.includes('Enable AR'),
       )
 
       expect(startArButton).toBeDefined()
@@ -739,8 +741,8 @@ describe('ViewerShell startup gating', () => {
     expect(container.querySelector('[data-testid="mobile-viewer-overlay-scroll-region"]')).not.toBeNull()
     expect(container.querySelector('[data-testid="mobile-viewer-overlay-shell"]')).toBeNull()
     expect(mobileOverlay?.querySelector('[data-testid="settings-sheet"]')).not.toBeNull()
-    expect(mobileOverlay?.textContent).toContain('Start AR')
-    expect(mobileOverlay?.textContent).toContain('Try demo mode')
+    expect(mobileOverlay?.textContent).toContain('Enable camera and motion')
+    expect(mobileOverlay?.textContent).toContain('Manual observer')
   })
 
   it('shows first-use mobile actions for permissions and alignment while keeping viewer access', async () => {
@@ -1160,9 +1162,10 @@ describe('ViewerShell startup gating', () => {
     ) as HTMLHeadingElement | null
 
     expect(mobileOverlay).not.toBeNull()
-    expect(mobileOverlayHeading?.textContent).toContain('Manual observer needed')
+    expect(mobileOverlayHeading?.textContent).toContain('Live viewer')
     expect(mobileOverlay?.textContent).toContain('Manual observer')
     expect(mobileOverlay?.textContent).toContain('Retry location')
+    expect(mobileOverlay?.textContent).toContain('Location: Temporary location')
     expect(mobileOverlay?.textContent).toContain('Camera: Ready')
     expect(mobileOverlay?.textContent).toContain('Sensor: Absolute')
   })
