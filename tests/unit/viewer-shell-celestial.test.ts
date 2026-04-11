@@ -2037,7 +2037,10 @@ describe('ViewerShell celestial behavior', () => {
     })
 
     expect(mockNormalizeVisibleStars).toHaveBeenCalled()
-    expect(mockNormalizeVisibleStars.mock.calls.at(-1)?.[0]).toMatchObject({
+    const scopedStarNormalizationCall = mockNormalizeVisibleStars.mock.calls.find(
+      (call) => call[0]?.scopeModeEnabled === true,
+    )?.[0]
+    expect(scopedStarNormalizationCall).toMatchObject({
       likelyVisibleOnly: false,
       sunAltitudeDeg: -12,
       scopeModeEnabled: true,
