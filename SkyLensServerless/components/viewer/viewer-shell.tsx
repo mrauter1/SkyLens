@@ -741,6 +741,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     absolute: false,
   })
   const sceneTimeMsRef = useRef(sceneTimeMs)
+  const hasAppliedLocationZenithPoseRef = useRef(false)
   const aircraftTrackerRef = useRef(createAircraftTracker())
   const poorSinceRef = useRef<number | null>(null)
   const dragRef = useRef<{
@@ -2189,14 +2190,26 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
 
   useEffect(() => {
     if (state.entry !== 'live' || state.location !== 'granted') {
+      hasAppliedLocationZenithPoseRef.current = false
       return
     }
 
-    setManualPoseState(
-      createManualPoseState({
+    if (hasAppliedLocationZenithPoseRef.current) {
+      return
+    }
+
+    hasAppliedLocationZenithPoseRef.current = true
+    setManualPoseState((current) => {
+      if (current.pitchDeg === 90) {
+        return current
+      }
+
+      return createManualPoseState({
+        yawDeg: current.yawDeg,
         pitchDeg: 90,
-      }),
-    )
+        rollDeg: current.rollDeg,
+      })
+    })
   }, [state.entry, state.location])
 
   useEffect(() => {
@@ -4051,9 +4064,16 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     handlePermissionRecoveryAction()
   }
 
-  const mobileArToggleButtonClassName = showMobileScopeAction
-    ? 'min-h-11 rounded-full border border-sky-100/15 bg-slate-950/80 px-5 py-3 text-sm font-semibold text-sky-50 shadow-[0_12px_30px_rgba(3,7,13,0.32)] disabled:cursor-wait disabled:opacity-70'
-    : 'min-h-11 rounded-full bg-amber-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-[0_12px_30px_rgba(251,191,36,0.22)] disabled:cursor-wait disabled:bg-amber-100'
+  const mobileArToggleLabel =
+    interactionMode === 'ar'
+      ? 'Disable AR'
+      : isPending
+        ? permissionRecoveryAction.pendingLabel
+        : 'Enable AR'
+  const mobileArToggleInlineButtonClassName =
+    'min-h-11 rounded-full border border-sky-100/15 bg-slate-950/80 px-5 py-3 text-sm font-semibold text-sky-50 shadow-[0_12px_30px_rgba(3,7,13,0.32)] disabled:cursor-wait disabled:opacity-70'
+  const mobileArToggleStandaloneButtonClassName =
+    'min-h-11 rounded-full bg-amber-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-[0_12px_30px_rgba(251,191,36,0.22)] disabled:cursor-wait disabled:bg-amber-100'
 
   return (
     <main
@@ -5135,13 +5155,9 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                 onClick={handleDesktopArToggleAction}
                 disabled={state.entry === 'demo' || isPending}
                 data-testid="mobile-permission-action"
-                className={mobileArToggleButtonClassName}
+                className={mobileArToggleStandaloneButtonClassName}
               >
-                {interactionMode === 'ar'
-                  ? 'Disable AR'
-                  : isPending
-                    ? permissionRecoveryAction.pendingLabel
-                    : 'Enable AR'}
+                {mobileArToggleLabel}
               </button>
             </div>
           ) : null}
@@ -5236,13 +5252,9 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                     onClick={handleDesktopArToggleAction}
                     disabled={state.entry === 'demo' || isPending}
                     data-testid="mobile-permission-action"
-                    className={mobileArToggleButtonClassName}
+                    className={mobileArToggleInlineButtonClassName}
                   >
-                    {interactionMode === 'ar'
-                      ? 'Disable AR'
-                      : isPending
-                        ? permissionRecoveryAction.pendingLabel
-                        : 'Enable AR'}
+                    {mobileArToggleLabel}
                   </button>
                 ) : null}
               </div>
