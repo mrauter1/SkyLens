@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 import { ensureMobileViewerOverlayOpen } from './mobile-overlay'
 
@@ -14,11 +14,11 @@ test('location denial keeps the viewer open with manual observer fallback', asyn
   ).toBeVisible()
   await expect(mobileOverlay.getByText('Manual observer', { exact: true })).toBeVisible()
   await expect(mobileOverlay.getByRole('button', { name: 'Retry location' })).toBeVisible()
-  await expect(mobileOverlay.getByText('Camera: Ready')).toBeVisible()
-  await expect(mobileOverlay.getByText('Sensor: Absolute')).toBeVisible()
+  await expect(mobileOverlay.getByText('Camera: Off')).toBeVisible()
+  await expect(mobileOverlay.getByText('Motion: AR off')).toBeVisible()
 })
 
-test('bare /view stays blocked until a verified permission state exists', async ({
+test('bare /view defaults to free-navigation until Enable AR is pressed', async ({
   page,
 }) => {
   await page.goto('/view')
@@ -26,15 +26,13 @@ test('bare /view stays blocked until a verified permission state exists', async 
   const mobileOverlay = page.getByTestId('mobile-viewer-overlay')
 
   await expect(
-    mobileOverlay.getByRole('heading', { name: 'Start AR from this viewer.' }),
+    mobileOverlay.getByRole('heading', { name: 'Manual observer needed' }),
   ).toBeVisible()
   await expect(mobileOverlay.getByText('Location: Pending')).toBeVisible()
-  await expect(mobileOverlay.getByRole('button', { name: 'Start AR' })).toBeVisible()
-  await expect(page.getByTestId('mobile-scope-action')).toHaveCount(0)
-  await expect(page.getByTestId('desktop-scope-action')).toHaveCount(0)
+  await expect(page.getByTestId('desktop-enable-ar-action')).toHaveCount(1)
 })
 
-test('partial live state still blocks until the full payload is present', async ({
+test('partial live state keeps Enable AR visible without auto-starting AR', async ({
   page,
 }) => {
   await page.goto('/view?entry=live&location=granted')
@@ -42,10 +40,11 @@ test('partial live state still blocks until the full payload is present', async 
   const mobileOverlay = page.getByTestId('mobile-viewer-overlay')
 
   await expect(
-    mobileOverlay.getByRole('heading', { name: 'Start AR from this viewer.' }),
+    mobileOverlay.getByRole('heading', { name: 'Manual observer needed' }),
   ).toBeVisible()
   await expect(mobileOverlay.getByText('Camera: Pending')).toBeVisible()
-  await expect(mobileOverlay.getByText('Motion: Pending')).toBeVisible()
+  await expect(mobileOverlay.getByText('Motion: AR off')).toBeVisible()
+  await expect(page.getByTestId('desktop-enable-ar-action')).toHaveCount(1)
 })
 
 test('camera denial enters the non-camera fallback shell', async ({ page }) => {
@@ -58,7 +57,7 @@ test('camera denial enters the non-camera fallback shell', async ({ page }) => {
     mobileOverlay.getByRole('heading', { name: 'Manual observer needed' }),
   ).toBeVisible()
   await expect(mobileOverlay.getByText('Camera: Denied')).toBeVisible()
-  await expect(mobileOverlay.getByText('Motion: Settling')).toBeVisible()
+  await expect(mobileOverlay.getByText('Motion: AR off')).toBeVisible()
 })
 
 test('orientation denial enters the manual-pan fallback shell', async ({ page }) => {
@@ -70,8 +69,8 @@ test('orientation denial enters the manual-pan fallback shell', async ({ page })
   await expect(
     mobileOverlay.getByRole('heading', { name: 'Manual observer needed' }),
   ).toBeVisible()
-  await expect(mobileOverlay.getByText('Camera: Ready')).toBeVisible()
-  await expect(mobileOverlay.getByText('Motion: Manual pan')).toBeVisible()
+  await expect(mobileOverlay.getByText('Camera: Off')).toBeVisible()
+  await expect(mobileOverlay.getByText('Motion: AR off')).toBeVisible()
   await expect(mobileOverlay.getByRole('button', { name: 'Enable motion' })).toBeVisible()
 })
 
@@ -102,11 +101,27 @@ test('manual-pan fallback still enables scope mode from mobile quick actions', a
   })
 })
 
+test('disabling AR returns the mobile surface to free-navigation', async ({ page }) => {
+  await page.goto('/view?entry=live&location=granted&camera=granted&orientation=granted')
+
+  const arToggle = page.getByTestId('mobile-permission-action')
+
+  await expect(arToggle).toHaveText('Enable AR')
+  await arToggle.click()
+  await expect(arToggle).toHaveText('Disable AR')
+  await arToggle.click()
+
+  await expect(arToggle).toHaveText('Enable AR')
+  await expect(page.getByText('AR disabled')).toBeVisible()
+  await expect(page.getByTestId('mobile-scope-action')).toBeVisible()
+})
+
 test('compact alignment panel keeps lower controls reachable on a short viewport', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 412, height: 520 })
   await page.goto('/view?entry=live&location=granted&camera=granted&orientation=granted')
+  await enableArFromMobile(page)
 
   const alignButton = page.getByTestId('mobile-align-action')
 
@@ -140,6 +155,7 @@ test('alignment instructions close from the backdrop and restore focus to Align'
   page,
 }) => {
   await page.goto('/view?entry=live&location=granted&camera=granted&orientation=granted')
+  await enableArFromMobile(page)
 
   const alignButton = page.getByTestId('mobile-align-action')
 
@@ -155,3 +171,11 @@ test('alignment instructions close from the backdrop and restore focus to Align'
   await expect(alignmentShell).toHaveCount(0)
   await expect(alignButton).toBeFocused()
 })
+
+async function enableArFromMobile(page: Page) {
+  const arToggle = page.getByTestId('mobile-permission-action')
+
+  await expect(arToggle).toHaveText('Enable AR')
+  await arToggle.click()
+  await expect(arToggle).toHaveText('Disable AR')
+}

@@ -224,6 +224,7 @@ type ScopeLoadedDeepStar = ScopeDecodedTileRow & {
 }
 
 type InteractionSurface = 'stage' | 'scope'
+type InteractionMode = 'free-navigation' | 'ar'
 
 type ActiveProjectedSkyObject = ProjectedSkyObject | ProjectedDeepStarObject
 type SummarySkyObject = ActiveProjectedSkyObject
@@ -313,7 +314,14 @@ export type ViewerBannerResolverInput = {
 }
 
 type RuntimeExperience = {
-  mode: 'blocked' | 'live' | 'non-camera' | 'manual-pan' | 'demo' | 'camera-only'
+  mode:
+    | 'blocked'
+    | 'live'
+    | 'non-camera'
+    | 'manual-pan'
+    | 'demo'
+    | 'camera-only'
+    | 'free-navigation'
   title: string
   body: string
 }
@@ -605,6 +613,9 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const [isPending, startTransition] = useTransition()
   const [retryError, setRetryError] = useState<string | null>(null)
   const [state, setState] = useState(initialState)
+  const [interactionMode, setInteractionMode] = useState<InteractionMode>(() =>
+    resolveInitialInteractionMode(initialState),
+  )
   const [stageElement, setStageElement] = useState<HTMLDivElement | null>(null)
   const [viewport, setViewport] = useState(DEFAULT_VIEWPORT)
   const [liveObserver, setLiveObserver] = useState<ObserverState | null>(persistedManualObserver)
@@ -716,6 +727,8 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const cameraRequestIdRef = useRef(0)
   const lastOpenedCameraPreferenceRef = useRef<string | null>(null)
   const orientationStartupTimeoutRef = useRef<number | null>(null)
+  const interactionModeRef = useRef(interactionMode)
+  const arInteractionRequestIdRef = useRef(0)
   const viewerRouteStateRef = useRef(state)
   const liveObserverRef = useRef<ObserverState | null>(persistedManualObserver)
   const latestAircraftSnapshotTimeSRef = useRef<number | null>(null)
@@ -763,8 +776,9 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     id: scenario.id,
     label: scenario.label,
   }))
+  const arModeActive = state.entry === 'live' && interactionMode === 'ar'
   const hasLiveSessionStarted =
-    state.entry === 'live' &&
+    arModeActive &&
     startupState !== 'ready-to-request' &&
     startupState !== 'requesting' &&
     startupState !== 'unsupported' &&
@@ -776,6 +790,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       ? demoScenario.observer
       : liveObserver
   const experience = describeRuntimeExperience({
+    interactionMode,
     state,
     startupState,
     hasObserver: observer !== null,
@@ -784,7 +799,9 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const browserFamily = hasMounted ? getBrowserFamily() : 'other'
   const locationError = state.entry === 'demo' ? null : liveLocationError
   const manualMode =
-    experience.mode === 'demo' || experience.mode === 'manual-pan'
+    state.entry === 'demo' ||
+    interactionMode === 'free-navigation' ||
+    experience.mode === 'manual-pan'
   const cameraPose = manualMode
     ? createManualCameraPose(manualPoseState)
     : sensorCameraPose
@@ -823,7 +840,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       })
     : EMPTY_SCENE_SNAPSHOT
   const cameraStreamActive =
-    state.entry === 'live' && state.camera === 'granted' && liveCameraStreamActive
+    arModeActive && state.camera === 'granted' && liveCameraStreamActive
   const cameraError = state.entry === 'demo' ? null : liveCameraError
   const shouldMountVideoElement = state.entry === 'live'
   const cameraFrameLayout = cameraSourceSize
@@ -898,7 +915,11 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             ? 'Manual needed'
             : badgeValue(state.location)
   const cameraStatusValue =
-    state.camera === 'granted' && cameraStreamActive ? 'Ready' : badgeValue(state.camera)
+    state.entry === 'live' && interactionMode === 'free-navigation' && state.camera === 'granted'
+      ? 'Off'
+      : state.camera === 'granted' && cameraStreamActive
+        ? 'Ready'
+        : badgeValue(state.camera)
   const motionStatusValue = getMotionBadgeValue(
     experience.mode,
     state,
@@ -1466,15 +1487,25 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     poseCalibration: viewerSettings.poseCalibration,
     orientationUpgradedFromRelative,
   })
-  const showMobilePermissionAction =
-    state.entry === 'live' &&
-    startupState !== 'awaiting-orientation' &&
-    startupState !== 'requesting' &&
-    (state.camera !== 'granted' || state.orientation !== 'granted')
+  const showMobileArToggle = state.entry === 'live'
   const showMobileAlignAction = state.entry === 'live' && !isMobileAlignmentFocusActive
   const showMobileScopeAction = scopeControlsAvailable && !isMobileAlignmentFocusActive
   const permissionRecoveryAction = getPermissionRecoveryAction(state)
   const permissionRecoveryHandlerId = getPermissionRecoveryHandlerId(permissionRecoveryAction.kind)
+  const arToggleStatus =
+    interactionMode === 'ar'
+      ? isPending
+        ? permissionRecoveryAction.pendingLabel
+        : 'AR active'
+      : permissionRecoveryAction.kind === 'camera-only'
+        ? 'Camera off'
+        : permissionRecoveryAction.kind === 'motion-only'
+          ? 'Motion off'
+          : permissionRecoveryAction.kind === 'camera-and-motion'
+            ? startupState === 'ready-to-request'
+              ? 'Start setup'
+              : 'Ready to retry'
+            : 'AR off'
   const activeLiveCameraStage = state.entry === 'live' && cameraStreamActive
   const isSettingsSheetOpen = isDesktopSettingsSheetOpen || isMobileSettingsSheetOpen
   const shouldLockViewerScroll =
@@ -1817,6 +1848,56 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     setOrientationAbsolute(baselineAbsolute)
   }
 
+  const setViewerInteractionMode = useCallback((nextMode: InteractionMode) => {
+    const requestId = arInteractionRequestIdRef.current + 1
+    arInteractionRequestIdRef.current = requestId
+    interactionModeRef.current = nextMode
+    setInteractionMode(nextMode)
+    return requestId
+  }, [])
+
+  const stopArResources = useCallback(() => {
+    cameraRequestIdRef.current += 1
+    orientationControllerRef.current?.stop()
+    orientationControllerRef.current = null
+    clearOrientationStartupTimeout()
+    poorSinceRef.current = null
+
+    const videoElement = videoElementRef.current
+
+    if (videoElement) {
+      videoElement.srcObject = null
+    }
+
+    stopMediaStream(cameraStreamRef.current)
+    cameraStreamRef.current = null
+    lastOpenedCameraPreferenceRef.current = null
+    setLiveCameraStreamActive(false)
+    setCameraSourceSize(null)
+    setCalibrationBanner(null)
+    setShowAlignmentGuidance(false)
+    setMotionAffordanceSamples([])
+    resetOrientationSessionState(viewerRouteStateRef.current.orientation === 'granted')
+  }, [clearOrientationStartupTimeout])
+
+  const enableArMode = useCallback(
+    () => setViewerInteractionMode('ar'),
+    [setViewerInteractionMode],
+  )
+
+  const disableArMode = useCallback(() => {
+    setViewerInteractionMode('free-navigation')
+    stopArResources()
+    setIsAlignmentPanelOpen(false)
+    setIsMobileAlignmentFocusActive(false)
+  }, [setViewerInteractionMode, stopArResources])
+
+  const isArRequestCurrent = useCallback(
+    (requestId: number) =>
+      interactionModeRef.current === 'ar' && arInteractionRequestIdRef.current === requestId,
+    [],
+  )
+
   const handleRetryPermissions = () => {
     setRetryError(null)
     setAstronomyFailureBanner(null)
@@ -1828,6 +1909,8 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       if (state.entry !== 'live') {
         return
       }
+
+      const requestId = enableArMode()
 
       if (!secureLiveArContext) {
         setStartupState('unsupported')
@@ -1848,6 +1931,11 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
 
       try {
         const orientation = await requestOrientationRetry()
+
+        if (!isArRequestCurrent(requestId)) {
+          return
+        }
+
         let camera: PermissionStatusValue = 'unknown'
 
         try {
@@ -1857,7 +1945,17 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
           camera = 'denied'
         }
 
+        if (!isArRequestCurrent(requestId)) {
+          stopArResources()
+          return
+        }
+
         const observerResult = await requestInitialObserver()
+
+        if (!isArRequestCurrent(requestId)) {
+          return
+        }
+
         const normalizedOrientation =
           orientation === null ? null : normalizeOrientationPromptStatus(orientation)
         const resolvedOrientation = normalizedOrientation ?? state.orientation
@@ -1924,7 +2022,14 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         return
       }
 
+      const requestId = enableArMode()
+
       const observerResult = await requestInitialObserver()
+
+      if (!isArRequestCurrent(requestId)) {
+        return
+      }
+
       const nextState: ViewerRouteState = {
         ...state,
         location: observerResult.locationStatus,
@@ -1947,9 +2052,10 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     setMotionRetryError(null)
 
     startTransition(async () => {
+      const requestId = enableArMode()
       const orientation = await requestOrientationRetry()
 
-      if (orientation === null || state.entry !== 'live') {
+      if (orientation === null || state.entry !== 'live' || !isArRequestCurrent(requestId)) {
         return
       }
 
@@ -1976,6 +2082,8 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         return
       }
 
+      const requestId = enableArMode()
+
       let camera: PermissionStatusValue = 'unknown'
 
       try {
@@ -1983,6 +2091,11 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         camera = 'granted'
       } catch {
         camera = 'denied'
+      }
+
+      if (!isArRequestCurrent(requestId)) {
+        stopArResources()
+        return
       }
 
       commitViewerRouteState({
@@ -2633,7 +2746,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
 
   useEffect(() => {
     if (
-      state.entry !== 'live' ||
+      !arModeActive ||
       startupState === 'ready-to-request' ||
       state.location !== 'granted' ||
       liveObserver !== null
@@ -2678,13 +2791,13 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     return () => {
       disposed = true
     }
-  }, [liveObserver, startupState, state, viewerSettings.manualObserver])
+  }, [arModeActive, liveObserver, startupState, state, viewerSettings.manualObserver])
 
   useEffect(() => {
     const videoElement = videoElementRef.current
 
     if (
-      state.entry !== 'live' ||
+      !arModeActive ||
       startupState === 'ready-to-request' ||
       state.camera !== 'granted' ||
       !videoElement ||
@@ -2705,7 +2818,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     return () => {
       cancelled = true
     }
-  }, [startupState, state, viewerSettings.selectedCameraDeviceId])
+  }, [arModeActive, startupState, state, viewerSettings.selectedCameraDeviceId])
 
   useEffect(() => {
     if (
@@ -2891,7 +3004,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   useEffect(() => {
     const videoElement = videoElementRef.current
 
-    if (state.entry === 'live' && state.camera === 'granted') {
+    if (arModeActive && state.camera === 'granted') {
       return
     }
 
@@ -2916,7 +3029,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     return () => {
       cancelled = true
     }
-  }, [state.camera, state.entry])
+  }, [arModeActive, state.camera])
 
   useEffect(() => {
     return () => {
@@ -2936,6 +3049,10 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   useEffect(() => {
     viewerRouteStateRef.current = state
   }, [state])
+
+  useEffect(() => {
+    interactionModeRef.current = interactionMode
+  }, [interactionMode])
 
   useEffect(() => {
     orientationControllerRef.current?.stop()
@@ -3626,22 +3743,12 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   appendDesktopWarningRailItem(sharedBannerFeed.primary)
   appendDesktopWarningRailItem(sharedBannerFeed.compactNotice)
   sharedBannerFeed.overflow.forEach(appendDesktopWarningRailItem)
-  const desktopEnableArActionDisabled =
-    isPending || state.entry === 'demo' || permissionRecoveryAction.kind === 'none'
+  const desktopArToggleActionDisabled =
+    isPending || state.entry === 'demo'
   const desktopEnableArActionStatus =
     state.entry === 'demo'
       ? 'Demo only'
-      : isPending
-        ? permissionRecoveryAction.pendingLabel
-        : permissionRecoveryAction.kind === 'camera-only'
-          ? 'Camera off'
-          : permissionRecoveryAction.kind === 'motion-only'
-            ? 'Motion off'
-            : permissionRecoveryAction.kind === 'camera-and-motion'
-              ? startupState === 'ready-to-request'
-                ? 'Start setup'
-                : 'Camera + motion'
-              : 'Ready'
+      : arToggleStatus
   const canOpenDesktopAlignment =
     state.entry === 'live' &&
     !manualMode &&
@@ -3726,7 +3833,12 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       }
   const sharedPrimaryBanner = sharedBannerFeed.primary
   const desktopEnableArActionCopy =
-    permissionRecoveryAction.kind === 'camera-only'
+    interactionMode === 'ar'
+      ? {
+          title: 'Disable live AR',
+          body: 'Stop the rear camera and motion pipeline while keeping free navigation, observer data, scope controls, and diagnostics available.',
+        }
+      : permissionRecoveryAction.kind === 'camera-only'
       ? {
           title: 'Enable the live camera feed',
           body: 'Retry the rear camera so the viewer can move beyond the fallback sky background.',
@@ -3795,14 +3907,14 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             disabled: false,
             tone: 'default',
           }
-        : !desktopEnableArActionDisabled
+        : !desktopArToggleActionDisabled
           ? {
-              kind: 'enable-ar',
+              kind: interactionMode === 'ar' ? 'disable-ar' : 'enable-ar',
               eyebrow: 'Next action',
               title: desktopEnableArActionCopy.title,
               body: desktopEnableArActionCopy.body,
-              label: 'Enable AR',
-              onClick: handleDesktopEnableArAction,
+              label: interactionMode === 'ar' ? 'Disable AR' : 'Enable AR',
+              onClick: handleDesktopArToggleAction,
               disabled: false,
               tone: 'default',
             }
@@ -3909,13 +4021,46 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     setManualPoseState((current) => applyManualPoseDrag(current, delta.x, delta.y))
   }
 
-  function handleDesktopEnableArAction() {
-    if (state.entry === 'demo' || permissionRecoveryAction.kind === 'none') {
+  function handleDesktopArToggleAction() {
+    if (state.entry === 'demo') {
+      return
+    }
+
+    if (interactionMode === 'ar') {
+      disableArMode()
+      return
+    }
+
+    if (permissionRecoveryAction.kind === 'none') {
+      enableArMode()
       return
     }
 
     handlePermissionRecoveryAction()
   }
+
+  const mobileArToggleButton = showMobileArToggle ? (
+    <div
+      className={`pointer-events-auto relative z-50 flex justify-center ${
+        isMobileOverlayOpen || isMobileAlignmentFocusActive ? 'pt-3' : ''
+      }`}
+      data-testid="mobile-ar-toggle-bar"
+    >
+      <button
+        type="button"
+        onClick={handleDesktopArToggleAction}
+        disabled={state.entry === 'demo' || isPending}
+        data-testid="mobile-permission-action"
+        className="min-h-11 rounded-full bg-amber-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-[0_12px_30px_rgba(251,191,36,0.22)] disabled:cursor-wait disabled:bg-amber-100"
+      >
+        {interactionMode === 'ar'
+          ? 'Disable AR'
+          : isPending
+            ? permissionRecoveryAction.pendingLabel
+            : 'Enable AR'}
+      </button>
+    </div>
+  ) : null
 
   return (
     <main
@@ -3963,7 +4108,9 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             <div className="rounded-full border border-sky-100/10 bg-slate-950/45 px-4 py-2 text-xs uppercase tracking-[0.16em] text-sky-100/75">
               {state.entry === 'demo'
                 ? 'Demo backdrop active'
-                : cameraStreamActive
+                : interactionMode === 'free-navigation'
+                  ? 'AR disabled'
+                  : cameraStreamActive
                   ? 'Rear camera active'
                   : 'Rear camera unavailable'}
             </div>
@@ -4312,10 +4459,10 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                       dataTestId="desktop-align-action"
                     />
                     <DesktopActionButton
-                      label="Enable AR"
+                      label={interactionMode === 'ar' ? 'Disable AR' : 'Enable AR'}
                       status={desktopEnableArActionStatus}
-                      onClick={handleDesktopEnableArAction}
-                      disabled={desktopEnableArActionDisabled}
+                      onClick={handleDesktopArToggleAction}
+                      disabled={desktopArToggleActionDisabled}
                       dataTestId="desktop-enable-ar-action"
                     />
                     <DesktopActionButton
@@ -5035,19 +5182,6 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                     Open viewer
                   </button>
                 ) : null}
-                {showMobilePermissionAction && !isMobileAlignmentFocusActive ? (
-                  <button
-                    type="button"
-                    onClick={handlePermissionRecoveryAction}
-                    disabled={isPending}
-                    data-testid="mobile-permission-action"
-                    className="min-h-11 rounded-full bg-amber-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-[0_12px_30px_rgba(251,191,36,0.22)] disabled:cursor-wait disabled:bg-amber-100"
-                  >
-                    {isPending
-                      ? permissionRecoveryAction.pendingLabel
-                      : permissionRecoveryAction.label}
-                  </button>
-                ) : null}
                 {showMobileAlignAction ? (
                   <button
                     ref={mobileAlignActionRef}
@@ -5090,6 +5224,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             </div>
           </>
         )}
+        {mobileArToggleButton}
       </div>
     </main>
   )
@@ -7228,6 +7363,10 @@ function getMotionBadgeValue(
   orientationSource: OrientationSource | null,
   latestOrientationSample: OrientationSample | null,
 ) {
+  if (experienceMode === 'free-navigation') {
+    return 'AR off'
+  }
+
   if (
     (experienceMode === 'blocked' && startupState === 'requesting') ||
     startupState === 'awaiting-orientation'
@@ -7351,10 +7490,12 @@ export function getPermissionRecoveryAction(state: ViewerRouteState) {
 }
 
 function describeRuntimeExperience({
+  interactionMode,
   state,
   startupState,
   hasObserver,
 }: {
+  interactionMode: InteractionMode
   state: ViewerRouteState
   startupState: StartupState
   hasObserver: boolean
@@ -7364,6 +7505,22 @@ function describeRuntimeExperience({
       mode: 'demo',
       title: 'Demo viewer',
       body: 'The live overlay shell is running against a non-camera demo backdrop so SkyLens stays presentable after denial or on desktop.',
+    }
+  }
+
+  if (interactionMode === 'free-navigation') {
+    if (!hasObserver) {
+      return {
+        mode: 'free-navigation',
+        title: 'Manual observer needed',
+        body: 'Free navigation is active. Enter a manual observer or enable AR to use live location and motion.',
+      }
+    }
+
+    return {
+      mode: 'free-navigation',
+      title: 'Free navigation',
+      body: 'Drag the sky or use arrow keys, Home, or R to navigate. Enable AR when you want live camera, motion, and location.',
     }
   }
 
@@ -7451,6 +7608,11 @@ function resolveStartupState({
   }
 
   return 'sensor-absolute'
+}
+
+function resolveInitialInteractionMode(state: ViewerRouteState): InteractionMode {
+  void state
+  return 'free-navigation'
 }
 
 function createManualObserverDraft(

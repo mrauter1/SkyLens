@@ -1981,12 +1981,15 @@ describe('ViewerShell celestial behavior', () => {
       return SENSOR_CONTROLLER
     })
 
-    await renderViewer({
-      entry: 'live',
-      location: 'granted',
-      camera: 'denied',
-      orientation: 'granted',
-    })
+    await renderViewer(
+      {
+        entry: 'live',
+        location: 'granted',
+        camera: 'granted',
+        orientation: 'granted',
+      },
+      { autoEnableAr: true },
+    )
 
     const latestSettingsProps = () =>
       mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
@@ -3365,12 +3368,15 @@ describe('ViewerShell celestial behavior', () => {
       throw new Error('critical astronomy failure')
     })
 
-    await renderViewer({
-      entry: 'live',
-      location: 'granted',
-      camera: 'denied',
-      orientation: 'granted',
-    })
+    await renderViewer(
+      {
+        entry: 'live',
+        location: 'granted',
+        camera: 'denied',
+        orientation: 'granted',
+      },
+      { autoEnableAr: true },
+    )
 
     await flushEffects()
 
@@ -3403,12 +3409,15 @@ describe('ViewerShell celestial behavior', () => {
       throw new Error('satellite propagation failed')
     })
 
-    await renderViewer({
-      entry: 'live',
-      location: 'granted',
-      camera: 'denied',
-      orientation: 'granted',
-    })
+    await renderViewer(
+      {
+        entry: 'live',
+        location: 'granted',
+        camera: 'denied',
+        orientation: 'granted',
+      },
+      { autoEnableAr: true },
+    )
 
     expect(mockRouterReplace).not.toHaveBeenCalledWith(expect.stringMatching(/entry=demo/))
     expect(container.textContent).toContain('Sun')
@@ -3448,12 +3457,15 @@ describe('ViewerShell celestial behavior', () => {
       throw new Error('satellite propagation failed')
     })
 
-    await renderViewer({
-      entry: 'live',
-      location: 'granted',
-      camera: 'denied',
-      orientation: 'granted',
-    })
+    await renderViewer(
+      {
+        entry: 'live',
+        location: 'granted',
+        camera: 'denied',
+        orientation: 'granted',
+      },
+      { autoEnableAr: true },
+    )
 
     expect(
       container.querySelector('[data-testid="sky-object-marker"][data-object-id="icao24-alpha1"]'),
@@ -3498,12 +3510,15 @@ describe('ViewerShell celestial behavior', () => {
       },
     ])
 
-    await renderViewer({
-      entry: 'live',
-      location: 'granted',
-      camera: 'denied',
-      orientation: 'granted',
-    })
+    await renderViewer(
+      {
+        entry: 'live',
+        location: 'granted',
+        camera: 'denied',
+        orientation: 'granted',
+      },
+      { autoEnableAr: true },
+    )
 
     expect(
       container.querySelector('[data-testid="sky-object-marker"][data-object-id="25544"]'),
@@ -3516,8 +3531,10 @@ describe('ViewerShell celestial behavior', () => {
     initialState: ViewerRouteState,
     {
       openDesktopViewerPanel: shouldOpenDesktopViewerPanel = true,
+      autoEnableAr = false,
     }: {
       openDesktopViewerPanel?: boolean
+      autoEnableAr?: boolean
     } = {},
   ) {
     await act(async () => {
@@ -3525,6 +3542,10 @@ describe('ViewerShell celestial behavior', () => {
     })
 
     await flushEffects()
+
+    if (autoEnableAr) {
+      await enableArMode()
+    }
 
     if (shouldOpenDesktopViewerPanel) {
       await openDesktopViewerPanel()
@@ -3564,6 +3585,23 @@ describe('ViewerShell celestial behavior', () => {
     await act(async () => {
       openViewerButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
+    await flushEffects()
+  }
+
+  async function enableArMode() {
+    const trigger = (
+      container.querySelector('[data-testid="desktop-enable-ar-action"]') ??
+      container.querySelector('[data-testid="mobile-permission-action"]')
+    ) as HTMLButtonElement | null
+
+    if (!trigger || !trigger.textContent?.includes('Enable')) {
+      return
+    }
+
+    await act(async () => {
+      trigger.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
     await flushEffects()
   }
 
