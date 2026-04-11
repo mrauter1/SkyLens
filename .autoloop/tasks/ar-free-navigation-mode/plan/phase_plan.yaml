@@ -1,0 +1,45 @@
+version: 1
+task_id: ar-free-navigation-mode
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/ar-free-navigation-mode/runs/run-20260411T022019Z-36824927/request.md
+phases:
+  - phase_id: explicit-ar-and-free-navigation-mode
+    title: Explicit free-navigation default and AR toggle flow
+    objective: Make free-navigation the default interactive viewer mode, keep AR opt-in and explicitly disable-able, and protect existing fallback, observer, scope, alignment, and diagnostics behavior.
+    status: planned
+    in_scope:
+      - Add viewer-shell interaction-mode state that separates free-navigation intent from permission status and startup-state bookkeeping.
+      - Keep mobile touch drag and desktop mouse drag plus keyboard arrows/Home/R available whenever the viewer is in free-navigation mode.
+      - Add always-visible Enable AR / Disable AR controls to mobile quick actions and desktop action chrome.
+      - Reuse existing AR startup and retry flows only from explicit Enable AR actions, preserving motion -> camera -> location ordering and fallback paths.
+      - Add explicit AR teardown on Disable AR so camera/orientation resources stop while observer continuity, manual observer flow, scope controls, alignment access, and diagnostics remain available.
+      - Preserve explicit retry-camera, retry-motion, and retry-location recovery behavior so user-triggered retries can continue or recover AR without an extra redundant Enable AR step.
+      - Update unit and e2e coverage for no-prompt-before-click, visible toggles, disable-to-free-navigation behavior, and sticky disable intent.
+    out_of_scope:
+      - Changes outside `SkyLensServerless/`.
+      - New route params, persisted interaction-mode storage, or permission-order changes unless a concrete blocker is discovered and separately confirmed.
+      - Reworking demo-mode semantics beyond any regression checks needed to keep current behavior stable.
+    dependencies: []
+    acceptance_criteria:
+      - id: AC-1
+        text: Bare `/view` loads into interactive free-navigation without requesting motion, camera, or location until the user explicitly presses Enable AR.
+      - id: AC-2
+        text: Mobile and desktop always render an AR toggle control, showing Enable AR when AR is off and Disable AR when AR is active.
+      - id: AC-3
+        text: Disabling AR stops AR-only resources and returns the viewer to free-navigation with touch, mouse, and keyboard navigation still working.
+      - id: AC-4
+        text: Manual observer flow, scope controls, alignment access, diagnostics, and existing fallback paths continue to work across mode transitions.
+      - id: AC-5
+        text: No effect or retry path silently re-enables AR after an explicit Disable AR action.
+      - id: AC-6
+        text: Explicit retry-camera, retry-motion, and retry-location actions still follow the existing recovery behavior when the user invokes them, without requiring a redundant extra Enable AR click.
+    deliverables:
+      - Updated `viewer-shell.tsx` interaction-mode and AR-toggle implementation
+      - Updated permission coordinator, viewer-shell, and e2e regression coverage
+    risks:
+      - Existing startup effects may still infer AR startup from route state and accidentally prompt or auto-start resources.
+      - AR teardown could miss camera, orientation, or timeout cleanup and leave stale live state behind.
+      - Sticky-disable logic could be applied too broadly and accidentally block explicit retry-based AR recovery.
+      - Scope or alignment availability could regress if blocked/manual/live runtime helpers are not redefined carefully for free-navigation.
+    rollback:
+      - Revert interaction-mode gating changes in `viewer-shell.tsx` if initial-load interactivity or startup sequencing regresses.
+      - Revert Disable AR teardown wiring separately if resource cleanup destabilizes the live viewer lifecycle.

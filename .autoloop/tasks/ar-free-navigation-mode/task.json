@@ -1,0 +1,36 @@
+{
+  "task_id": "ar-free-navigation-mode",
+  "created_at": "2026-04-11T02:20:19.361396+00:00",
+  "request_text": "# SkyLensServerless Autoloop Task: AR / Free Navigation Mode Implementation\n\n## Goal\nImplement explicit two-mode behavior in `SkyLensServerless` viewer:\n1. **Free navigation mode** (default when AR is disabled)\n   - Mobile: touch press+drag to navigate sky.\n   - Desktop: mouse drag and keyboard arrows/Home/R to navigate/recenter.\n2. **AR mode**\n   - Uses camera + motion (+ location pipeline already present).\n\n## Must-have UX requirements\n- **Enable AR / Disable AR button must always be visible** on both mobile and desktop surfaces.\n- **Camera and motion permission prompts must only happen when the user presses Enable AR**.\n- When AR is disabled, free navigation is the default mode and remains fully interactive.\n\n## Constraints\n- Implement in `SkyLensServerless` app only.\n- Preserve existing permission ordering (motion -> camera -> location) and existing fallback paths.\n- Do not regress manual observer flow, scope controls, alignment flow, or diagnostics.\n- Do not introduce automatic AR re-enable after explicit Disable AR.\n\n## Primary implementation targets\n- `SkyLensServerless/components/viewer/viewer-shell.tsx`\n- `SkyLensServerless/tests/e2e/permissions.spec.ts`\n- `SkyLensServerless/tests/unit/permission-coordinator.test.ts`\n- Additional test files as needed for robust regression coverage.\n\n## Implementation guidance\n- Add explicit interaction mode state (e.g. `'free-navigation' | 'ar'`) separated from permission status fields.\n- Keep manual navigation handlers active whenever in free-navigation mode.\n- Add always-visible AR toggle controls in mobile quick actions and desktop action rail/header.\n- Enable AR action should reuse existing retry/start logic and only prompt on click.\n- Disable AR action should shut down camera stream/orientation subscription and keep observer data continuity.\n- Ensure user intent for disable is sticky (no silent auto-promotion back to AR).\n\n## Regression checklist\n- `/view` initial load does not prompt camera/motion until Enable AR is pressed.\n- Mobile and desktop always render AR toggle.\n- Disable AR returns to free-navigation and keeps touch/mouse/keyboard nav working.\n- Scope mode still toggles and renders correctly after mode changes.\n- Manual observer and alignment access remain functional.\n\n## Validation expectations\nRun relevant test suites and targeted checks covering:\n- permission coordinator behavior,\n- mobile/desktop permission and mode UX,\n- no-prompt-before-click behavior,\n- mode toggling behavior.\n\n## Run Intent (2026-04-11T03:27:05.571706+00:00)\n# Resume Task: AR / Free-Navigation Mode (Implement + Test)\n\nResume task id: `ar-free-navigation-mode`.\n\n## Objective\nComplete the interrupted autoloop work for the explicit AR/free-navigation implementation by running only:\n- implement pair\n- test pair\n\n## Required run mode\n- full-auto answers enabled\n- pairs: implement,test\n- resume existing task state\n\n## Must satisfy before completion\n1. Address outstanding verifier feedback from prior implement cycles.\n2. Ensure the AR/free-navigation behavior is consistent with the accepted plan:\n   - free-navigation default when AR disabled\n   - always-visible Enable/Disable AR controls on mobile and desktop\n   - permission prompts only on explicit user action\n   - sticky Disable AR (no passive auto-reentry)\n3. Ensure tests are updated and green for the targeted slices used by this task.\n4. Keep changes scoped to task-relevant files; avoid unrelated churn.\n\n## Validation target\nRun and pass relevant implement/test validations for this task (unit/e2e as required by the task artifacts).",
+  "request_updated_at": "2026-04-11T03:27:05.571739+00:00",
+  "phase_plan_path": "/workspace/SkyLens/.autoloop/tasks/ar-free-navigation-mode/plan/phase_plan.yaml",
+  "phase_plan_version": 1,
+  "active_phase_selection": {
+    "run_id": "run-20260411T022019Z-36824927",
+    "mode": "single",
+    "phase_ids": [
+      "explicit-ar-and-free-navigation-mode"
+    ],
+    "explicit": true,
+    "current_phase_index": 1,
+    "current_phase_id": null
+  },
+  "phase_status": {
+    "explicit-ar-and-free-navigation-mode": "completed"
+  },
+  "phase_history": [
+    {
+      "phase_id": "explicit-ar-and-free-navigation-mode",
+      "run_id": "run-20260411T022019Z-36824927",
+      "status": "in_progress",
+      "ts": "2026-04-11T02:24:22.738559+00:00"
+    },
+    {
+      "phase_id": "explicit-ar-and-free-navigation-mode",
+      "run_id": "run-20260411T022019Z-36824927",
+      "status": "completed",
+      "ts": "2026-04-11T03:38:21.194554+00:00",
+      "pair": "test"
+    }
+  ]
+}
