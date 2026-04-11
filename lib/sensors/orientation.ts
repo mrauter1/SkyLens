@@ -180,7 +180,6 @@ export async function requestOrientationPermission(
 
   const orientationPermission = await requestEventPermission(
     currentWindow.DeviceOrientationEvent,
-    { absolute: true },
   )
   const motionPermission = await requestEventPermission(
     currentWindow.DeviceMotionEvent,
@@ -883,15 +882,12 @@ export function subscribeToOrientationPose(
 
 function requestEventPermission(
   eventType: OrientationPermissionRequester | undefined,
-  options: {
-    absolute?: boolean
-  } = {},
 ) {
   if (!eventType?.requestPermission) {
     return Promise.resolve<'granted' | 'unavailable'>('unavailable')
   }
 
-  return eventType.requestPermission(options.absolute).catch(() => 'denied')
+  return eventType.requestPermission().catch(() => 'denied')
 }
 
 async function probeOrientationAvailability(runtime: OrientationRuntime) {
