@@ -303,6 +303,32 @@ describe('ViewerShell startup gating', () => {
     expect(mockFetchSatelliteCatalog).not.toHaveBeenCalled()
   })
 
+  it('allows background fetch startup when a persisted manual observer is available', async () => {
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        ...readViewerSettings(),
+        manualObserver: {
+          lat: 34.0522,
+          lon: -118.2437,
+          altMeters: 120,
+        },
+      }),
+    )
+
+    await renderViewer({
+      entry: 'live',
+      location: 'unknown',
+      camera: 'unknown',
+      orientation: 'unknown',
+    })
+    await flushEffects()
+
+    expect(mockFetchAircraftSnapshot.mock.calls.length).toBeGreaterThanOrEqual(1)
+    expect(mockFetchSatelliteCatalog.mock.calls.length).toBeGreaterThanOrEqual(1)
+    expect(container.textContent).toContain('Location: Manual observer')
+  })
+
   it('blocks live startup behind a secure context requirement', async () => {
     Object.defineProperty(window, 'isSecureContext', {
       configurable: true,

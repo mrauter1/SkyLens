@@ -540,11 +540,17 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     id: scenario.id,
     label: scenario.label,
   }))
-  const hasLiveSessionStarted =
-    state.entry === 'live' &&
+  const hasKnownPermissionState =
     state.location !== 'unknown' &&
     state.camera !== 'unknown' &&
-    state.orientation !== 'unknown' &&
+    state.orientation !== 'unknown'
+  const hasManualObserverSession =
+    state.entry === 'live' &&
+    observerSource === 'manual' &&
+    liveObserver !== null
+  const hasLiveSessionStarted =
+    state.entry === 'live' &&
+    (hasKnownPermissionState || hasManualObserverSession) &&
     startupState !== 'ready-to-request' &&
     startupState !== 'requesting' &&
     startupState !== 'unsupported' &&
