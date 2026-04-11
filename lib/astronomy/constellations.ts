@@ -134,7 +134,9 @@ export function buildVisibleConstellations({
         verticalFovAdjustmentDeg,
       )
 
-      if (!startProjection.inOverscan || !endProjection.inOverscan) {
+      if (
+        !isConstellationSegmentPartiallyInView(startProjection, endProjection, viewport)
+      ) {
         continue
       }
 
@@ -145,11 +147,7 @@ export function buildVisibleConstellations({
       })
     }
 
-    const onScreenSegments = projectedSegments.filter(
-      (segment) => segment.start.inViewport && segment.end.inViewport,
-    )
-
-    if (onScreenSegments.length < 2) {
+    if (projectedSegments.length === 0) {
       continue
     }
 
@@ -233,4 +231,73 @@ function degreesToRadians(value: number) {
 
 function radiansToDegrees(value: number) {
   return (value * 180) / Math.PI
+}
+
+function isConstellationSegmentPartiallyInView(
+  start: ProjectedWorldPoint,
+  end: ProjectedWorldPoint,
+  viewport: { width: number; height: number },
+) {
+  if (start.inViewport || end.inViewport) {
+    return true
+  }
+
+  const viewportMinX = 0
+  const viewportMinY = 0
+  const viewportMaxX = viewport.width
+  const viewportMaxY = viewport.height
+
+  return doesLineSegmentIntersectRect(
+    start.x,
+    start.y,
+    end.x,
+    end.y,
+    viewportMinX,
+    viewportMinY,
+    viewportMaxX,
+    viewportMaxY,
+  )
+}
+
+function doesLineSegmentIntersectRect(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  minX: number,
+  minY: number,
+  maxX: number,
+  maxY: number,
+) {
+  const dx = x2 - x1
+  const dy = y2 - y1
+  const p = [-dx, dx, -dy, dy]
+  const q = [x1 - minX, maxX - x1, y1 - minY, maxY - y1]
+  let tMin = 0
+  let tMax = 1
+
+  for (let index = 0; index < p.length; index += 1) {
+    const denominator = p[index]
+    const numerator = q[index]
+
+    if (denominator === 0) {
+      if (numerator < 0) {
+        return false
+      }
+      continue
+    }
+
+    const ratio = numerator / denominator
+    if (denominator < 0) {
+      tMin = Math.max(tMin, ratio)
+    } else {
+      tMax = Math.min(tMax, ratio)
+    }
+
+    if (tMin > tMax) {
+      return false
+    }
+  }
+
+  return true
 }

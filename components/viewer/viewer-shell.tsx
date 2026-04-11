@@ -167,6 +167,7 @@ type ManualObserverDraft = {
 type SceneSnapshot = {
   objects: SkyObject[]
   visibleStars: ReturnType<typeof normalizeVisibleStars>
+  constellationStars: ReturnType<typeof normalizeVisibleStars>
   sunAltitudeDeg: number
   error: string | null
 }
@@ -208,6 +209,7 @@ const STAR_CATALOG = loadStarCatalog()
 const EMPTY_SCENE_SNAPSHOT: SceneSnapshot = {
   objects: [] as SkyObject[],
   visibleStars: [],
+  constellationStars: [],
   sunAltitudeDeg: -90,
   error: null as string | null,
 }
@@ -611,7 +613,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
           enabledLayers,
           likelyVisibleOnly,
           sunAltitudeDeg: sceneSnapshot.sunAltitudeDeg,
-          visibleStars: sceneSnapshot.visibleStars,
+          visibleStars: sceneSnapshot.constellationStars,
           starCatalog: STAR_CATALOG,
         })
       : EMPTY_CONSTELLATION_SCENE
@@ -4455,6 +4457,15 @@ function buildSceneSnapshot({
       scopeModeEnabled,
       scopeOptics,
     })
+    const constellationStars = normalizeVisibleStars({
+      observer,
+      timeMs,
+      enabledLayers,
+      likelyVisibleOnly,
+      sunAltitudeDeg: celestial.sunAltitudeDeg,
+      scopeModeEnabled: false,
+      scopeOptics,
+    })
     let aircraft: SkyObject[] = []
     let satellites: SkyObject[] = []
 
@@ -4490,6 +4501,7 @@ function buildSceneSnapshot({
         ...stars.map((entry) => entry.object),
       ],
       visibleStars: stars,
+      constellationStars,
       sunAltitudeDeg: celestial.sunAltitudeDeg,
       error: null,
     }
