@@ -431,6 +431,10 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       ? initialDemoScenario.observer.timestampMs
       : getCurrentTimestampMs(),
   )
+  const hasInitialObserver =
+    persistedManualObserver !== null ||
+    initialFallbackObserver !== null ||
+    initialState.location === 'granted'
   const [viewerSettings, setViewerSettings] = useState(persistedViewerSettings)
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null)
   const [astronomyFailureBanner, setAstronomyFailureBanner] = useState<string | null>(null)
@@ -469,18 +473,12 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
           : resolveStartupState({
               orientationStatus: initialState.orientation,
               cameraStatus: initialState.camera,
-              hasObserver:
-                persistedManualObserver !== null ||
-                initialFallbackObserver !== null ||
-                initialState.location === 'granted',
+              hasObserver: hasInitialObserver,
             })
         : resolveStartupState({
             orientationStatus: initialState.orientation,
             cameraStatus: initialState.camera,
-            hasObserver:
-              persistedManualObserver !== null ||
-              initialFallbackObserver !== null ||
-              initialState.location === 'granted',
+            hasObserver: hasInitialObserver,
           }),
   )
   const [showAlignmentGuidance, setShowAlignmentGuidance] = useState(false)
@@ -5113,7 +5111,7 @@ function createFallbackObserverState(): ObserverState {
     altMeters: 0,
     accuracyMeters: undefined,
     timestampMs: getCurrentTimestampMs(),
-    source: 'manual',
+    source: 'fallback',
   }
 }
 

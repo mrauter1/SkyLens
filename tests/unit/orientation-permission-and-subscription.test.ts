@@ -43,6 +43,22 @@ describe('orientation permission and subscription', () => {
     await expect(requestOrientationPermission(runtime)).resolves.toBe('denied')
   })
 
+  it('retries orientation permission with absolute=true when the no-arg request throws TypeError', async () => {
+    const orientationPermission = vi
+      .fn<() => Promise<'granted' | 'denied'>>()
+      .mockRejectedValueOnce(new TypeError('missing argument'))
+      .mockResolvedValueOnce('granted')
+    const motionPermission = vi.fn(async () => 'granted' as const)
+    const { runtime } = createOrientationRuntime({
+      orientationPermission,
+      motionPermission,
+    })
+
+    await expect(requestOrientationPermission(runtime)).resolves.toBe('granted')
+    expect(orientationPermission.mock.calls).toEqual([[], [true]])
+    expect(motionPermission).toHaveBeenCalledTimes(1)
+  })
+
   it('returns granted after a live probe on platforms without permission APIs', async () => {
     const { runtime, emit } = createOrientationRuntime()
     const permissionPromise = requestOrientationPermission(runtime)
