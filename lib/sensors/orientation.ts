@@ -896,7 +896,6 @@ function requestEventPermission(
     .catch(async (error: unknown) => {
       if (
         !options.allowAbsoluteFallback ||
-        typeof eventType.requestPermission !== 'function' ||
         !(error instanceof TypeError)
       ) {
         return 'denied' as const

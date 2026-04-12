@@ -811,7 +811,8 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     observerSource === 'manual' &&
     liveObserver !== null
   const hasLiveSessionStarted =
-    ((arModeActive && hasKnownPermissionState) || hasManualObserverSession) &&
+    state.entry === 'live' &&
+    (hasKnownPermissionState || hasManualObserverSession) &&
     startupState !== 'ready-to-request' &&
     startupState !== 'requesting' &&
     startupState !== 'unsupported' &&
