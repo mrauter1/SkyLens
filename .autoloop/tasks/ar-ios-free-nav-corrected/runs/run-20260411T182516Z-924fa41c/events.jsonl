@@ -1,0 +1,4 @@
+{"ts": "2026-04-11T18:25:16.574870+00:00", "run_id": "run-20260411T182516Z-924fa41c", "seq": 1, "event_type": "run_started", "workspace": "/workspace/SkyLens", "pairs": ["plan", "implement", "test"], "max_iterations": 15, "use_git": true, "task_id": "ar-ios-free-nav-corrected", "task_root": ".autoloop/tasks/ar-ios-free-nav-corrected"}
+{"ts": "2026-04-11T18:25:16.578078+00:00", "run_id": "run-20260411T182516Z-924fa41c", "seq": 2, "event_type": "pair_started", "pair": "plan", "phase_id": null}
+{"ts": "2026-04-11T18:25:16.578250+00:00", "run_id": "run-20260411T182516Z-924fa41c", "seq": 3, "event_type": "cycle_started", "pair": "plan", "cycle": 1, "attempt": 1, "phase_id": null}
+{"ts": "2026-04-11T18:25:33.804989+00:00", "run_id": "run-20260411T182516Z-924fa41c", "seq": 4, "event_type": "run_finished", "status": "fatal_error", "exit_code": 1}

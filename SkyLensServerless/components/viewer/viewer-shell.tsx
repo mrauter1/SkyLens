@@ -610,6 +610,12 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     initialState.entry === 'live' && initialState.location !== 'granted'
       ? createObserverStateFromManualSettings(persistedViewerSettings.manualObserver)
       : null
+  const initialFallbackObserver =
+    initialState.entry === 'live' &&
+    persistedManualObserver === null &&
+    initialState.location !== 'granted'
+      ? createFallbackObserverState()
+      : null
   const [isPending, startTransition] = useTransition()
   const [retryError, setRetryError] = useState<string | null>(null)
   const [state, setState] = useState(initialState)
@@ -618,10 +624,16 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   )
   const [stageElement, setStageElement] = useState<HTMLDivElement | null>(null)
   const [viewport, setViewport] = useState(DEFAULT_VIEWPORT)
-  const [liveObserver, setLiveObserver] = useState<ObserverState | null>(persistedManualObserver)
-  const [liveLocationError, setLiveLocationError] = useState<string | null>(null)
-  const [observerSource, setObserverSource] = useState<'geo' | 'manual' | null>(
-    persistedManualObserver ? 'manual' : null,
+  const [liveObserver, setLiveObserver] = useState<ObserverState | null>(
+    persistedManualObserver ?? initialFallbackObserver,
+  )
+  const [liveLocationError, setLiveLocationError] = useState<string | null>(
+    initialFallbackObserver
+      ? 'SkyLens is using a temporary random location until live location is available.'
+      : null,
+  )
+  const [observerSource, setObserverSource] = useState<'geo' | 'manual' | 'fallback' | null>(
+    persistedManualObserver ? 'manual' : initialFallbackObserver ? 'fallback' : null,
   )
   const [manualPoseState, setManualPoseState] = useState(() =>
     createManualPoseState({
@@ -674,11 +686,23 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       : initialState.location === 'unknown' ||
           initialState.camera === 'unknown' ||
           initialState.orientation === 'unknown'
-        ? 'ready-to-request'
+        ? persistedManualObserver === null && initialFallbackObserver === null
+          ? 'ready-to-request'
+          : resolveStartupState({
+              orientationStatus: initialState.orientation,
+              cameraStatus: initialState.camera,
+              hasObserver:
+                persistedManualObserver !== null ||
+                initialFallbackObserver !== null ||
+                initialState.location === 'granted',
+            })
         : resolveStartupState({
             orientationStatus: initialState.orientation,
             cameraStatus: initialState.camera,
-            hasObserver: persistedManualObserver !== null || initialState.location === 'granted',
+            hasObserver:
+              persistedManualObserver !== null ||
+              initialFallbackObserver !== null ||
+              initialState.location === 'granted',
           }),
   )
   const [showAlignmentGuidance, setShowAlignmentGuidance] = useState(false)
@@ -730,7 +754,9 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const interactionModeRef = useRef(interactionMode)
   const arInteractionRequestIdRef = useRef(0)
   const viewerRouteStateRef = useRef(state)
-  const liveObserverRef = useRef<ObserverState | null>(persistedManualObserver)
+  const liveObserverRef = useRef<ObserverState | null>(
+    persistedManualObserver ?? initialFallbackObserver,
+  )
   const latestAircraftSnapshotTimeSRef = useRef<number | null>(null)
   const previousOrientationSampleTimestampRef = useRef<number | null>(null)
   const previousOrientationSelectionRef = useRef<{
@@ -778,8 +804,16 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     label: scenario.label,
   }))
   const arModeActive = state.entry === 'live' && interactionMode === 'ar'
+  const hasKnownPermissionState =
+    state.location !== 'unknown' &&
+    state.camera !== 'unknown' &&
+    state.orientation !== 'unknown'
+  const hasManualObserverSession =
+    state.entry === 'live' &&
+    observerSource === 'manual' &&
+    liveObserver !== null
   const hasLiveSessionStarted =
-    arModeActive &&
+    ((arModeActive && hasKnownPermissionState) || hasManualObserverSession) &&
     startupState !== 'ready-to-request' &&
     startupState !== 'requesting' &&
     startupState !== 'unsupported' &&
@@ -1774,15 +1808,19 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         }
       }
 
-      setLiveObserver(null)
-      setObserverSource(null)
+      const fallbackObserver =
+        observerSource === 'fallback' && liveObserverRef.current
+          ? liveObserverRef.current
+          : createFallbackObserverState()
+      setLiveObserver(fallbackObserver)
+      setObserverSource('fallback')
       setLiveLocationError(
-        'Location did not resolve in time. Enter latitude, longitude, and altitude manually or retry geolocation.',
+        'Location did not resolve in time. SkyLens is using a temporary random location until live location is available.',
       )
 
       return {
         locationStatus: 'denied' as const,
-        hasObserver: false,
+        hasObserver: true,
       }
     }
   }
@@ -7319,8 +7357,12 @@ function badgeValue(status: PermissionStatusValue) {
 
 function getObserverStatusValue(
   observer: ObserverState,
-  observerSource: 'geo' | 'manual' | null,
+  observerSource: 'geo' | 'manual' | 'fallback' | null,
 ) {
+  if (observerSource === 'fallback') {
+    return 'Temporary location'
+  }
+
   if (observerSource === 'manual' || observer.source === 'manual') {
     return 'Manual observer'
   }
@@ -7672,6 +7714,17 @@ function createObserverStateFromManualSettings(
     lat: manualObserver.lat,
     lon: manualObserver.lon,
     altMeters: manualObserver.altMeters,
+    accuracyMeters: undefined,
+    timestampMs: getCurrentTimestampMs(),
+    source: 'manual',
+  }
+}
+
+function createFallbackObserverState(): ObserverState {
+  return {
+    lat: Number((Math.random() * 180 - 90).toFixed(6)),
+    lon: Number((Math.random() * 360 - 180).toFixed(6)),
+    altMeters: 0,
     accuracyMeters: undefined,
     timestampMs: getCurrentTimestampMs(),
     source: 'manual',
