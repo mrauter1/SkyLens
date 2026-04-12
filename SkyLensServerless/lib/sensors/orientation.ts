@@ -308,7 +308,7 @@ export async function requestOrientationPermission(
 
   const orientationPermission = await requestEventPermission(
     currentWindow.DeviceOrientationEvent,
-    { absolute: true },
+    { allowAbsoluteFallback: true },
   )
   const motionPermission = await requestEventPermission(
     currentWindow.DeviceMotionEvent,
@@ -1288,14 +1288,26 @@ export function subscribeToOrientationPose(
 function requestEventPermission(
   eventType: OrientationPermissionRequester | undefined,
   options: {
-    absolute?: boolean
+    allowAbsoluteFallback?: boolean
   } = {},
 ) {
   if (!eventType?.requestPermission) {
     return Promise.resolve<'granted' | 'unavailable'>('unavailable')
   }
 
-  return eventType.requestPermission(options.absolute).catch(() => 'denied')
+  return eventType
+    .requestPermission()
+    .catch(async (error: unknown) => {
+      if (
+        !options.allowAbsoluteFallback ||
+        typeof eventType.requestPermission !== 'function' ||
+        !(error instanceof TypeError)
+      ) {
+        return 'denied' as const
+      }
+
+      return eventType.requestPermission(true).catch(() => 'denied' as const)
+    })
 }
 
 function createRawDeviceOrientationSample(
