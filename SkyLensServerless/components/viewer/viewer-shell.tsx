@@ -613,7 +613,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const initialFallbackObserver =
     initialState.entry === 'live' &&
     persistedManualObserver === null &&
-    initialState.location !== 'granted'
+    initialState.location === 'denied'
       ? createFallbackObserverState()
       : null
   const [isPending, startTransition] = useTransition()
@@ -811,7 +811,8 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     observerSource === 'manual' &&
     liveObserver !== null
   const hasLiveSessionStarted =
-    ((arModeActive && hasKnownPermissionState) || hasManualObserverSession) &&
+    state.entry === 'live' &&
+    (hasKnownPermissionState || hasManualObserverSession) &&
     startupState !== 'ready-to-request' &&
     startupState !== 'requesting' &&
     startupState !== 'unsupported' &&

@@ -332,6 +332,11 @@ describe('ViewerShell startup gating', () => {
       orientation: 'unknown',
     })
 
+    const startArButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Start AR'),
+    )
+
+    expect(startArButton).toBeDefined()
     expect(mockRequestStartupObserverState).not.toHaveBeenCalled()
     expect(mockStartObserverTracking).not.toHaveBeenCalled()
     expect(mockRequestRearCameraStream).not.toHaveBeenCalled()

@@ -295,6 +295,11 @@ describe('ViewerShell startup gating', () => {
       orientation: 'unknown',
     })
 
+    const startArButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Start AR'),
+    )
+
+    expect(startArButton).toBeDefined()
     expect(mockRequestStartupObserverState).not.toHaveBeenCalled()
     expect(mockStartObserverTracking).not.toHaveBeenCalled()
     expect(mockRequestRearCameraStream).not.toHaveBeenCalled()
@@ -382,6 +387,7 @@ describe('ViewerShell startup gating', () => {
       const desktopOverlay = await openDesktopViewerOverlay()
       const startArButton = Array.from(desktopOverlay.querySelectorAll('button')).find(
         (button) =>
+          button.textContent?.includes('Start AR') ||
           button.textContent?.includes('Enable camera and motion') ||
           button.textContent?.includes('Enable AR'),
       )
@@ -767,8 +773,8 @@ describe('ViewerShell startup gating', () => {
     expect(container.querySelector('[data-testid="mobile-viewer-overlay-scroll-region"]')).not.toBeNull()
     expect(container.querySelector('[data-testid="mobile-viewer-overlay-shell"]')).toBeNull()
     expect(mobileOverlay?.querySelector('[data-testid="settings-sheet"]')).not.toBeNull()
-    expect(mobileOverlay?.textContent).toContain('Enable camera and motion')
-    expect(mobileOverlay?.textContent).toContain('Manual observer')
+    expect(mobileOverlay?.textContent).toMatch(/Enable camera and motion|Start AR/)
+    expect(mobileOverlay?.textContent).toMatch(/manual observer/i)
   })
 
   it('shows first-use mobile actions for permissions and alignment while keeping viewer access', async () => {

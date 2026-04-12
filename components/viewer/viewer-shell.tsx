@@ -399,7 +399,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const initialFallbackObserver =
     initialState.entry === 'live' &&
     persistedManualObserver === null &&
-    initialState.location !== 'granted'
+    initialState.location === 'denied'
       ? createFallbackObserverState()
       : null
   const [isPending, startTransition] = useTransition()
