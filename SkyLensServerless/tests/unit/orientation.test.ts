@@ -64,6 +64,24 @@ describe('orientation runtime coordinator', () => {
     expect(deniedRuntime.listenerCount('deviceorientation')).toBe(0)
   })
 
+  it('falls back to absolute-argument permission request when no-arg orientation request throws TypeError', async () => {
+    const orientationPermission = vi
+      .fn<() => Promise<'granted' | 'denied'>>()
+      .mockRejectedValueOnce(new TypeError('missing argument'))
+      .mockResolvedValueOnce('granted')
+    const motionPermission = vi.fn(async () => 'granted' as const)
+    const { runtime } = createOrientationRuntime({
+      supportsAbsoluteSensor: false,
+      supportsRelativeSensor: false,
+      orientationPermission,
+      motionPermission,
+    })
+
+    await expect(requestOrientationPermission(runtime)).resolves.toBe('granted')
+    expect(orientationPermission.mock.calls).toEqual([[], [true]])
+    expect(motionPermission).toHaveBeenCalledTimes(1)
+  })
+
   it('classifies absolute and compass-backed event samples correctly', () => {
     const { runtime, emit } = createOrientationRuntime()
     const samples: Array<ReturnType<typeof captureDeviceSample>> = []

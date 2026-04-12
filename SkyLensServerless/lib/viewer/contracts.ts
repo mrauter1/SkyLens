@@ -25,7 +25,7 @@ export interface ObserverState {
   altMeters: number
   accuracyMeters?: number
   timestampMs: number
-  source: 'live' | 'demo' | 'manual'
+  source: 'live' | 'demo' | 'manual' | 'fallback'
 }
 
 export interface CameraPose {

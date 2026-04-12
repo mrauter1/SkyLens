@@ -332,12 +332,56 @@ describe('ViewerShell startup gating', () => {
       orientation: 'unknown',
     })
 
+    const startArButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Start AR'),
+    )
+
+    expect(startArButton).toBeDefined()
     expect(mockRequestStartupObserverState).not.toHaveBeenCalled()
     expect(mockStartObserverTracking).not.toHaveBeenCalled()
     expect(mockRequestRearCameraStream).not.toHaveBeenCalled()
     expect(mockSubscribeToOrientationPose).not.toHaveBeenCalled()
     expect(mockFetchAircraftSnapshot).not.toHaveBeenCalled()
     expect(mockFetchSatelliteCatalog).not.toHaveBeenCalled()
+  })
+
+  it('shows temporary fallback observer status before live location is available', async () => {
+    await renderViewer({
+      entry: 'live',
+      location: 'unknown',
+      camera: 'unknown',
+      orientation: 'unknown',
+    })
+
+    await openDesktopViewerPanel()
+
+    expect(container.textContent).toContain('Location Temporary location')
+  })
+
+  it('allows background fetch startup for persisted manual observer with unknown permissions', async () => {
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        ...readViewerSettings(),
+        manualObserver: {
+          lat: 34.0522,
+          lon: -118.2437,
+          altMeters: 120,
+        },
+      }),
+    )
+
+    await renderViewer({
+      entry: 'live',
+      location: 'unknown',
+      camera: 'unknown',
+      orientation: 'unknown',
+    })
+    await flushEffects()
+
+    expect(mockFetchAircraftSnapshot.mock.calls.length).toBeGreaterThanOrEqual(1)
+    expect(mockFetchSatelliteCatalog.mock.calls.length).toBeGreaterThanOrEqual(1)
+    expect(container.textContent).toContain('Location Manual observer')
   })
 
   it('keeps live startup behind a secure context requirement until Enable AR is pressed', async () => {

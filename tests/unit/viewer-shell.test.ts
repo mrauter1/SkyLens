@@ -295,12 +295,43 @@ describe('ViewerShell startup gating', () => {
       orientation: 'unknown',
     })
 
+    const startArButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Start AR'),
+    )
+
+    expect(startArButton).toBeDefined()
     expect(mockRequestStartupObserverState).not.toHaveBeenCalled()
     expect(mockStartObserverTracking).not.toHaveBeenCalled()
     expect(mockRequestRearCameraStream).not.toHaveBeenCalled()
     expect(mockSubscribeToOrientationPose).not.toHaveBeenCalled()
     expect(mockFetchAircraftSnapshot).not.toHaveBeenCalled()
     expect(mockFetchSatelliteCatalog).not.toHaveBeenCalled()
+  })
+
+  it('allows background fetch startup when a persisted manual observer is available', async () => {
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        ...readViewerSettings(),
+        manualObserver: {
+          lat: 34.0522,
+          lon: -118.2437,
+          altMeters: 120,
+        },
+      }),
+    )
+
+    await renderViewer({
+      entry: 'live',
+      location: 'unknown',
+      camera: 'unknown',
+      orientation: 'unknown',
+    })
+    await flushEffects()
+
+    expect(mockFetchAircraftSnapshot.mock.calls.length).toBeGreaterThanOrEqual(1)
+    expect(mockFetchSatelliteCatalog.mock.calls.length).toBeGreaterThanOrEqual(1)
+    expect(container.textContent).toContain('Location: Manual observer')
   })
 
   it('blocks live startup behind a secure context requirement', async () => {
@@ -354,8 +385,11 @@ describe('ViewerShell startup gating', () => {
       })
 
       const desktopOverlay = await openDesktopViewerOverlay()
-      const startArButton = Array.from(desktopOverlay.querySelectorAll('button')).find((button) =>
-        button.textContent?.includes('Start AR'),
+      const startArButton = Array.from(desktopOverlay.querySelectorAll('button')).find(
+        (button) =>
+          button.textContent?.includes('Start AR') ||
+          button.textContent?.includes('Enable camera and motion') ||
+          button.textContent?.includes('Enable AR'),
       )
 
       expect(startArButton).toBeDefined()
@@ -739,8 +773,8 @@ describe('ViewerShell startup gating', () => {
     expect(container.querySelector('[data-testid="mobile-viewer-overlay-scroll-region"]')).not.toBeNull()
     expect(container.querySelector('[data-testid="mobile-viewer-overlay-shell"]')).toBeNull()
     expect(mobileOverlay?.querySelector('[data-testid="settings-sheet"]')).not.toBeNull()
-    expect(mobileOverlay?.textContent).toContain('Start AR')
-    expect(mobileOverlay?.textContent).toContain('Try demo mode')
+    expect(mobileOverlay?.textContent).toMatch(/Enable camera and motion|Start AR/)
+    expect(mobileOverlay?.textContent).toMatch(/manual observer/i)
   })
 
   it('shows first-use mobile actions for permissions and alignment while keeping viewer access', async () => {
@@ -1160,9 +1194,10 @@ describe('ViewerShell startup gating', () => {
     ) as HTMLHeadingElement | null
 
     expect(mobileOverlay).not.toBeNull()
-    expect(mobileOverlayHeading?.textContent).toContain('Manual observer needed')
+    expect(mobileOverlayHeading?.textContent).toContain('Live viewer')
     expect(mobileOverlay?.textContent).toContain('Manual observer')
     expect(mobileOverlay?.textContent).toContain('Retry location')
+    expect(mobileOverlay?.textContent).toContain('Location: Temporary location')
     expect(mobileOverlay?.textContent).toContain('Camera: Ready')
     expect(mobileOverlay?.textContent).toContain('Sensor: Absolute')
   })
