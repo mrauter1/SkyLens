@@ -1,0 +1,4 @@
+version: 1
+task_id: ar-ios-free-nav-corrected
+request_snapshot_ref: /workspace/SkyLens/.autoloop/tasks/ar-ios-free-nav-corrected/runs/run-20260411T182516Z-924fa41c/request.md
+phases: []

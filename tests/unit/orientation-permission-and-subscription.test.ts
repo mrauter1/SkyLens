@@ -15,7 +15,7 @@ describe('orientation permission and subscription', () => {
     vi.useRealTimers()
   })
 
-  it('requests iOS/WebKit orientation permission with absolute=true and motion permission in the same flow', async () => {
+  it('requests iOS/WebKit orientation and motion permission in the same flow', async () => {
     const orientationPermission = vi.fn(async () => 'granted' as const)
     const motionPermission = vi.fn(async () => 'granted' as const)
     const { runtime } = createOrientationRuntime({
@@ -24,8 +24,10 @@ describe('orientation permission and subscription', () => {
     })
 
     await expect(requestOrientationPermission(runtime)).resolves.toBe('granted')
-    expect(orientationPermission).toHaveBeenCalledWith(true)
-    expect(motionPermission).toHaveBeenCalledWith(undefined)
+    expect(orientationPermission).toHaveBeenCalledTimes(1)
+    expect(motionPermission).toHaveBeenCalledTimes(1)
+    expect(orientationPermission.mock.calls[0]).toEqual([])
+    expect(motionPermission.mock.calls[0]).toEqual([])
   })
 
   it('returns denied when an explicit motion permission request denies', async () => {
@@ -39,6 +41,22 @@ describe('orientation permission and subscription', () => {
     })
 
     await expect(requestOrientationPermission(runtime)).resolves.toBe('denied')
+  })
+
+  it('retries orientation permission with absolute=true when the no-arg request throws TypeError', async () => {
+    const orientationPermission = vi
+      .fn<() => Promise<'granted' | 'denied'>>()
+      .mockRejectedValueOnce(new TypeError('missing argument'))
+      .mockResolvedValueOnce('granted')
+    const motionPermission = vi.fn(async () => 'granted' as const)
+    const { runtime } = createOrientationRuntime({
+      orientationPermission,
+      motionPermission,
+    })
+
+    await expect(requestOrientationPermission(runtime)).resolves.toBe('granted')
+    expect(orientationPermission.mock.calls).toEqual([[], [true]])
+    expect(motionPermission).toHaveBeenCalledTimes(1)
   })
 
   it('returns granted after a live probe on platforms without permission APIs', async () => {
