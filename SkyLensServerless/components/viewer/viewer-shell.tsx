@@ -347,6 +347,8 @@ type SceneSnapshot = {
   error: string | null
 }
 
+const ENABLE_FALLBACK_OBSERVER = false
+
 type CalibrationTarget = {
   id: string
   label: string
@@ -611,6 +613,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       ? createObserverStateFromManualSettings(persistedViewerSettings.manualObserver)
       : null
   const initialFallbackObserver =
+    ENABLE_FALLBACK_OBSERVER &&
     initialState.entry === 'live' &&
     persistedManualObserver === null &&
     initialState.location === 'denied'
@@ -1807,19 +1810,32 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         }
       }
 
-      const fallbackObserver =
-        observerSource === 'fallback' && liveObserverRef.current
-          ? liveObserverRef.current
-          : createFallbackObserverState()
-      setLiveObserver(fallbackObserver)
-      setObserverSource('fallback')
+      if (ENABLE_FALLBACK_OBSERVER) {
+        const fallbackObserver =
+          observerSource === 'fallback' && liveObserverRef.current
+            ? liveObserverRef.current
+            : createFallbackObserverState()
+        setLiveObserver(fallbackObserver)
+        setObserverSource('fallback')
+        setLiveLocationError(
+          'Location did not resolve in time. SkyLens is using a temporary random location until live location is available.',
+        )
+
+        return {
+          locationStatus: 'denied' as const,
+          hasObserver: true,
+        }
+      }
+
+      setLiveObserver(null)
+      setObserverSource(null)
       setLiveLocationError(
-        'Location did not resolve in time. SkyLens is using a temporary random location until live location is available.',
+        'Location did not resolve in time. Enter latitude, longitude, and altitude manually or retry geolocation.',
       )
 
       return {
         locationStatus: 'denied' as const,
-        hasObserver: true,
+        hasObserver: false,
       }
     }
   }
