@@ -1291,12 +1291,13 @@ function requestEventPermission(
     allowAbsoluteFallback?: boolean
   } = {},
 ) {
-  if (!eventType?.requestPermission) {
+  const requestPermission = eventType?.requestPermission
+
+  if (!requestPermission) {
     return Promise.resolve<'granted' | 'unavailable'>('unavailable')
   }
 
-  return eventType
-    .requestPermission()
+  return requestPermission()
     .catch(async (error: unknown) => {
       if (
         !options.allowAbsoluteFallback ||
@@ -1305,7 +1306,7 @@ function requestEventPermission(
         return 'denied' as const
       }
 
-      return eventType.requestPermission(true).catch(() => 'denied' as const)
+      return requestPermission(true).catch(() => 'denied' as const)
     })
 }
 
