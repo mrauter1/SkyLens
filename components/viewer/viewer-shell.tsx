@@ -1163,7 +1163,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         applyInitialObserverResult(observerResult)
 
         const nextLocationState: ViewerRouteState = {
-          ...viewerRouteStateRef.current,
+          ...nextCameraState,
           location: observerResult.locationStatus,
         }
 
@@ -1195,7 +1195,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             applyOrientationRetryResult({
               orientation,
               nextState: nextOrientationState,
-              hasObserver: liveObserverRef.current !== null,
+              hasObserver: observerResult.hasObserver,
               orientationNeedsCalibration: false,
             })
           })

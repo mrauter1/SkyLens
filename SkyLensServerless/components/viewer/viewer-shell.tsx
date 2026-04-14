@@ -2119,16 +2119,18 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         location: observerResult.locationStatus,
       }
 
-      commitViewerRouteState(nextState)
-      setStartupState(
-        resolveStartupState({
-          orientationStatus: currentRouteState.orientation,
-          cameraStatus: currentRouteState.camera,
-          hasObserver: observerResult.hasObserver,
-          orientationNeedsCalibration:
-            startupState === 'sensor-relative-needs-calibration',
-        }),
-      )
+      startTransition(() => {
+        commitViewerRouteState(nextState)
+        setStartupState(
+          resolveStartupState({
+            orientationStatus: currentRouteState.orientation,
+            cameraStatus: currentRouteState.camera,
+            hasObserver: observerResult.hasObserver,
+            orientationNeedsCalibration:
+              startupState === 'sensor-relative-needs-calibration',
+          }),
+        )
+      })
     })()
   }
 
