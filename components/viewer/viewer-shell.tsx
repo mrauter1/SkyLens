@@ -172,6 +172,8 @@ type SceneSnapshot = {
   error: string | null
 }
 
+const ENABLE_FALLBACK_OBSERVER = false
+
 type CalibrationTarget = {
   id: string
   label: string
@@ -397,6 +399,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       ? createObserverStateFromManualSettings(persistedViewerSettings.manualObserver)
       : null
   const initialFallbackObserver =
+    ENABLE_FALLBACK_OBSERVER &&
     initialState.entry === 'live' &&
     persistedManualObserver === null &&
     initialState.location === 'denied'
@@ -517,6 +520,8 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const liveObserverRef = useRef<ObserverState | null>(
     persistedManualObserver ?? initialFallbackObserver,
   )
+  const viewerRouteStateRef = useRef(state)
+  const permissionRetryRequestIdRef = useRef(0)
   const latestAircraftSnapshotTimeSRef = useRef<number | null>(null)
   const sceneTimeMsRef = useRef(sceneTimeMs)
   const aircraftTrackerRef = useRef(createAircraftTracker())
@@ -980,14 +985,24 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     }))
   }
 
+  const applyInitialObserverResult = (result: {
+    observer: ObserverState | null
+    observerSource: 'geo' | 'manual' | 'fallback' | null
+    locationError: string | null
+  }) => {
+    setLiveObserver(result.observer)
+    setObserverSource(result.observerSource)
+    setLiveLocationError(result.locationError)
+  }
+
   const requestInitialObserver = async () => {
     try {
       const nextObserver = await requestStartupObserverState()
 
-      setLiveObserver(nextObserver)
-      setObserverSource('geo')
-      setLiveLocationError(null)
       return {
+        observer: nextObserver,
+        observerSource: 'geo' as const,
+        locationError: null,
         locationStatus: 'granted' as const,
         hasObserver: true,
       }
@@ -995,27 +1010,41 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       const savedManualObserver = viewerSettings.manualObserver
 
       if (savedManualObserver) {
-        applyManualObserver(savedManualObserver)
+        const manualObserver = createObserverStateFromManualSettings(savedManualObserver)
 
         return {
+          observer: manualObserver,
+          observerSource: 'manual' as const,
+          locationError:
+            'SkyLens is using your saved manual observer until a live location fix is available.',
           locationStatus: 'denied' as const,
           hasObserver: true,
         }
       }
 
-      const fallbackObserver =
-        observerSource === 'fallback' && liveObserverRef.current
-          ? liveObserverRef.current
-          : createFallbackObserverState()
-      setLiveObserver(fallbackObserver)
-      setObserverSource('fallback')
-      setLiveLocationError(
-        'Location did not resolve in time. SkyLens is using a temporary random location until live location is available.',
-      )
+      if (ENABLE_FALLBACK_OBSERVER) {
+        const fallbackObserver =
+          observerSource === 'fallback' && liveObserverRef.current
+            ? liveObserverRef.current
+            : createFallbackObserverState()
+
+        return {
+          observer: fallbackObserver,
+          observerSource: 'fallback' as const,
+          locationError:
+            'Location did not resolve in time. SkyLens is using a temporary random location until live location is available.',
+          locationStatus: 'denied' as const,
+          hasObserver: true,
+        }
+      }
 
       return {
+        observer: null,
+        observerSource: null,
+        locationError:
+          'Location did not resolve in time. Enter latitude, longitude, and altitude manually or retry geolocation.',
         locationStatus: 'denied' as const,
-        hasObserver: true,
+        hasObserver: false,
       }
     }
   }
@@ -1080,19 +1109,18 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       }
 
       startTransition(() => {
-        setStartupState('requesting')
         markViewerOnboardingCompleted()
         setViewerSettings((current) => ({
           ...current,
           onboardingCompleted: true,
         }))
-        setLiveObserver(null)
-        setObserverSource(null)
-        setLiveLocationError(null)
       })
 
       try {
-        const orientation = await requestOrientationRetry()
+        const requestId = permissionRetryRequestIdRef.current + 1
+        permissionRetryRequestIdRef.current = requestId
+        const orientationPromise = requestOrientationRetry()
+        const observerPromise = requestInitialObserver()
         let camera: PermissionStatusValue = 'unknown'
 
         try {
@@ -1102,40 +1130,76 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
           camera = 'denied'
         }
 
-        const observerResult = await requestInitialObserver()
-        const nextState: ViewerRouteState = {
-          ...state,
-          orientation: orientation ?? state.orientation,
+        if (permissionRetryRequestIdRef.current !== requestId) {
+          return
+        }
+
+        const nextCameraState: ViewerRouteState = {
+          ...viewerRouteStateRef.current,
           camera,
-          location: observerResult.locationStatus,
         }
 
         startTransition(() => {
           setSelectedObjectId(null)
           setMotionAffordanceSamples([])
           setSceneTimeMs(getCurrentTimestampMs())
-
-          if (orientation === null) {
-            commitViewerRouteState(nextState)
-            setStartupState(
-              resolveStartupState({
-                orientationStatus: nextState.orientation,
-                cameraStatus: camera,
-                hasObserver: observerResult.hasObserver,
-                orientationNeedsCalibration: false,
-                orientationAbsolute,
-              }),
-            )
-            return
-          }
-
-          applyOrientationRetryResult({
-            orientation,
-            nextState,
-            hasObserver: observerResult.hasObserver,
-            orientationNeedsCalibration: false,
-          })
+          commitViewerRouteState(nextCameraState)
+          setStartupState(
+            resolveStartupState({
+              orientationStatus: nextCameraState.orientation,
+              cameraStatus: camera,
+              hasObserver: liveObserverRef.current !== null,
+              orientationNeedsCalibration: false,
+              orientationAbsolute,
+            }),
+          )
         })
+
+        const observerResult = await observerPromise
+
+        if (permissionRetryRequestIdRef.current !== requestId) {
+          return
+        }
+        applyInitialObserverResult(observerResult)
+
+        const nextLocationState: ViewerRouteState = {
+          ...viewerRouteStateRef.current,
+          location: observerResult.locationStatus,
+        }
+
+        startTransition(() => {
+          commitViewerRouteState(nextLocationState)
+          setStartupState(
+            resolveStartupState({
+              orientationStatus: nextLocationState.orientation,
+              cameraStatus: nextLocationState.camera,
+              hasObserver: observerResult.hasObserver,
+              orientationNeedsCalibration: false,
+              orientationAbsolute,
+            }),
+          )
+        })
+
+        const orientation = await orientationPromise
+
+        if (
+          orientation !== null &&
+          viewerRouteStateRef.current.entry === 'live' &&
+          permissionRetryRequestIdRef.current === requestId
+        ) {
+          const nextOrientationState: ViewerRouteState = {
+            ...viewerRouteStateRef.current,
+            orientation,
+          }
+          startTransition(() => {
+            applyOrientationRetryResult({
+              orientation,
+              nextState: nextOrientationState,
+              hasObserver: liveObserverRef.current !== null,
+              orientationNeedsCalibration: false,
+            })
+          })
+        }
       } catch {
         startTransition(() => {
           setStartupState('error')
@@ -1172,8 +1236,10 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       }
 
       const observerResult = await requestInitialObserver()
+      applyInitialObserverResult(observerResult)
+      const currentRouteState = viewerRouteStateRef.current
       const nextState: ViewerRouteState = {
-        ...state,
+        ...currentRouteState,
         location: observerResult.locationStatus,
       }
 
@@ -1181,8 +1247,8 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         commitViewerRouteState(nextState)
         setStartupState(
           resolveStartupState({
-            orientationStatus: state.orientation,
-            cameraStatus: state.camera,
+            orientationStatus: currentRouteState.orientation,
+            cameraStatus: currentRouteState.camera,
             hasObserver: observerResult.hasObserver,
             orientationNeedsCalibration:
               startupState === 'sensor-relative-needs-calibration',
@@ -1410,6 +1476,10 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   useEffect(() => {
     liveObserverRef.current = liveObserver
   }, [liveObserver])
+
+  useEffect(() => {
+    viewerRouteStateRef.current = state
+  }, [state])
 
   useEffect(() => {
     let cancelled = false
