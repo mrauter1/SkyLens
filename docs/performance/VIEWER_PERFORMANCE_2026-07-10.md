@@ -120,5 +120,23 @@ desktop sizes.
 - Stable-Chrome normal, 4x, persisted-profile, reduced-motion, background/resume,
   navigation, and 60-second soak assertions: passed.
 
-Live Render commit, deploy, route/headers, and post-deploy performance evidence are
-recorded after deployment.
+## Live Render verification
+
+The implementation commit `10ecc22510c45b8d40dd9012e436556ee0ef13d6` was
+published by Render deploy `dep-d98l7c9kh4rs73f6inmg` on July 10, 2026. Render's
+API, local HEAD, and `origin/main` all reported the same commit. The root, live viewer,
+legacy live deep link, and embed validation route returned HTTP 200. Every checked
+route returned the required camera/geolocation/motion `Permissions-Policy`, and the
+embed route retained all five iframe delegations.
+
+The final live stable-Chrome matrix passed:
+
+| Live viewer state | TaskDuration | Event-loop p95 | Longest task | Max interaction | R2 requests |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Default safe baseline | 1.6% | 0.2 ms | 0 ms | 89.7 ms | 0 |
+| High + deep stars | 2.8% | 0.3 ms | 0 ms | 79.0 ms | 11 unique |
+| Low safe mode | 1.6% | 0.3 ms | 0 ms | 87.6 ms | 0 |
+
+There were no page, console, hydration, HTTP, or unexpected request errors and no
+duplicate R2 request. Settings, Sky details, the representative layer toggle, and
+Home navigation all remained within the 100 ms normal-Chrome release budget.
