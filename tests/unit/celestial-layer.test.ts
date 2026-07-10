@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
   buildVisibleConstellations,
@@ -151,25 +151,66 @@ describe('celestial layer', () => {
     expect(constellations.lineSegments).toEqual([])
   })
 
-  it('keeps likely-visible daylight suppression upstream of scope filtering', () => {
+  it('allows callers to override constellation segment projection without changing the catalog pass', () => {
     const stars = normalizeVisibleStars({
       observer: nyDayObserver as ObserverState,
       timeMs: nyDayObserver.timestampMs,
       enabledLayers: ENABLED_LAYERS,
-      likelyVisibleOnly: true,
+      likelyVisibleOnly: false,
       sunAltitudeDeg: 12.61,
-      scopeModeEnabled: true,
-      scopeOptics: {
-        apertureMm: 400,
-        magnificationX: 400,
-        transparencyPct: 100,
-      },
+    })
+    const projectLinePoint = vi.fn((worldPoint: { azimuthDeg: number; elevationDeg: number }) => ({
+      visible: true,
+      inViewport: true,
+      inOverscan: true,
+      x: worldPoint.azimuthDeg + 100,
+      y: worldPoint.elevationDeg + 200,
+      normalizedX: 0,
+      normalizedY: 0,
+      angularDistanceDeg: 0,
+      cameraVector: [0, 0, 1] as [number, number, number],
+    }))
+
+    const constellations = buildVisibleConstellations({
+      cameraPose: createPose(75, 78),
+      viewport: VIEWPORT,
+      enabledLayers: ENABLED_LAYERS,
+      likelyVisibleOnly: false,
+      sunAltitudeDeg: 12.61,
+      visibleStars: stars,
+      starCatalog: loadStarCatalog(),
+      projectLinePoint,
     })
 
-    expect(stars).toEqual([])
+    expect(projectLinePoint).toHaveBeenCalled()
+    expect(constellations.objects.map((object) => object.label)).toContain('Cygnus')
+    expect(constellations.lineSegments.length).toBeGreaterThan(1)
+    expect(constellations.lineSegments[0]?.start.x).toBeGreaterThan(100)
   })
 
-  it('adds scope render metadata without changing bundled bright-star visibility', () => {
+  it('keeps bundled constellation validation outside the build hot path', () => {
+    const stars = normalizeVisibleStars({
+      observer: nyDayObserver as ObserverState,
+      timeMs: nyDayObserver.timestampMs,
+      enabledLayers: ENABLED_LAYERS,
+      likelyVisibleOnly: false,
+      sunAltitudeDeg: 12.61,
+    })
+
+    expect(() =>
+      buildVisibleConstellations({
+        cameraPose: createPose(75, 78),
+        viewport: VIEWPORT,
+        enabledLayers: ENABLED_LAYERS,
+        likelyVisibleOnly: false,
+        sunAltitudeDeg: 12.61,
+        visibleStars: stars,
+        starCatalog: [],
+      }),
+    ).not.toThrow()
+  })
+
+  it('adds optics render metadata without removing baseline stars and keeps magnification out of render intensity', () => {
     const baselineStars = normalizeVisibleStars({
       observer: nyDayObserver as ObserverState,
       timeMs: nyDayObserver.timestampMs,
@@ -177,33 +218,109 @@ describe('celestial layer', () => {
       likelyVisibleOnly: false,
       sunAltitudeDeg: 12.61,
     })
-    const scopeFilteredStars = normalizeVisibleStars({
+    const opticsStars = normalizeVisibleStars({
       observer: nyDayObserver as ObserverState,
       timeMs: nyDayObserver.timestampMs,
       enabledLayers: ENABLED_LAYERS,
       likelyVisibleOnly: false,
       sunAltitudeDeg: 12.61,
-      scopeModeEnabled: true,
-      scopeOptics: {
-        apertureMm: 50,
+      activeOptics: {
+        apertureMm: 40,
         magnificationX: 10,
-        transparencyPct: 40,
+      },
+    })
+    const higherMagnificationStars = normalizeVisibleStars({
+      observer: nyDayObserver as ObserverState,
+      timeMs: nyDayObserver.timestampMs,
+      enabledLayers: ENABLED_LAYERS,
+      likelyVisibleOnly: false,
+      sunAltitudeDeg: 12.61,
+      activeOptics: {
+        apertureMm: 40,
+        magnificationX: 100,
       },
     })
 
+    expect(baselineStars.length).toBe(opticsStars.length)
     expect(
       baselineStars.every((entry) => entry.object.metadata.scopeRender === undefined),
     ).toBe(true)
-    expect(scopeFilteredStars).toHaveLength(baselineStars.length)
-    expect(scopeFilteredStars.every((entry) => entry.elevationDeg >= 0)).toBe(true)
+    expect(opticsStars.length).toBeGreaterThan(0)
     expect(
-      scopeFilteredStars.every((entry) => entry.object.metadata.scopeRender !== undefined),
+      opticsStars.every((entry) => {
+        const scopeRender = entry.object.metadata.scopeRender as
+          | {
+              effectiveLimitMag?: number
+              intensity?: number
+              haloPx?: number
+            }
+          | undefined
+
+        return (
+          scopeRender !== undefined &&
+          Number.isFinite(scopeRender.effectiveLimitMag) &&
+          Number.isFinite(scopeRender.intensity) &&
+          Number.isFinite(scopeRender.haloPx)
+        )
+      }),
     ).toBe(true)
     expect(
-      scopeFilteredStars.every((entry) =>
-        baselineStars.some((baselineEntry) => baselineEntry.id === entry.id),
-      ),
+      higherMagnificationStars.every((entry, index) => {
+        const currentScopeRender = entry.object.metadata.scopeRender as
+          | {
+              effectiveLimitMag?: number
+              intensity?: number
+            }
+          | undefined
+        const baselineScopeRender = opticsStars[index]?.object.metadata.scopeRender as
+          | {
+              effectiveLimitMag?: number
+              intensity?: number
+            }
+          | undefined
+
+        return (
+          currentScopeRender?.effectiveLimitMag === baselineScopeRender?.effectiveLimitMag &&
+          currentScopeRender?.intensity === baselineScopeRender?.intensity
+        )
+      }),
     ).toBe(true)
+  })
+
+  it('keeps scope render and scope filter limiting magnitudes aligned across anchor and edge apertures', () => {
+    const apertures = [20, 40, 240, 400]
+
+    for (const apertureMm of apertures) {
+      const opticsStars = normalizeVisibleStars({
+        observer: nyDayObserver as ObserverState,
+        timeMs: nyDayObserver.timestampMs,
+        enabledLayers: ENABLED_LAYERS,
+        likelyVisibleOnly: false,
+        sunAltitudeDeg: 12.61,
+        activeOptics: {
+          apertureMm,
+          magnificationX: 50,
+        },
+      })
+
+      expect(opticsStars.length).toBeGreaterThan(0)
+      expect(
+        opticsStars.every((entry) => {
+          const scopeRender = entry.object.metadata.scopeRender as
+            | {
+                effectiveLimitMag?: number
+              }
+            | undefined
+          const scopeFilter = entry.object.metadata.scopeFilter as
+            | {
+                effectiveLimitMag?: number
+              }
+            | undefined
+
+          return scopeRender?.effectiveLimitMag === scopeFilter?.effectiveLimitMag
+        }),
+      ).toBe(true)
+    }
   })
 
   it('locks celestial, star, and constellation detail payload fields', () => {

@@ -19,7 +19,7 @@ export default function EmbedValidationPage() {
           <iframe
             title="Embedded SkyLens viewer"
             data-testid="viewer-embed-frame"
-            src="/view?entry=live&location=unknown&camera=unknown&orientation=unknown"
+            src="/view?entry=live"
             allow="camera; geolocation; accelerometer; gyroscope; magnetometer"
             className="h-[960px] w-full rounded-[1.25rem] border border-sky-100/10 bg-slate-950"
           />

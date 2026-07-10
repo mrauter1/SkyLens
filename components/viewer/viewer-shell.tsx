@@ -4,10 +4,14 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
   type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEventHandler,
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
+  type RefObject,
   useCallback,
   useEffect,
+  useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -30,9 +34,9 @@ import {
   type DemoScenarioId,
 } from '../../lib/demo/scenarios'
 import {
-  HealthApiResponseSchema,
   type HealthApiResponse,
 } from '../../lib/health/contracts'
+import { fetchHealthStatus } from '../../lib/health/client'
 import {
   type EnabledLayer,
   POLL_INTERVAL_MS_BY_QUALITY,
@@ -58,7 +62,6 @@ import {
 } from '../../lib/viewer/motion'
 import {
   compareLabelCandidates,
-  getLabelRankScore,
   layoutLabels,
   type LabelCandidate,
   type RankedLabelPlacement,
@@ -67,6 +70,7 @@ import {
   createAxisAngleQuaternion,
   createCameraFrameLayout,
   createCameraQuaternion,
+  createProjectionProfile,
   createQuaternionFromBasis,
   crossVec3,
   dotVec3,
@@ -79,9 +83,14 @@ import {
   normalizeVec3,
   pickCenterLockedCandidate,
   projectWorldPointToScreen,
+  projectWorldPointToScreenWithProfile,
+  RearCameraRequestError,
   requestRearCameraStream,
   stopMediaStream,
   type CameraDeviceOption,
+  type ProjectViewport,
+  type ProjectWorldPointInput,
+  type ProjectedWorldPoint,
 } from '../../lib/projection/camera'
 import {
   buildViewerHref,
@@ -89,6 +98,33 @@ import {
   type PermissionStatusValue,
   type ViewerRouteState,
 } from '../../lib/permissions/coordinator'
+import {
+  createScopeRequestTracker,
+  loadScopeBandIndex,
+  loadScopeManifest,
+  loadScopeNamesTable,
+  loadScopeTileRows,
+} from '../../lib/scope/catalog'
+import {
+  applyScopeProperMotion,
+  convertScopeEquatorialToHorizontal,
+  convertScopeHorizontalToEquatorial,
+  getObservationJulianYear,
+} from '../../lib/scope/coordinates'
+import {
+  areScopeDeepStarsDaylightSuppressed,
+  selectScopeBand,
+} from '../../lib/scope/depth'
+import {
+  getScopeTileSelectionRadiusDeg,
+  getScopeTileId,
+  selectScopeTilesForPointing,
+} from '../../lib/scope/position-tiles'
+import type {
+  ScopeBandIndex,
+  ScopeDecodedTileRow,
+  ScopeNameTable,
+} from '../../lib/scope/contracts'
 import {
   requestStartupObserverState,
   startObserverTracking,
@@ -100,11 +136,14 @@ import {
   createPoseCalibrationFromReferencePose,
   createManualPoseState,
   createIdentityPoseCalibration,
+  getOrientationCapabilities,
+  getScreenOrientationCorrectionDeg,
   recenterManualPose,
-  requestOrientationPermission,
+  requestOrientationPermissionDetailed,
   subscribeToOrientationPose,
   type OrientationSample,
   type OrientationSource,
+  type OrientationPermissionFailureReason,
   type PoseCalibration,
 } from '../../lib/sensors/orientation'
 import type { CameraPose, ObserverState, SkyObject } from '../../lib/viewer/contracts'
@@ -113,19 +152,51 @@ import {
   buildAlignmentTutorialModel,
   type AlignmentTargetPreference,
   type AlignmentTutorialNotice,
+  type AlignmentTutorialPrimaryStep,
 } from '../../lib/viewer/alignment-tutorial'
 import {
-  markViewerOnboardingCompleted,
+  SCOPE_LENS_DIAMETER_PCT_RANGE,
+  getDefaultViewerSettings,
+  normalizeScopeLensDiameterPct,
   readViewerSettings,
-  SCOPE_OPTICS_RANGES,
   writeViewerSettings,
   type ManualObserverSettings,
   type MotionQuality,
-  type ScopeOpticsSettings,
 } from '../../lib/viewer/settings'
-import type { ScopeRenderMetadata } from '../../lib/viewer/scope-optics'
+import {
+  MAIN_VIEW_OPTICS_RANGES,
+  MAIN_VIEW_DEEP_STAR_STARTUP_VISIBLE_COUNT_BAND,
+  computeScopeDeepStarCoreRadiusPx,
+  computeScopeDeepStarEmergenceAlpha,
+  SCOPE_OPTICS_RANGES,
+  computeScopeRenderProfile,
+  getMainViewDeepStarBand,
+  magnificationToMainViewVerticalFovDeg,
+  magnificationToScopeVerticalFovDeg,
+  normalizeMainViewOptics,
+  normalizeScopeOptics,
+  resolveMainViewDeepStarGovernor,
+  type ActiveOptics,
+  type MainViewDeepStarGovernorSnapshot,
+  type ScopeOptics,
+  type ScopeRenderProfile,
+} from '../../lib/viewer/scope-optics'
+import { getStarColorFromBMinusV } from '../../lib/viewer/star-colors'
 import { SettingsSheet } from '../settings/settings-sheet'
 import { CompactMobilePanelShell } from '../ui/compact-mobile-panel-shell'
+import {
+  canRestoreFocusTarget,
+  focusAfterDismiss,
+  resolveFocusRestoreTarget,
+  trapFocusWithinPanel,
+} from '../ui/dismissable-layer'
+import {
+  ScopeLensOverlay,
+  type ScopeLensOverlayLineSegment,
+  type ScopeLensOverlayObject,
+} from './scope-lens-overlay'
+import { MainStarCanvas, type MainStarCanvasPoint } from './main-star-canvas'
+import type { ScopeStarCanvasPoint } from './scope-star-canvas'
 
 type ViewerShellProps = {
   initialState: ViewerRouteState
@@ -135,28 +206,173 @@ type ProjectedSkyObject = SkyObject & {
   projection: ReturnType<typeof projectWorldPointToScreen>
 }
 
-type OnObjectLabel = RankedLabelPlacement<ProjectedSkyObject>
+type ScopeProjectedSkyObject = ProjectedSkyObject & {
+  scopeProjection: ReturnType<typeof projectWorldPointToScreenWithProfile>
+  scopeInLensCircle: boolean
+}
+
+type ProjectedDeepStarObject = SkyObject & {
+  bMinusV: number
+  displayName?: string
+  projection: ReturnType<typeof projectWorldPointToScreenWithProfile>
+  scopeProjection: ReturnType<typeof projectWorldPointToScreenWithProfile> | null
+  scopeInLensCircle: boolean
+  source: 'scope-deep-star'
+}
+
+type ScopeLoadedDeepStar = ScopeDecodedTileRow & {
+  id: string
+  displayName?: string
+}
+
+type InteractionSurface = 'stage' | 'scope'
+type InteractionMode = 'free-navigation' | 'ar'
+
+type OrientationReadiness =
+  | 'idle'
+  | 'requesting-permission'
+  | 'awaiting-sample'
+  | 'ready'
+  | 'no-sample'
+  | 'interrupted'
+  | 'denied'
+  | 'unavailable'
+  | 'error'
+
+type CameraRuntimePhase =
+  | 'idle'
+  | 'requesting'
+  | 'stream-acquired'
+  | 'playing'
+  | 'muted'
+  | 'interrupted'
+  | 'ended'
+  | 'denied'
+  | 'busy'
+  | 'unavailable'
+  | 'error'
+
+type OrientationPermissionAttempt = {
+  status: PermissionStatusValue
+  readiness: OrientationReadiness
+  reason: OrientationPermissionFailureReason
+  errorName?: string
+}
+
+type RuntimeLifecycleDiagnostic = {
+  requestId: number
+  transitionReason: string
+  lifecycleEvent: string
+  elapsedMs: number | null
+  errorName: string | null
+}
+
+type ActiveProjectedSkyObject = ProjectedSkyObject | ProjectedDeepStarObject
+type SummarySkyObject = ActiveProjectedSkyObject
+
+type OnObjectLabel = RankedLabelPlacement<ActiveProjectedSkyObject>
 type MotionAffordanceSample = {
   id: string
   x: number
   y: number
 }
+type StageProjectionContext = {
+  profile: ReturnType<typeof createProjectionProfile>
+  viewport: ProjectViewport
+  projectWorldPoint: (worldPoint: ProjectWorldPointInput) => ProjectedWorldPoint
+}
+export type ViewerBannerActionId =
+  | 'open-alignment'
+  | 'recover-motion'
+  | 'retry-camera'
+  | 'retry-location'
+
+export type PermissionRecoveryActionKind =
+  | 'camera-and-motion'
+  | 'camera-only'
+  | 'motion-only'
+  | 'none'
+
+export type PermissionRecoveryHandlerId =
+  | 'retry-all'
+  | 'retry-camera'
+  | 'retry-motion'
+  | 'none'
+
+export type ViewerBannerItem = {
+  id: string
+  title: string
+  body: string
+  critical?: boolean
+  tone?: 'info'
+  actionId?: ViewerBannerActionId
+  actionLabel?: string
+  actionDisabled?: boolean
+  footer?: string | null
+}
+
+type ViewerBannerUiState = {
+  expanded: boolean
+  dismissed: boolean
+}
+
+type ViewerSurface = 'mobile' | 'desktop'
 
 type StartupState =
   | 'unsupported'
   | 'ready-to-request'
   | 'requesting'
+  | 'awaiting-orientation'
   | 'camera-only'
   | 'sensor-relative-needs-calibration'
   | 'sensor-absolute'
   | 'manual'
   | 'error'
 
+export type ViewerBannerResolverInput = {
+  astronomyFailureBanner: string | null
+  demoScenario: {
+    label: string
+    description: string
+  } | null
+  cameraStatus: PermissionStatusValue | null
+  cameraRetryAvailable: boolean
+  motionRecovery: {
+    body: string
+    actionLabel: string
+    actionDisabled: boolean
+    footer: string | null
+  } | null
+  locationError: string | null
+  locationRetryAvailable: boolean
+  cameraError: string | null
+  startupState: StartupState
+  calibrationTargetLabel: string
+  calibrationBanner: string | null
+  showAlignmentGuidance: boolean
+  alignmentActionAvailable: boolean
+  manualMode: boolean
+}
+
 type RuntimeExperience = {
-  mode: 'blocked' | 'live' | 'non-camera' | 'manual-pan' | 'demo' | 'camera-only'
+  mode:
+    | 'blocked'
+    | 'live'
+    | 'non-camera'
+    | 'manual-pan'
+    | 'demo'
+    | 'camera-only'
+    | 'free-navigation'
   title: string
   body: string
 }
+
+type BrowserFamily =
+  | 'ios-safari'
+  | 'chrome-android'
+  | 'firefox-android'
+  | 'samsung-internet'
+  | 'other'
 
 type ManualObserverDraft = {
   lat: string
@@ -205,6 +421,23 @@ const DEFAULT_VIEWPORT = {
   width: 390,
   height: 844,
 }
+const SCOPE_LENS_DIAMETER_PX_RANGE = {
+  min: 180,
+  max: 440,
+} as const
+const SCOPE_LENS_VIEWPORT_MARGIN_PX = 32
+const SCOPE_EXTENDED_OBJECT_BASELINE_ANGULAR_DIAMETER_DEG_BY_ID = {
+  sun: 0.533,
+  moon: 0.518,
+  'planet-mercury': 0.08,
+  'planet-venus': 0.16,
+  'planet-mars': 0.11,
+  'planet-jupiter': 0.22,
+  'planet-saturn': 0.19,
+  'planet-uranus': 0.07,
+  'planet-neptune': 0.06,
+} as const
+const DEFAULT_SCOPE_PLANET_BASELINE_ANGULAR_DIAMETER_DEG = 0.1
 
 const PUBLIC_CONFIG = getPublicConfig()
 const STAR_CATALOG = loadStarCatalog()
@@ -222,6 +455,8 @@ const EMPTY_CONSTELLATION_SCENE = {
 const WORLD_UP: [number, number, number] = [0, 0, 1]
 const SCENE_CLOCK_COARSE_INTERVAL_MS = 1_000
 const AIRCRAFT_REQUEST_TIMEOUT_MS = 8_000
+const ORIENTATION_READY_TIMEOUT_MS = 5_000
+const CAMERA_READY_TIMEOUT_MS = 8_000
 const SCENE_CLOCK_FRAME_INTERVAL_MS: Record<Exclude<MotionQuality, 'low'>, number> = {
   balanced: 1_000 / 15,
   high: 1_000 / 30,
@@ -231,169 +466,197 @@ const MOTION_AFFORDANCE_SAMPLE_LIMITS: Record<MotionQuality, number> = {
   balanced: 8,
   high: 16,
 }
-const NORMAL_VIEW_APERTURE_RANGE = {
-  min: 20,
-  max: 100,
-  step: 1,
-} as const
+const COMPACT_MOTION_WARNING_IDS = ['motion-recovery', 'awaiting-orientation'] as const
 
-type ScopeQuickControlsProps = {
-  layout: 'mobile' | 'desktop'
-  scopeModeEnabled: boolean
-  scopeOptics: ScopeOpticsSettings
-  onScopeModeEnabledChange?: (enabled: boolean) => void
-  onApertureChange: (value: number) => void
-  onMagnificationChange: (value: number) => void
-}
+export function resolveViewerBannerFeed({
+  astronomyFailureBanner,
+  demoScenario,
+  cameraStatus,
+  cameraRetryAvailable,
+  motionRecovery,
+  locationError,
+  locationRetryAvailable,
+  cameraError,
+  startupState,
+  calibrationTargetLabel,
+  calibrationBanner,
+  showAlignmentGuidance,
+  alignmentActionAvailable,
+  manualMode,
+}: ViewerBannerResolverInput): {
+  primary: ViewerBannerItem | null
+  overflow: ViewerBannerItem[]
+  compactNotice: ViewerBannerItem | null
+} {
+  const candidates: Array<ViewerBannerItem & { priority: number }> = []
 
-function ScopeQuickControls({
-  layout,
-  scopeModeEnabled,
-  scopeOptics,
-  onScopeModeEnabledChange,
-  onApertureChange,
-  onMagnificationChange,
-}: ScopeQuickControlsProps) {
-  const testIdPrefix = layout === 'mobile' ? 'mobile' : 'desktop'
-  const containerClassName =
-    layout === 'mobile'
-      ? 'grid gap-3'
-      : 'flex min-w-[16rem] flex-[1.2] flex-col gap-3 rounded-[1.25rem] border border-sky-100/15 bg-white/5 px-4 py-3'
-  const labelClassName =
-    layout === 'mobile'
-      ? 'pointer-events-auto grid gap-2 rounded-[1.25rem] border border-sky-100/15 bg-slate-950/70 px-4 py-3 text-sm text-sky-50 shadow-[0_12px_30px_rgba(3,7,13,0.32)]'
-      : 'grid gap-2 rounded-2xl border border-sky-100/10 bg-slate-950/35 px-4 py-3 text-sm text-sky-50'
-
-  if (!scopeModeEnabled && !onScopeModeEnabledChange) {
-    return null
+  if (astronomyFailureBanner) {
+    candidates.push({
+      id: 'astronomy',
+      title: 'Astronomy fallback active.',
+      body: astronomyFailureBanner,
+      critical: true,
+      priority: 10,
+    })
   }
 
-  const apertureRange = scopeModeEnabled
-    ? SCOPE_OPTICS_RANGES.apertureMm
-    : NORMAL_VIEW_APERTURE_RANGE
+  if (motionRecovery) {
+    candidates.push({
+      id: 'motion-recovery',
+      title: 'Motion recovery',
+      body: motionRecovery.body,
+      actionId: 'recover-motion',
+      actionLabel: motionRecovery.actionLabel,
+      actionDisabled: motionRecovery.actionDisabled,
+      footer: motionRecovery.footer,
+      priority: 20,
+    })
+  }
 
-  return (
-    <div
-      className={containerClassName}
-      data-testid={layout === 'desktop' ? 'desktop-scope-quick-controls' : undefined}
-    >
-      {onScopeModeEnabledChange ? (
-        <label className="pointer-events-auto flex items-center justify-between gap-3 rounded-[1.25rem] border border-sky-100/15 bg-slate-950/70 px-4 py-3 text-sm text-sky-50 shadow-[0_12px_30px_rgba(3,7,13,0.32)]">
-          <span>Scope mode</span>
-          <input
-            aria-label="Quick scope mode"
-            data-testid={`${testIdPrefix}-scope-mode-toggle`}
-            type="checkbox"
-            checked={scopeModeEnabled}
-            onChange={(event) => onScopeModeEnabledChange(event.target.checked)}
-          />
-        </label>
-      ) : null}
-      <label className={labelClassName}>
-        <span className="flex items-center justify-between gap-3">
-          <span>Aperture</span>
-          <span
-            className="text-xs uppercase tracking-[0.16em] text-sky-200/65"
-            data-testid={`${testIdPrefix}-scope-aperture-value`}
-          >
-            {formatScopeApertureValue(scopeOptics.apertureMm)}
-          </span>
-        </span>
-        <input
-          aria-label="Quick scope aperture"
-          data-testid={`${testIdPrefix}-scope-aperture-slider`}
-          type="range"
-          min={apertureRange.min}
-          max={apertureRange.max}
-          step={apertureRange.step}
-          value={clampNumber(scopeOptics.apertureMm, apertureRange.min, apertureRange.max)}
-          onChange={(event) => onApertureChange(Number(event.target.value))}
-        />
-      </label>
-      {scopeModeEnabled ? (
-        <>
-          <label className={labelClassName}>
-            <span className="flex items-center justify-between gap-3">
-              <span>Magnification</span>
-              <span
-                className="text-xs uppercase tracking-[0.16em] text-sky-200/65"
-                data-testid={`${testIdPrefix}-scope-magnification-value`}
-              >
-                {formatScopeMagnificationValue(scopeOptics.magnificationX)}
-              </span>
-            </span>
-            <input
-              aria-label="Quick scope magnification"
-              data-testid={`${testIdPrefix}-scope-magnification-slider`}
-              type="range"
-              min={SCOPE_OPTICS_RANGES.magnificationX.min}
-              max={SCOPE_OPTICS_RANGES.magnificationX.max}
-              step={SCOPE_OPTICS_RANGES.magnificationX.step}
-              value={scopeOptics.magnificationX}
-              onChange={(event) => onMagnificationChange(Number(event.target.value))}
-            />
-          </label>
-        </>
-      ) : null}
-    </div>
+  if (startupState === 'awaiting-orientation') {
+    candidates.push({
+      id: 'awaiting-orientation',
+      title: 'Waiting for motion data.',
+      body: 'SkyLens requested motion access and is waiting for the first usable sample before it marks orientation ready.',
+      priority: 30,
+    })
+  }
+
+  if (startupState === 'sensor-relative-needs-calibration') {
+    candidates.push({
+      id: 'relative-calibration',
+      title: 'Relative sensor mode needs alignment.',
+      body: `Center ${calibrationTargetLabel} in the crosshair, then align before trusting label placement.`,
+      actionId: alignmentActionAvailable ? 'open-alignment' : undefined,
+      actionLabel: alignmentActionAvailable ? 'Open alignment' : undefined,
+      priority: 40,
+    })
+  }
+
+  if (showAlignmentGuidance && !manualMode) {
+    candidates.push({
+      id: 'alignment-guidance',
+      title: 'Alignment looks off.',
+      body: `Move phone in a figure eight or open Alignment to use ${calibrationTargetLabel}.`,
+      actionId: alignmentActionAvailable ? 'open-alignment' : undefined,
+      actionLabel: alignmentActionAvailable ? 'Open alignment' : undefined,
+      priority: 50,
+    })
+  }
+
+  if (locationError) {
+    candidates.push({
+      id: 'location',
+      title: 'Live location is temporarily unavailable.',
+      body: locationError,
+      actionId: locationRetryAvailable ? 'retry-location' : undefined,
+      actionLabel: locationRetryAvailable ? 'Retry location' : undefined,
+      priority: 60,
+    })
+  }
+
+  if (cameraError) {
+    candidates.push({
+      id: 'camera',
+      title: 'Camera needs attention.',
+      body: cameraError,
+      actionId: cameraRetryAvailable ? 'retry-camera' : undefined,
+      actionLabel: cameraRetryAvailable ? 'Retry camera' : undefined,
+      priority: 70,
+    })
+  }
+
+  if (cameraStatus !== null && cameraStatus !== 'granted' && cameraStatus !== 'unknown') {
+    candidates.push({
+      id: 'camera-disabled',
+      title: 'Camera access is off.',
+      body: 'SkyLens switched to the dark gradient background while keeping the same pose and projection pipeline available.',
+      actionId: cameraRetryAvailable ? 'retry-camera' : undefined,
+      actionLabel: cameraRetryAvailable ? 'Enable camera' : undefined,
+      priority: 35,
+    })
+  }
+
+  if (calibrationBanner) {
+    candidates.push({
+      id: 'calibration',
+      title: 'Calibration',
+      body: calibrationBanner,
+      tone: 'info',
+      priority: 90,
+    })
+  }
+
+  if (demoScenario) {
+    candidates.push({
+      id: 'demo',
+      title: 'Demo mode',
+      body: `Demo mode is active. ${demoScenario.label}. ${demoScenario.description}`,
+      tone: 'info',
+      priority: 100,
+    })
+  }
+
+  const ordered = [...candidates].sort((left, right) =>
+    left.priority === right.priority
+      ? left.id.localeCompare(right.id)
+      : left.priority - right.priority,
   )
+
+  if (ordered.length === 0) {
+    return {
+      primary: null,
+      overflow: [],
+      compactNotice: null,
+    }
+  }
+
+  const primaryIndex = ordered.findIndex((item) => item.actionId)
+  const featuredIndex = primaryIndex === -1 ? 0 : primaryIndex
+  const primary = ordered[featuredIndex]
+  const overflow = ordered.filter((_, index) => index !== featuredIndex)
+  const compactNotice =
+    COMPACT_MOTION_WARNING_IDS.includes(primary.id as (typeof COMPACT_MOTION_WARNING_IDS)[number])
+      ? null
+      : ordered.find((item) =>
+          COMPACT_MOTION_WARNING_IDS.includes(
+            item.id as (typeof COMPACT_MOTION_WARNING_IDS)[number],
+          ),
+        ) ?? null
+
+  return {
+    primary,
+    overflow,
+    compactNotice,
+  }
 }
 
-type ScopeStarMarkerProps = {
-  scopeRender: ScopeRenderMetadata
-  markerScale: number
-  isFocused: boolean
-}
-
-export function ScopeStarMarker({
-  scopeRender,
-  markerScale,
-  isFocused,
-}: ScopeStarMarkerProps) {
-  const haloSizePx = scopeRender.haloPx * markerScale
-  const coreSizePx = scopeRender.corePx * markerScale
-
-  return (
-    <span
-      className={`relative block rounded-full ${isFocused ? 'ring-2 ring-amber-200/55' : ''}`}
-      style={{
-        width: `${haloSizePx}px`,
-        height: `${haloSizePx}px`,
-      }}
-    >
-      <span
-        className="absolute left-1/2 top-1/2 rounded-full"
-        style={{
-          width: `${haloSizePx}px`,
-          height: `${haloSizePx}px`,
-          transform: 'translate(-50%, -50%)',
-          backgroundColor: isFocused ? 'rgba(251, 191, 36, 0.22)' : 'rgba(186, 230, 253, 0.14)',
-          boxShadow: isFocused
-            ? `0 0 ${Math.max(8, haloSizePx * 1.45)}px rgba(251, 191, 36, 0.36)`
-            : `0 0 ${Math.max(6, haloSizePx * 1.3)}px rgba(186, 230, 253, ${0.16 + scopeRender.displayIntensity * 0.24})`,
-          opacity: 0.55 + scopeRender.displayIntensity * 0.35,
-        }}
-      />
-      <span
-        className="absolute left-1/2 top-1/2 rounded-full"
-        style={{
-          width: `${coreSizePx}px`,
-          height: `${coreSizePx}px`,
-          transform: 'translate(-50%, -50%)',
-          backgroundColor: isFocused ? 'rgba(254, 243, 199, 0.98)' : 'rgba(240, 249, 255, 0.92)',
-          boxShadow: isFocused
-            ? '0 0 10px rgba(251, 191, 36, 0.42)'
-            : `0 0 ${Math.max(4, coreSizePx)}px rgba(240, 249, 255, ${0.18 + scopeRender.displayIntensity * 0.22})`,
-        }}
-      />
-    </span>
-  )
+export function getPermissionRecoveryHandlerId(
+  kind: PermissionRecoveryActionKind,
+): PermissionRecoveryHandlerId {
+  switch (kind) {
+    case 'motion-only':
+      return 'retry-motion'
+    case 'camera-only':
+      return 'retry-camera'
+    case 'camera-and-motion':
+      return 'retry-all'
+    default:
+      return 'none'
+  }
 }
 
 export function ViewerShell({ initialState }: ViewerShellProps) {
   const router = useRouter()
+  const hasMounted = useSyncExternalStore(
+    subscribeToHydrationReady,
+    getHydratedSnapshot,
+    getServerHydrationSnapshot,
+  )
   const initialDemoScenario = getDemoScenario(initialState.demoScenarioId)
-  const persistedViewerSettings = readViewerSettings()
+  const persistedViewerSettings = hasMounted
+    ? readViewerSettings()
+    : getDefaultViewerSettings()
   const persistedManualObserver =
     initialState.entry === 'live' && initialState.location !== 'granted'
       ? createObserverStateFromManualSettings(persistedViewerSettings.manualObserver)
@@ -408,6 +671,9 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const [isPending, startTransition] = useTransition()
   const [retryError, setRetryError] = useState<string | null>(null)
   const [state, setState] = useState(initialState)
+  const [interactionMode, setInteractionMode] = useState<InteractionMode>(() =>
+    resolveInitialInteractionMode(initialState),
+  )
   const [stageElement, setStageElement] = useState<HTMLDivElement | null>(null)
   const [viewport, setViewport] = useState(DEFAULT_VIEWPORT)
   const [liveObserver, setLiveObserver] = useState<ObserverState | null>(
@@ -423,7 +689,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   )
   const [manualPoseState, setManualPoseState] = useState(() =>
     createManualPoseState({
-      pitchDeg: initialState.entry === 'demo' ? initialDemoScenario.initialPitchDeg : 0,
+      pitchDeg: initialState.entry === 'demo' ? initialDemoScenario.initialPitchDeg : 90,
     }),
   )
   const [sensorCameraPose, setSensorCameraPose] = useState<CameraPose>(() =>
@@ -439,7 +705,13 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     initialFallbackObserver !== null ||
     initialState.location === 'granted'
   const [viewerSettings, setViewerSettings] = useState(persistedViewerSettings)
+  const [viewerSettingsHydrated, setViewerSettingsHydrated] = useState(false)
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null)
+  const [selectedObjectInteractionSurface, setSelectedObjectInteractionSurface] =
+    useState<InteractionSurface>('stage')
+  const [hoveredObjectId, setHoveredObjectId] = useState<string | null>(null)
+  const [hoveredObjectInteractionSurface, setHoveredObjectInteractionSurface] =
+    useState<InteractionSurface>('stage')
   const [astronomyFailureBanner, setAstronomyFailureBanner] = useState<string | null>(null)
   const [aircraftRevision, setAircraftRevision] = useState(0)
   const [aircraftAvailability, setAircraftAvailability] = useState<AircraftAvailability>(
@@ -449,8 +721,16 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     null,
   )
   const [satelliteCatalog, setSatelliteCatalog] = useState<TleApiResponse | null>(null)
-  const [liveCameraStreamActive, setLiveCameraStreamActive] = useState(false)
+  const [cameraRuntimePhase, setCameraRuntimePhase] = useState<CameraRuntimePhase>('idle')
   const [liveCameraError, setLiveCameraError] = useState<string | null>(null)
+  const [cameraLifecycleDiagnostic, setCameraLifecycleDiagnostic] =
+    useState<RuntimeLifecycleDiagnostic>({
+      requestId: 0,
+      transitionReason: 'idle',
+      lifecycleEvent: 'idle',
+      elapsedMs: null,
+      errorName: null,
+    })
   const [cameraDevices, setCameraDevices] = useState<CameraDeviceOption[]>([])
   const [renderFrameToken, setRenderFrameToken] = useState(0)
   const [cameraSourceSize, setCameraSourceSize] = useState<{
@@ -461,6 +741,15 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const [orientationAbsolute, setOrientationAbsolute] = useState(
     initialState.orientation === 'granted',
   )
+  const [orientationReadiness, setOrientationReadiness] = useState<OrientationReadiness>('idle')
+  const [orientationLifecycleDiagnostic, setOrientationLifecycleDiagnostic] =
+    useState<RuntimeLifecycleDiagnostic>({
+      requestId: 0,
+      transitionReason: 'idle',
+      lifecycleEvent: 'idle',
+      elapsedMs: null,
+      errorName: null,
+    })
   const [, setOrientationNeedsCalibration] = useState(false)
   const [latestOrientationSample, setLatestOrientationSample] = useState<OrientationSample | null>(
     null,
@@ -495,17 +784,29 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const [motionAffordanceSamples, setMotionAffordanceSamples] = useState<
     MotionAffordanceSample[]
   >([])
+  const [desktopWarningUiState, setDesktopWarningUiState] = useState<
+    Record<string, ViewerBannerUiState>
+  >({})
   const [isMobileOverlayOpen, setIsMobileOverlayOpen] = useState(false)
-  const [isDesktopOverlayOpen, setIsDesktopOverlayOpen] = useState(false)
+  const [isDesktopViewerPanelOpen, setIsDesktopViewerPanelOpen] = useState(false)
   const [isDesktopSettingsSheetOpen, setIsDesktopSettingsSheetOpen] = useState(false)
   const [isMobileSettingsSheetOpen, setIsMobileSettingsSheetOpen] = useState(false)
   const [isAlignmentPanelOpen, setIsAlignmentPanelOpen] = useState(false)
   const [isMobileAlignmentFocusActive, setIsMobileAlignmentFocusActive] = useState(false)
   const [motionRetryError, setMotionRetryError] = useState<string | null>(null)
   const [manualObserverError, setManualObserverError] = useState<string | null>(null)
+  const [orientationSampleRateHz, setOrientationSampleRateHz] = useState<number | null>(null)
+  const [orientationUpgradedFromRelative, setOrientationUpgradedFromRelative] =
+    useState(false)
   const [manualObserverDraft, setManualObserverDraft] = useState<ManualObserverDraft>(() =>
     createManualObserverDraft(persistedViewerSettings.manualObserver),
   )
+  const [scopeNamesTable, setScopeNamesTable] = useState<ScopeNameTable>({})
+  const [scopeBandIndexState, setScopeBandIndexState] = useState<{
+    bandDir: ScopeBandIndex['bandDir']
+    index: ScopeBandIndex
+  } | null>(null)
+  const [scopeLoadedDeepStars, setScopeLoadedDeepStars] = useState<ScopeLoadedDeepStar[]>([])
   void latestAircraftSnapshotTimeS
   const [documentVisible, setDocumentVisible] = useState(() =>
     typeof document === 'undefined' ? true : document.visibilityState === 'visible',
@@ -516,14 +817,27 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const videoElementRef = useRef<HTMLVideoElement | null>(null)
   const cameraStreamRef = useRef<MediaStream | null>(null)
   const cameraRequestIdRef = useRef(0)
+  const orientationPermissionRequestIdRef = useRef(0)
+  const orientationRequestStartedAtMsRef = useRef<number | null>(null)
   const lastOpenedCameraPreferenceRef = useRef<string | null>(null)
+  const orientationStartupTimeoutRef = useRef<number | null>(null)
+  const interactionModeRef = useRef(interactionMode)
+  const arInteractionRequestIdRef = useRef(0)
+  const viewerRouteStateRef = useRef(state)
   const liveObserverRef = useRef<ObserverState | null>(
     persistedManualObserver ?? initialFallbackObserver,
   )
-  const viewerRouteStateRef = useRef(state)
-  const permissionRetryRequestIdRef = useRef(0)
   const latestAircraftSnapshotTimeSRef = useRef<number | null>(null)
+  const previousOrientationSampleTimestampRef = useRef<number | null>(null)
+  const previousOrientationSelectionRef = useRef<{
+    source: OrientationSource | null
+    absolute: boolean
+  }>({
+    source: null,
+    absolute: false,
+  })
   const sceneTimeMsRef = useRef(sceneTimeMs)
+  const hasAppliedLocationZenithPoseRef = useRef(false)
   const aircraftTrackerRef = useRef(createAircraftTracker())
   const poorSinceRef = useRef<number | null>(null)
   const dragRef = useRef<{
@@ -532,9 +846,26 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     clientY: number
     moved: boolean
   } | null>(null)
+  const mobileViewerOverlayTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const mobileViewerOverlayPanelRef = useRef<HTMLElement | null>(null)
+  const mobileViewerOverlayCloseButtonRef = useRef<HTMLButtonElement | null>(null)
+  const mobileAlignActionRef = useRef<HTMLButtonElement | null>(null)
+  const mobileAlignmentOverlayPanelRef = useRef<HTMLElement | null>(null)
+  const mobileAlignmentOverlayCloseButtonRef = useRef<HTMLButtonElement | null>(null)
+  const mobileViewerOverlayRestoreTargetRef = useRef<HTMLElement | null>(null)
+  const pendingMobileViewerFocusRestoreRef = useRef<(() => HTMLElement | null) | null>(null)
+  const alignmentOverlayRestoreTargetRef = useRef<{
+    opener: HTMLElement | null
+    fallback: () => HTMLElement | null
+  } | null>(null)
+  const pendingAlignmentFocusRestoreRef = useRef<(() => HTMLElement | null) | null>(null)
   const lastTapAtRef = useRef(0)
-  const hasMounted = useSyncExternalStore(subscribeToHydrationReady, getHydratedSnapshot, getServerHydrationSnapshot)
+  const scopeCatalogRequestTrackerRef = useRef(createScopeRequestTracker())
+  const scopeTileRequestTrackerRef = useRef(createScopeRequestTracker())
+  const mainViewDeepStarGovernorStateRef = useRef<MainViewDeepStarGovernorSnapshot | null>(null)
+  const hasHydratedViewerSettingsRef = useRef(false)
   const secureLiveArContext =
+    !hasMounted ||
     typeof window === 'undefined' ||
     window.location.protocol === 'about:' ||
     window.isSecureContext
@@ -543,21 +874,17 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     id: scenario.id,
     label: scenario.label,
   }))
-  const hasKnownPermissionState =
-    state.location !== 'unknown' &&
-    state.camera !== 'unknown' &&
-    state.orientation !== 'unknown'
-  const hasManualObserverSession =
-    state.entry === 'live' &&
-    observerSource === 'manual' &&
-    liveObserver !== null
+  const arModeActive = state.entry === 'live' && interactionMode === 'ar'
   const hasLiveSessionStarted =
     state.entry === 'live' &&
-    (hasKnownPermissionState || hasManualObserverSession) &&
+    liveObserver !== null &&
     startupState !== 'ready-to-request' &&
     startupState !== 'requesting' &&
     startupState !== 'unsupported' &&
     startupState !== 'error'
+  const shouldRunOrientationSession =
+    arModeActive &&
+    (hasLiveSessionStarted || startupState === 'awaiting-orientation')
   const enabledLayers = viewerSettings.enabledLayers
   const likelyVisibleOnly = viewerSettings.likelyVisibleOnly
   const observer =
@@ -565,16 +892,22 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       ? demoScenario.observer
       : liveObserver
   const experience = describeRuntimeExperience({
+    interactionMode,
     state,
     startupState,
     hasObserver: observer !== null,
   })
+  const scopeControlsAvailable = experience.mode !== 'blocked'
+  const browserFamily = hasMounted ? getBrowserFamily() : 'other'
   const locationError = state.entry === 'demo' ? null : liveLocationError
   const manualMode =
-    experience.mode === 'demo' || experience.mode === 'manual-pan'
-  const cameraPose = manualMode
-    ? createManualCameraPose(manualPoseState)
-    : sensorCameraPose
+    state.entry === 'demo' ||
+    interactionMode === 'free-navigation' ||
+    experience.mode === 'manual-pan'
+  const cameraPose = useMemo(
+    () => manualMode ? createManualCameraPose(manualPoseState) : sensorCameraPose,
+    [manualMode, manualPoseState, sensorCameraPose],
+  )
   const shouldFetchAircraft =
     state.entry !== 'demo' &&
     hasLiveSessionStarted &&
@@ -589,6 +922,17 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         : 'available'
   const activeSatelliteCatalog =
     state.entry === 'demo' ? demoScenario.satelliteCatalog : satelliteCatalog
+  const normalizedMainViewOptics = useMemo(
+    () => normalizeMainViewOptics(viewerSettings.mainViewOptics),
+    [viewerSettings.mainViewOptics],
+  )
+  const normalizedScopeOptics = useMemo(
+    () => normalizeScopeOptics(viewerSettings.scopeOptics),
+    [viewerSettings.scopeOptics],
+  )
+  const scopeModeRequested =
+    viewerSettings.scopeModeEnabled && !isMobileAlignmentFocusActive
+  const sceneOptics = scopeModeRequested ? normalizedScopeOptics : normalizedMainViewOptics
   const demoAircraftSeedTimeMs =
     Math.floor(sceneTimeMs / POLL_INTERVAL_MS_BY_QUALITY.high) * POLL_INTERVAL_MS_BY_QUALITY.high
   const sceneSnapshot = observer
@@ -597,8 +941,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         timeMs: sceneTimeMs,
         enabledLayers,
         likelyVisibleOnly,
-        scopeModeEnabled: viewerSettings.scopeModeEnabled,
-        scopeOptics: viewerSettings.scopeOptics,
+        activeOptics: sceneOptics,
         focusedObjectId: selectedObjectId,
         aircraftTracker: aircraftTrackerRef.current,
         aircraftRevision,
@@ -606,7 +949,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       })
     : EMPTY_SCENE_SNAPSHOT
   const cameraStreamActive =
-    state.entry === 'live' && state.camera === 'granted' && liveCameraStreamActive
+    arModeActive && state.camera === 'granted' && cameraRuntimePhase === 'playing'
   const cameraError = state.entry === 'demo' ? null : liveCameraError
   const shouldMountVideoElement = state.entry === 'live'
   const cameraFrameLayout = cameraSourceSize
@@ -622,6 +965,56 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     state.entry === 'demo' ||
     state.camera !== 'granted' ||
     !cameraStreamActive
+  const baseEffectiveVerticalFovDeg = getEffectiveVerticalFovDeg(
+    viewerSettings.verticalFovAdjustmentDeg,
+  )
+  const wideProjectionProfile = useMemo(
+    () => createProjectionProfile({ verticalFovDeg: baseEffectiveVerticalFovDeg }),
+    [baseEffectiveVerticalFovDeg],
+  )
+  const mainEffectiveVerticalFovDeg = magnificationToMainViewVerticalFovDeg(
+    normalizedMainViewOptics.magnificationX,
+    baseEffectiveVerticalFovDeg,
+  )
+  const mainProjectionProfile = useMemo(
+    () => createProjectionProfile({ verticalFovDeg: mainEffectiveVerticalFovDeg }),
+    [mainEffectiveVerticalFovDeg],
+  )
+  const scopeLensDiameterPx = getScopeLensDiameterPx(
+    viewport,
+    viewerSettings.scopeLensDiameterPct,
+  )
+  const scopeLensRadiusPx = scopeLensDiameterPx / 2
+  const scopeLensOffsetX = (viewport.width - scopeLensDiameterPx) / 2
+  const scopeLensOffsetY = (viewport.height - scopeLensDiameterPx) / 2
+  const scopeEffectiveVerticalFovDeg = magnificationToScopeVerticalFovDeg(
+    normalizedScopeOptics.magnificationX,
+  )
+  const scopeProjectionProfile = useMemo(
+    () => createProjectionProfile({ verticalFovDeg: scopeEffectiveVerticalFovDeg }),
+    [scopeEffectiveVerticalFovDeg],
+  )
+  const scopeLensVisualScale = clampNumber(
+    baseEffectiveVerticalFovDeg / scopeEffectiveVerticalFovDeg,
+    1,
+    12,
+  )
+  const scopeModeActive =
+    scopeControlsAvailable && scopeModeRequested
+  const activeOptics: ActiveOptics = scopeModeActive
+    ? normalizedScopeOptics
+    : normalizedMainViewOptics
+  const activeEffectiveVerticalFovDeg = scopeModeActive
+    ? scopeEffectiveVerticalFovDeg
+    : mainEffectiveVerticalFovDeg
+  const activeProjectionProfile = scopeModeActive
+    ? scopeProjectionProfile
+    : mainProjectionProfile
+  const stageProjectionProfile = scopeModeActive
+    ? wideProjectionProfile
+    : mainProjectionProfile
+  const hydratedScopeEnabled = hasMounted ? viewerSettings.scopeModeEnabled : false
+  const hydratedScopeVerticalFovDeg = hasMounted ? scopeEffectiveVerticalFovDeg : 10
   const blockingCopy = getBlockingCopy(state, startupState)
   const locationStatusValue =
     state.entry === 'demo'
@@ -634,20 +1027,154 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             ? 'Manual needed'
             : badgeValue(state.location)
   const cameraStatusValue =
-    state.camera === 'granted' && cameraStreamActive ? 'Ready' : badgeValue(state.camera)
+    state.entry === 'live' && interactionMode === 'free-navigation' && state.camera === 'granted'
+      ? 'Off'
+      : state.camera === 'granted' && cameraStreamActive
+        ? 'Ready'
+        : badgeValue(state.camera)
   const motionStatusValue = getMotionBadgeValue(
     experience.mode,
     state,
-    cameraPose,
     startupState,
     orientationSource,
+    latestOrientationSample,
   )
-  const constellationScene =
+  const orientationDiagnosticsNowMs =
+    state.entry === 'live' ? sceneTimeMs : getCurrentTimestampMs()
+  const orientationSampleAgeMs =
+    latestOrientationSample === null
+      ? null
+      : Math.max(0, orientationDiagnosticsNowMs - latestOrientationSample.timestampMs)
+  const scopeActiveBand = selectScopeBand({
+    scopeVerticalFovDeg: activeEffectiveVerticalFovDeg,
+    cameraMode: cameraPose.mode,
+    orientationStatus: state.orientation,
+    latestOrientationSampleAgeMs: orientationSampleAgeMs,
+    alignmentHealth: cameraPose.alignmentHealth,
+  })
+  const scopeDeepStarsDaylightSuppressed = areScopeDeepStarsDaylightSuppressed({
+    likelyVisibleOnly,
+    sunAltitudeDeg: sceneSnapshot.sunAltitudeDeg,
+  })
+  const mainViewDeepStarGovernor = resolveMainViewDeepStarGovernor({
+    hasObserver: observer !== null,
+    starsLayerEnabled: enabledLayers.stars,
+    daylightSuppressed: scopeDeepStarsDaylightSuppressed,
+    mainViewDeepStarsEnabled: viewerSettings.mainViewDeepStarsEnabled,
+    magnificationX: normalizedMainViewOptics.magnificationX,
+    previousTier: mainViewDeepStarGovernorStateRef.current?.tier,
+    previousTransitionReason: mainViewDeepStarGovernorStateRef.current?.transitionReason,
+  })
+  const scopeDeepStarsEnabled =
+    observer !== null && enabledLayers.stars && !scopeDeepStarsDaylightSuppressed
+  const mainViewDeepStarsEnabled =
+    observer !== null && mainViewDeepStarGovernor.enabled
+  const activeDeepStarsEnabled = scopeModeActive
+    ? scopeDeepStarsEnabled
+    : mainViewDeepStarsEnabled
+  const activeDeepStarBand = scopeModeActive
+    ? scopeActiveBand
+    : mainViewDeepStarGovernor.band ?? getMainViewDeepStarBand('baseline')
+  const activeScopeBandIndex =
+    scopeBandIndexState?.bandDir === activeDeepStarBand.bandDir ? scopeBandIndexState.index : null
+  const scopeEquatorialCenter =
+    activeDeepStarsEnabled && observer
+      ? convertScopeHorizontalToEquatorial(
+          {
+            azimuthDeg: cameraPose.yawDeg,
+            elevationDeg: cameraPose.pitchDeg,
+          },
+          observer,
+          sceneTimeMs,
+        )
+      : null
+  const scopeSelectionRadiusDeg =
+    activeDeepStarsEnabled && scopeEquatorialCenter
+      ? getScopeTileSelectionRadiusDeg({
+          verticalFovDeg: activeEffectiveVerticalFovDeg,
+          viewportWidth: scopeModeActive ? scopeLensDiameterPx : viewport.width,
+          viewportHeight: scopeModeActive ? scopeLensDiameterPx : viewport.height,
+        })
+      : null
+  const scopeSelectedTiles =
+    activeDeepStarsEnabled &&
+    scopeEquatorialCenter &&
+    scopeSelectionRadiusDeg !== null &&
+    activeScopeBandIndex
+      ? selectScopeTilesForPointing({
+          index: activeScopeBandIndex,
+          centerRaDeg: scopeEquatorialCenter.raDeg,
+          centerDecDeg: scopeEquatorialCenter.decDeg,
+          selectionRadiusDeg: scopeSelectionRadiusDeg,
+        }).sort((left, right) => left.file.localeCompare(right.file))
+      : []
+  const scopeSelectedTileKey = scopeSelectedTiles.map((tile) => tile.file).join('|')
+  const stageProjectionContext = useMemo<StageProjectionContext>(() => {
+    const projectionViewport: ProjectViewport = {
+      width: viewport.width,
+      height: viewport.height,
+      sourceWidth: cameraFrameLayout?.sourceWidth ?? viewport.width,
+      sourceHeight: cameraFrameLayout?.sourceHeight ?? viewport.height,
+    }
+    const projectionProfile = createProjectionProfile({
+      verticalFovDeg: stageProjectionProfile.verticalFovDeg,
+    })
+
+    return {
+      profile: projectionProfile,
+      viewport: projectionViewport,
+      projectWorldPoint: (worldPoint) =>
+        projectWorldPointToScreenWithProfile(
+          cameraPose,
+          worldPoint,
+          projectionViewport,
+          projectionProfile,
+        ),
+    }
+  }, [
+    cameraFrameLayout?.sourceHeight,
+    cameraFrameLayout?.sourceWidth,
+    cameraPose,
+    stageProjectionProfile.verticalFovDeg,
+    viewport.height,
+    viewport.width,
+  ])
+  const scopeProjectionViewport: ProjectViewport = {
+    width: scopeLensDiameterPx,
+    height: scopeLensDiameterPx,
+  }
+  const scopeProjectionContext: StageProjectionContext = {
+    profile: scopeProjectionProfile,
+    viewport: scopeProjectionViewport,
+    projectWorldPoint: (worldPoint) =>
+      projectWorldPointToScreenWithProfile(
+        cameraPose,
+        worldPoint,
+        scopeProjectionViewport,
+        scopeProjectionProfile,
+      ),
+  }
+  const stageConstellationScene =
     observer && sceneSnapshot.error === null
       ? buildVisibleConstellations({
           cameraPose,
-          viewport,
+          viewport: stageProjectionContext.viewport,
           verticalFovAdjustmentDeg: viewerSettings.verticalFovAdjustmentDeg,
+          projectLinePoint: stageProjectionContext.projectWorldPoint,
+          enabledLayers,
+          likelyVisibleOnly,
+          sunAltitudeDeg: sceneSnapshot.sunAltitudeDeg,
+          visibleStars: sceneSnapshot.constellationStars,
+          starCatalog: STAR_CATALOG,
+        })
+      : EMPTY_CONSTELLATION_SCENE
+  const scopeConstellationLineScene =
+    observer && sceneSnapshot.error === null && scopeModeActive
+      ? buildVisibleConstellations({
+          cameraPose,
+          viewport: scopeProjectionContext.viewport,
+          verticalFovAdjustmentDeg: viewerSettings.verticalFovAdjustmentDeg,
+          projectLinePoint: scopeProjectionContext.projectWorldPoint,
           enabledLayers,
           likelyVisibleOnly,
           sunAltitudeDeg: sceneSnapshot.sunAltitudeDeg,
@@ -657,7 +1184,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       : EMPTY_CONSTELLATION_SCENE
   const sceneObjects = sceneSnapshot.error
     ? EMPTY_SCENE_SNAPSHOT.objects
-    : [...sceneSnapshot.objects, ...constellationScene.objects]
+    : [...sceneSnapshot.objects, ...stageConstellationScene.objects]
   const defaultAlignmentTargetPreference = resolveDefaultAlignmentTargetPreference(
     sceneObjects,
     sceneSnapshot.sunAltitudeDeg,
@@ -666,57 +1193,231 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     viewerSettings.alignmentTargetPreference ?? defaultAlignmentTargetPreference
   const projectedObjects: ProjectedSkyObject[] = sceneObjects.map((object) => ({
     ...object,
-    projection: projectWorldPointToScreen(
-      cameraPose,
-      {
-        azimuthDeg: object.azimuthDeg,
-        elevationDeg: object.elevationDeg,
-      },
-      {
-        ...viewport,
-        sourceWidth: cameraFrameLayout?.sourceWidth,
-        sourceHeight: cameraFrameLayout?.sourceHeight,
-      },
-      viewerSettings.verticalFovAdjustmentDeg,
-    ),
+    projection: stageProjectionContext.projectWorldPoint({
+      azimuthDeg: object.azimuthDeg,
+      elevationDeg: object.elevationDeg,
+    }),
   }))
-  const centerLockedCandidate = pickCenterLockedCandidate(
+  const wideCenterLockedCandidate = pickCenterLockedCandidate(
     projectedObjects
       .filter((object) => object.projection.visible)
-      .map((object) => ({
-        id: object.id,
-        rankScore: getLabelRankScore(
-          {
-            object,
-            projection: object.projection,
-          },
-          {
-            centerLockedObjectId: null,
-          },
-        ),
-        angularDistanceDeg: object.projection.angularDistanceDeg,
-      })),
+      .map((object) => toCenterLockCandidate(object)),
   )
-  const centerLockedObject =
-    projectedObjects.find((object) => object.id === centerLockedCandidate?.id) ?? null
-  const markerObjects = projectedObjects.filter(
-    (object) =>
-      object.projection.visible &&
-      (!isCelestialDaylightLabelSuppressed(object) ||
-        object.id === centerLockedObject?.id ||
-        object.id === selectedObjectId),
+  const wideCenterLockedObject =
+    projectedObjects.find((object) => object.id === wideCenterLockedCandidate?.id) ?? null
+  const scopeProjectedMarkerObjects: ScopeProjectedSkyObject[] = projectedObjects
+    .filter((object) => !scopeDeepStarsDaylightSuppressed || object.type !== 'star')
+    .map((object) => {
+      const scopeProjection = projectWorldPointToScreenWithProfile(
+        cameraPose,
+        {
+          azimuthDeg: object.azimuthDeg,
+          elevationDeg: object.elevationDeg,
+        },
+        {
+          width: scopeLensDiameterPx,
+          height: scopeLensDiameterPx,
+        },
+        scopeProjectionProfile,
+      )
+      const scopeOffsetX = scopeProjection.x - scopeLensRadiusPx
+      const scopeOffsetY = scopeProjection.y - scopeLensRadiusPx
+
+      return {
+        ...object,
+        scopeProjection,
+        scopeInLensCircle:
+          scopeProjection.visible &&
+          scopeOffsetX * scopeOffsetX + scopeOffsetY * scopeOffsetY <=
+            scopeLensRadiusPx * scopeLensRadiusPx,
+      }
+    })
+  const scopeVisibleMarkerObjects: ScopeProjectedSkyObject[] = scopeProjectedMarkerObjects
+    .filter((object) => object.scopeInLensCircle)
+    .map((object) => ({
+      ...object,
+      projection: offsetScopeProjectionToStage(
+        object.scopeProjection,
+        scopeLensOffsetX,
+        scopeLensOffsetY,
+      ),
+    }))
+  const observationJulianYear = getObservationJulianYear(sceneTimeMs)
+  const projectedDeepStars = useMemo<ProjectedDeepStarObject[]>(
+    () =>
+      hasMounted && activeDeepStarsEnabled && observer
+        ? scopeLoadedDeepStars.flatMap((star) => {
+            const adjustedPosition = applyScopeProperMotion(star, observationJulianYear)
+            const horizontalPosition = convertScopeEquatorialToHorizontal(
+              adjustedPosition,
+              observer,
+              sceneTimeMs,
+            )
+            if (horizontalPosition.elevationDeg < 0) {
+              return []
+            }
+
+            const scopeRender = computeScopeRenderProfile({
+              magnitude: star.vMag,
+              altitudeDeg: horizontalPosition.elevationDeg,
+              optics: activeOptics,
+            })
+            const emergenceAlpha = computeScopeDeepStarEmergenceAlpha(
+              scopeRender.effectiveLimitMag - star.vMag,
+            )
+
+            if (emergenceAlpha <= 0) {
+              return []
+            }
+            const activeProjection = scopeModeActive
+              ? projectWorldPointToScreenWithProfile(
+                  cameraPose,
+                  horizontalPosition,
+                  {
+                    width: scopeLensDiameterPx,
+                    height: scopeLensDiameterPx,
+                  },
+                  activeProjectionProfile,
+                )
+              : stageProjectionContext.projectWorldPoint(horizontalPosition)
+            const scopeProjection = scopeModeActive ? activeProjection : null
+            const scopeOffsetX = (scopeProjection?.x ?? 0) - scopeLensRadiusPx
+            const scopeOffsetY = (scopeProjection?.y ?? 0) - scopeLensRadiusPx
+            const scopeInLensCircle =
+              scopeProjection !== null &&
+              scopeProjection.visible &&
+              scopeOffsetX * scopeOffsetX + scopeOffsetY * scopeOffsetY <=
+                scopeLensRadiusPx * scopeLensRadiusPx
+            const projection =
+              scopeProjection === null
+                ? activeProjection
+                : offsetScopeProjectionToStage(
+                    scopeProjection,
+                    scopeLensOffsetX,
+                    scopeLensOffsetY,
+                  )
+
+            return [{
+              id: star.id,
+              type: 'star' as const,
+              label: star.displayName ?? 'Deep star',
+              displayName: star.displayName,
+              bMinusV: star.bMinusV,
+              azimuthDeg: horizontalPosition.azimuthDeg,
+              elevationDeg: horizontalPosition.elevationDeg,
+              magnitude: star.vMag,
+              importance: getScopeDeepStarImportance(star.vMag, Boolean(star.displayName)),
+              metadata: {
+                detail: {
+                  typeLabel: 'Star',
+                  magnitude: star.vMag,
+                  elevationDeg: horizontalPosition.elevationDeg,
+                  bMinusV: star.bMinusV,
+                },
+                scopeRender: {
+                  typeLabel: 'Scope render',
+                  ...scopeRender,
+                },
+                scopeFilter: {
+                  effectiveLimitMag: scopeRender.effectiveLimitMag,
+                },
+              },
+              projection,
+              scopeProjection,
+              scopeInLensCircle,
+              source: 'scope-deep-star' as const,
+            }]
+          })
+        : [],
+    [
+      activeDeepStarsEnabled,
+      activeOptics,
+      activeProjectionProfile,
+      cameraPose,
+      hasMounted,
+      observationJulianYear,
+      observer,
+      sceneTimeMs,
+      scopeLensDiameterPx,
+      scopeLensOffsetX,
+      scopeLensOffsetY,
+      scopeLensRadiusPx,
+      scopeLoadedDeepStars,
+      scopeModeActive,
+      stageProjectionContext,
+    ],
   )
-  const markerLabelCandidates = markerObjects.map((object) => ({
+  const scopeCenterLockedCandidate = scopeModeActive
+    ? pickCenterLockedCandidate(
+        [...scopeVisibleMarkerObjects, ...projectedDeepStars.filter((object) => object.scopeInLensCircle)]
+          .map((object) => toCenterLockCandidate(object)),
+      )
+    : null
+  const scopeCenterLockedObject =
+    scopeModeActive
+      ? [...scopeVisibleMarkerObjects, ...projectedDeepStars].find(
+          (object) => object.id === scopeCenterLockedCandidate?.id,
+        ) ??
+        null
+      : null
+  const mainViewRenderedDeepStars = useMemo(
+    () => projectedDeepStars.filter((object) => object.projection.visible),
+    [projectedDeepStars],
+  )
+  const mainCenterLockedCandidate = pickCenterLockedCandidate(
+    [...projectedObjects, ...mainViewRenderedDeepStars]
+      .filter((object) => object.projection.visible)
+      .map((object) => toCenterLockCandidate(object)),
+  )
+  const mainCenterLockedObject =
+    [...projectedObjects, ...mainViewRenderedDeepStars].find(
+      (object) => object.id === mainCenterLockedCandidate?.id,
+    ) ?? null
+  const wideSceneCenterLockedObject = scopeModeActive
+    ? wideCenterLockedObject
+    : mainCenterLockedObject
+  const stageCenterLockedObjectId = wideSceneCenterLockedObject?.id ?? null
+  const centerLockedObject: SummarySkyObject | null = scopeModeActive
+    ? scopeCenterLockedObject
+    : mainCenterLockedObject
+  const mainViewInteractiveMarkerObjects = resolveMarkerEligibleProjectedObjects(projectedObjects, {
+    centerLockedObjectId: stageCenterLockedObjectId,
+    selectedObjectId,
+  })
+  const scopeInteractiveMarkerObjects = resolveMarkerEligibleProjectedObjects(
+    scopeVisibleMarkerObjects,
+    {
+      centerLockedObjectId: scopeCenterLockedObject?.id ?? null,
+      selectedObjectId,
+    },
+  )
+  const mainViewDeepStarCanvasPoints = useMemo<MainStarCanvasPoint[]>(
+    () =>
+      hasMounted && !scopeModeActive
+        ? mainViewRenderedDeepStars.map((object) =>
+            toDeepStarCanvasPoint(object, {
+              x: object.projection.x,
+              y: object.projection.y,
+            }),
+          )
+        : [],
+    [hasMounted, mainViewRenderedDeepStars, scopeModeActive],
+  )
+  const interactiveMarkerObjects: ActiveProjectedSkyObject[] = mainViewInteractiveMarkerObjects
+  const labelObjects: ActiveProjectedSkyObject[] = scopeModeActive
+    ? [...scopeInteractiveMarkerObjects, ...projectedDeepStars.filter((object) => object.scopeInLensCircle)]
+    : [...mainViewInteractiveMarkerObjects, ...mainViewRenderedDeepStars]
+  const markerLabelCandidates = labelObjects.map((object) => ({
     object,
     projection: object.projection,
     secondaryLabel: formatSkyObjectSublabel(object),
-  })) satisfies LabelCandidate<ProjectedSkyObject>[]
+  })) satisfies LabelCandidate<ActiveProjectedSkyObject>[]
   const onObjectLabels: OnObjectLabel[] =
     viewerSettings.labelDisplayMode === 'on_objects'
       ? layoutLabels(markerLabelCandidates, {
           viewport,
           maxLabels: PUBLIC_CONFIG.defaults.maxLabels,
-          centerLockedObjectId: centerLockedObject?.id ?? null,
+          centerLockedObjectId: stageCenterLockedObjectId,
         })
       : []
   const topListObjects =
@@ -724,15 +1425,43 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       ? [...markerLabelCandidates]
           .sort((left, right) =>
             compareLabelCandidates(left, right, {
-              centerLockedObjectId: centerLockedObject?.id ?? null,
+              centerLockedObjectId: stageCenterLockedObjectId,
             }),
           )
           .map((candidate) => candidate.object)
       : []
-  const selectedObject =
-    projectedObjects.find((object) => object.id === selectedObjectId) ?? null
-  const selectedDetailObject = selectedObject
-  const activeSummaryObject = selectedObject ?? centerLockedObject
+  const selectedObject = resolveInteractionSummaryObject(
+    selectedObjectId,
+    selectedObjectInteractionSurface,
+    {
+      scopeModeActive,
+      stageAllObjects: projectedObjects,
+      stageObjects: mainViewInteractiveMarkerObjects,
+      stageDeepStars: projectedDeepStars,
+      scopeAllObjects: scopeVisibleMarkerObjects,
+      scopeObjects: scopeInteractiveMarkerObjects,
+      scopeDeepStars: projectedDeepStars,
+    },
+  )
+  const hoveredObjectCandidate = resolveInteractionSummaryObject(
+    hoveredObjectId,
+    hoveredObjectInteractionSurface,
+    {
+      scopeModeActive,
+      stageAllObjects: projectedObjects,
+      stageObjects: mainViewInteractiveMarkerObjects,
+      stageDeepStars: projectedDeepStars,
+      scopeAllObjects: scopeVisibleMarkerObjects,
+      scopeObjects: scopeInteractiveMarkerObjects,
+      scopeDeepStars: projectedDeepStars,
+    },
+  )
+  const hoveredObject =
+    hoveredObjectCandidate?.projection.visible === true ? hoveredObjectCandidate : null
+  const selectedDetailObject = selectedObject ?? hoveredObject
+  const detailObjectHeading = selectedObject ? 'Selected object' : hoveredObject ? 'Hovered object' : null
+  const activeSummaryObject: SummarySkyObject | null =
+    hoveredObject ?? selectedObject ?? centerLockedObject
   const shouldRenderMotionAffordance =
     !prefersReducedMotion && isMotionAffordanceEligible(activeSummaryObject)
   const activeMotionAffordanceObjectId = activeSummaryObject?.id ?? null
@@ -748,15 +1477,57 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     shouldRenderMotionAffordance && activeSummaryObject
       ? motionAffordanceSamples.filter((sample) => sample.id === activeSummaryObject.id)
       : []
-  const renderedLineSegments = hasMounted ? constellationScene.lineSegments : []
-  const renderedMarkerObjects = hasMounted ? markerObjects : []
+  const scopeStarCanvasPoints: ScopeStarCanvasPoint[] =
+    hasMounted && scopeModeActive
+      ? projectedDeepStars
+          .filter((object) => object.scopeInLensCircle)
+          .map((object) =>
+            toDeepStarCanvasPoint(object, {
+              x: object.scopeProjection?.x ?? 0,
+              y: object.scopeProjection?.y ?? 0,
+            }),
+          )
+      : []
+  const scopeLensObjects: ScopeLensOverlayObject[] =
+    hasMounted && scopeModeActive
+      ? scopeInteractiveMarkerObjects
+          .map((object) => ({
+            id: object.id,
+            x: object.scopeProjection.x,
+            y: object.scopeProjection.y,
+            sizePx: getScopeMarkerSizePx(object, {
+              lensDiameterPx: scopeLensDiameterPx,
+              scopeVerticalFovDeg: scopeEffectiveVerticalFovDeg,
+              markerScale: viewerSettings.markerScale,
+            }),
+            opacity: getScopeMarkerOpacity(object, normalizedScopeOptics),
+            className: getMarkerVisualStyle(object, {
+              centerLockedObjectId: scopeCenterLockedObject?.id ?? null,
+              selectedObjectId,
+            }).className,
+          }))
+      : []
+  const scopeLensConstellationLineSegments: ScopeLensOverlayLineSegment[] =
+    hasMounted && scopeModeActive
+      ? scopeConstellationLineScene.lineSegments
+          .map((segment, segmentIndex) => ({
+            id: `${segment.constellationId}-${segmentIndex}`,
+            x1: segment.start.x,
+            y1: segment.start.y,
+            x2: segment.end.x,
+            y2: segment.end.y,
+          }))
+      : []
+  const renderedLineSegments = hasMounted ? stageConstellationScene.lineSegments : []
+  const renderedMainViewDeepStarCanvasPoints = hasMounted ? mainViewDeepStarCanvasPoints : []
+  const renderedMarkerObjects = hasMounted ? interactiveMarkerObjects : []
   const renderedOnObjectLabels = hasMounted ? onObjectLabels : []
   const renderedTopListObjects = hasMounted ? topListObjects : []
   const renderedCenterLockedObject = hasMounted ? centerLockedObject : null
   const renderedSelectedDetailObject = hasMounted ? selectedDetailObject : null
   const renderedActiveSummaryObject = hasMounted ? activeSummaryObject : null
   const focusedAircraftTrailIds = [...new Set(
-    [selectedObject, centerLockedObject]
+    [selectedObject, wideSceneCenterLockedObject]
       .filter((object): object is ProjectedSkyObject => object !== null && object.type === 'aircraft')
       .map((object) => object.id),
   )]
@@ -772,19 +1543,10 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                 nowMs: sceneTimeMs,
               })
               .map((point) =>
-                projectWorldPointToScreen(
-                  cameraPose,
-                  {
-                    azimuthDeg: point.azimuthDeg,
-                    elevationDeg: point.elevationDeg,
-                  },
-                  {
-                    ...viewport,
-                    sourceWidth: cameraFrameLayout?.sourceWidth,
-                    sourceHeight: cameraFrameLayout?.sourceHeight,
-                  },
-                  viewerSettings.verticalFovAdjustmentDeg,
-                ),
+                stageProjectionContext.projectWorldPoint({
+                  azimuthDeg: point.azimuthDeg,
+                  elevationDeg: point.elevationDeg,
+                }),
               )
               .filter((projection) => projection.visible)
               .map((projection) => `${projection.x},${projection.y}`),
@@ -803,7 +1565,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   )
   const calibrationTarget = calibrationTargetResolution.target
   const shouldShowAlignmentInstructions =
-    !manualMode && isAlignmentPanelOpen && !isMobileAlignmentFocusActive
+    isAlignmentPanelOpen && !isMobileAlignmentFocusActive
   const calibrationStatus = describeCalibrationStatus({
     startupState,
     cameraPose,
@@ -826,33 +1588,60 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     calibrationStatus,
     canFixAlignment,
     canAlignCalibration,
-    canResetCalibration,
     manualMode,
     preferredTargetUnavailable: calibrationTargetResolution.preferredTargetUnavailable,
   })
-  const sensorStatusValue = getSensorStatusValue({
-    startupState,
-    orientationSource,
-    orientationAbsolute,
-    cameraPose,
-  })
-  const showMobilePermissionAction =
-    state.entry === 'live' &&
-    (state.camera !== 'granted' || state.orientation !== 'granted')
+  const alignmentFocusPrompt = `Press the middle of the screen to align to ${calibrationTarget.label}.`
+  const showMobileArToggle = state.entry === 'live'
   const showMobileAlignAction = state.entry === 'live' && !isMobileAlignmentFocusActive
+  const showMobileScopeAction = scopeControlsAvailable && !isMobileAlignmentFocusActive
   const permissionRecoveryAction = getPermissionRecoveryAction(state)
+  const permissionRecoveryHandlerId = getPermissionRecoveryHandlerId(permissionRecoveryAction.kind)
+  const arToggleStatus =
+    interactionMode === 'ar'
+      ? isPending
+        ? permissionRecoveryAction.pendingLabel
+        : 'AR active'
+      : permissionRecoveryAction.kind === 'camera-only'
+        ? 'Camera off'
+        : permissionRecoveryAction.kind === 'motion-only'
+          ? 'Motion off'
+          : permissionRecoveryAction.kind === 'camera-and-motion'
+            ? startupState === 'ready-to-request'
+              ? 'Start setup'
+              : 'Ready to retry'
+            : 'AR off'
   const activeLiveCameraStage = state.entry === 'live' && cameraStreamActive
-  const shouldUseDesktopShell = viewport.width >= 640
-  const isDesktopOverlayActive = shouldUseDesktopShell && isDesktopOverlayOpen
   const isSettingsSheetOpen = isDesktopSettingsSheetOpen || isMobileSettingsSheetOpen
   const shouldLockViewerScroll =
-    activeLiveCameraStage ||
-    isMobileAlignmentFocusActive ||
-    isSettingsSheetOpen ||
-    isDesktopOverlayActive
+    activeLiveCameraStage || isMobileAlignmentFocusActive || isSettingsSheetOpen
   const usesCameraStageAlignmentFocus =
     state.entry === 'live' && cameraStreamActive && !manualMode
   const shouldUseCompactNonScrollingOverlay = activeLiveCameraStage && !manualMode
+  const getMobileAlignmentFallbackFocusTarget = useCallback(() => {
+    if (typeof document === 'undefined') {
+      return resolveFocusRestoreTarget(mobileAlignActionRef.current, mobileViewerOverlayTriggerRef.current)
+    }
+
+    return resolveFocusRestoreTarget(
+      mobileAlignActionRef.current,
+      document.querySelector<HTMLElement>('[data-testid="mobile-align-action"]'),
+      document.querySelector<HTMLElement>('[data-focus-surface="mobile-settings-trigger"]'),
+      mobileViewerOverlayTriggerRef.current,
+      document.querySelector<HTMLElement>('[data-testid="mobile-viewer-overlay-trigger"]'),
+    )
+  }, [])
+  const getDesktopAlignmentFallbackFocusTarget = useCallback(() => {
+    if (typeof document === 'undefined') {
+      return null
+    }
+
+    return resolveFocusRestoreTarget(
+      document.querySelector<HTMLElement>('[data-testid="desktop-align-action"]'),
+      document.querySelector<HTMLElement>('[data-focus-surface="desktop-settings-trigger"]'),
+      document.querySelector<HTMLElement>('[data-testid="desktop-open-viewer-action"]'),
+    )
+  }, [])
 
   const handleAlignmentTargetPreferenceChange = useCallback(
     (target: AlignmentTargetPreference) => {
@@ -864,10 +1653,54 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     [],
   )
 
-  const openAlignmentExperience = () => {
-    setShowAlignmentGuidance(false)
+  const openMobileViewerOverlay = () => {
+    mobileViewerOverlayRestoreTargetRef.current = getActiveFocusableElement()
+    setIsMobileOverlayOpen(true)
+  }
+
+  const closeMobileViewerOverlay = () => {
+    pendingMobileViewerFocusRestoreRef.current = () =>
+      resolveFocusRestoreTarget(
+        mobileViewerOverlayRestoreTargetRef.current,
+        mobileViewerOverlayTriggerRef.current,
+        typeof document === 'undefined'
+          ? null
+          : document.querySelector<HTMLElement>('[data-testid="mobile-viewer-overlay-trigger"]'),
+      )
     setIsMobileOverlayOpen(false)
-    setIsDesktopOverlayOpen(shouldUseDesktopShell)
+  }
+
+  const openAlignmentExperience = (
+    request?: {
+      opener?: HTMLElement | null
+      surface?: ViewerSurface
+    },
+  ) => {
+    const opener = request?.opener ?? (request?.surface ? null : getActiveFocusableElement())
+    const openerTestId = opener?.getAttribute('data-testid')
+    const openerSurface = opener?.getAttribute('data-focus-surface')
+    const alignmentSurface =
+      request?.surface ??
+      (isMobileOverlayOpen ||
+      isMobileSettingsSheetOpen ||
+      openerSurface === 'mobile-settings-trigger' ||
+      openerTestId === 'mobile-align-action' ||
+      openerTestId === 'mobile-viewer-overlay-trigger'
+        ? 'mobile'
+        : 'desktop')
+
+    alignmentOverlayRestoreTargetRef.current = {
+      opener,
+      fallback:
+        alignmentSurface === 'mobile'
+          ? getMobileAlignmentFallbackFocusTarget
+          : getDesktopAlignmentFallbackFocusTarget,
+    }
+    setShowAlignmentGuidance(false)
+    setIsDesktopViewerPanelOpen(false)
+    setIsMobileOverlayOpen(false)
+    setIsDesktopSettingsSheetOpen(false)
+    setIsMobileSettingsSheetOpen(false)
     setIsAlignmentPanelOpen(true)
     setIsMobileAlignmentFocusActive(false)
   }
@@ -877,24 +1710,61 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       return
     }
 
+    alignmentOverlayRestoreTargetRef.current = null
     setShowAlignmentGuidance(false)
     setIsMobileOverlayOpen(false)
-    setIsDesktopOverlayOpen(false)
+    setIsDesktopSettingsSheetOpen(false)
+    setIsMobileSettingsSheetOpen(false)
     setIsAlignmentPanelOpen(false)
     setIsMobileAlignmentFocusActive(true)
   }
 
   const closeAlignmentExperience = () => {
+    pendingAlignmentFocusRestoreRef.current = () =>
+      resolveFocusRestoreTarget(
+        alignmentOverlayRestoreTargetRef.current?.opener ?? null,
+        alignmentOverlayRestoreTargetRef.current?.fallback() ?? null,
+      )
     setIsAlignmentPanelOpen(false)
     setIsMobileAlignmentFocusActive(false)
   }
 
-  const commitViewerRouteState = (nextState: ViewerRouteState) => {
-    setState(nextState)
-    router.replace(buildViewerHref(nextState))
+  const handleMobileViewerOverlayKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      closeMobileViewerOverlay()
+      return
+    }
+
+    trapFocusWithinPanel(event, mobileViewerOverlayPanelRef.current)
   }
 
-  const syncCameraDevices = async () => {
+  const handleMobileAlignmentOverlayKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      closeAlignmentExperience()
+      return
+    }
+
+    trapFocusWithinPanel(event, mobileAlignmentOverlayPanelRef.current)
+  }
+
+  const clearOrientationStartupTimeout = useCallback(() => {
+    if (orientationStartupTimeoutRef.current !== null) {
+      window.clearTimeout(orientationStartupTimeoutRef.current)
+      orientationStartupTimeoutRef.current = null
+    }
+  }, [])
+
+  const commitViewerRouteState = useCallback((nextState: ViewerRouteState) => {
+    viewerRouteStateRef.current = nextState
+    setState(nextState)
+    router.replace(buildViewerHref(nextState))
+  }, [router])
+
+  const syncCameraDevices = useCallback(async () => {
     if (typeof navigator === 'undefined' || !navigator.mediaDevices) {
       return
     }
@@ -902,9 +1772,9 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     const nextDevices = await listAvailableVideoInputDevices(navigator.mediaDevices)
 
     setCameraDevices(nextDevices)
-  }
+  }, [])
 
-  const openLiveCamera = async (preferredDeviceId?: string | null) => {
+  const openLiveCamera = useCallback(async (preferredDeviceId?: string | null) => {
     const videoElement = videoElementRef.current
 
     if (!videoElement) {
@@ -915,10 +1785,18 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       typeof navigator !== 'undefined' ? navigator.mediaDevices : undefined
 
     const requestId = cameraRequestIdRef.current + 1
+    const requestStartedAtMs = getCurrentTimestampMs()
     cameraRequestIdRef.current = requestId
-    setLiveCameraStreamActive(false)
+    setCameraRuntimePhase('requesting')
     setLiveCameraError(null)
     setCameraSourceSize(null)
+    setCameraLifecycleDiagnostic({
+      requestId,
+      transitionReason: 'user-activated-request',
+      lifecycleEvent: 'requesting',
+      elapsedMs: 0,
+      errorName: null,
+    })
 
     stopMediaStream(cameraStreamRef.current)
     cameraStreamRef.current = null
@@ -935,12 +1813,37 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       }
 
       cameraStreamRef.current = stream
+      setCameraRuntimePhase('stream-acquired')
+      setCameraLifecycleDiagnostic({
+        requestId,
+        transitionReason: 'get-user-media-resolved',
+        lifecycleEvent: 'stream-acquired',
+        elapsedMs: getCurrentTimestampMs() - requestStartedAtMs,
+        errorName: null,
+      })
       lastOpenedCameraPreferenceRef.current =
         getStreamVideoDeviceId(stream) ?? preferredDeviceId ?? null
       videoElement.srcObject = stream
-      await videoElement.play().catch(() => undefined)
-      setLiveCameraStreamActive(true)
-      await syncCameraDevices()
+      await waitForCameraPlayback(videoElement, CAMERA_READY_TIMEOUT_MS)
+
+      if (cameraRequestIdRef.current !== requestId) {
+        stopMediaStream(stream)
+        return null
+      }
+
+      setCameraRuntimePhase('playing')
+      setCameraLifecycleDiagnostic({
+        requestId,
+        transitionReason: 'first-visible-frame',
+        lifecycleEvent: 'playing',
+        elapsedMs: getCurrentTimestampMs() - requestStartedAtMs,
+        errorName: null,
+      })
+      void syncCameraDevices().catch(() => {
+        // Device labels are optional metadata. Losing enumeration after a
+        // stream starts must not tear down a working camera session.
+        setCameraDevices([])
+      })
 
       const activeDeviceId = getStreamVideoDeviceId(stream) ?? preferredDeviceId ?? null
 
@@ -954,16 +1857,31 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       return stream
     } catch (error) {
       if (cameraRequestIdRef.current === requestId) {
-        setLiveCameraError(
-          'SkyLens retried the stored camera if available, then exact environment, then environment fallback, without requesting microphone access.',
-        )
-        setLiveCameraStreamActive(false)
+        if (cameraStreamRef.current) {
+          stopMediaStream(cameraStreamRef.current)
+          cameraStreamRef.current = null
+        }
+        videoElement.srcObject = null
+        const cameraFailure = describeCameraFailure(error)
+
+        setLiveCameraError(cameraFailure.message)
+        setCameraRuntimePhase(cameraFailure.phase)
+        setCameraLifecycleDiagnostic({
+          requestId,
+          transitionReason: cameraFailure.phase,
+          lifecycleEvent: 'activation-failed',
+          elapsedMs: getCurrentTimestampMs() - requestStartedAtMs,
+          errorName:
+            error instanceof RearCameraRequestError
+              ? error.causeName
+              : getCameraErrorName(error) || null,
+        })
         lastOpenedCameraPreferenceRef.current = null
       }
 
       throw error
     }
-  }
+  }, [syncCameraDevices])
 
   const applyManualObserver = (manualObserver: ManualObserverSettings) => {
     const nextObserver = createObserverStateFromManualSettings(manualObserver)
@@ -1061,6 +1979,15 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     orientationNeedsCalibration?: boolean
   }) => {
     commitViewerRouteState(nextState)
+    setOrientationReadiness(
+      orientation === 'denied'
+        ? 'denied'
+        : orientation === 'unavailable'
+          ? 'unavailable'
+          : orientation === 'unknown'
+            ? 'awaiting-sample'
+            : 'ready',
+    )
     setStartupState(
       resolveStartupState({
         orientationStatus: orientation,
@@ -1071,23 +1998,179 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       }),
     )
 
-    if (orientation !== 'granted') {
+    if (orientation === 'denied' || orientation === 'unavailable') {
       setMotionRetryError(
         orientation === 'denied'
-          ? 'Motion access is still denied. Check iOS Settings → Safari → Motion & Orientation Access, then retry.'
-          : 'Motion sensors are unavailable on this device/browser right now.',
+          ? getMotionDeniedMessage(browserFamily)
+          : getMotionUnavailableMessage(browserFamily),
       )
     }
   }
 
   const requestOrientationRetry = async () => {
+    const requestId = orientationPermissionRequestIdRef.current + 1
+    const requestStartedAtMs = getCurrentTimestampMs()
+    orientationPermissionRequestIdRef.current = requestId
+    orientationRequestStartedAtMsRef.current = requestStartedAtMs
+    setOrientationReadiness('requesting-permission')
+    setOrientationLifecycleDiagnostic({
+      requestId,
+      transitionReason: 'user-activated-request',
+      lifecycleEvent: 'requesting-permission',
+      elapsedMs: 0,
+      errorName: null,
+    })
+
     try {
-      return await requestOrientationPermission()
-    } catch {
+      const result = await requestOrientationPermissionDetailed()
+      const elapsedMs = getCurrentTimestampMs() - requestStartedAtMs
+
+      if (result.status === 'error') {
+        setOrientationReadiness('error')
+        setMotionRetryError(getMotionPermissionFailureMessage(result.reason, result.errorName))
+        setOrientationLifecycleDiagnostic({
+          requestId,
+          transitionReason: result.reason,
+          lifecycleEvent: 'permission-error',
+          elapsedMs,
+          errorName: result.errorName ?? null,
+        })
+
+        return {
+          status: 'unknown',
+          readiness: 'error',
+          reason: result.reason,
+          errorName: result.errorName,
+        } satisfies OrientationPermissionAttempt
+      }
+
+      setOrientationLifecycleDiagnostic({
+        requestId,
+        transitionReason: result.reason,
+        lifecycleEvent: `permission-${result.status}`,
+        elapsedMs,
+        errorName: result.errorName ?? null,
+      })
+
+      return {
+        status: result.status,
+        readiness:
+          result.status === 'granted'
+            ? 'awaiting-sample'
+            : result.status === 'denied'
+              ? 'denied'
+              : 'unavailable',
+        reason: result.reason,
+        errorName: result.errorName,
+      } satisfies OrientationPermissionAttempt
+    } catch (error) {
+      setOrientationReadiness('error')
       setMotionRetryError('Unable to retry motion permission right now.')
+      setOrientationLifecycleDiagnostic({
+        requestId,
+        transitionReason: 'implementation-failure',
+        lifecycleEvent: 'permission-error',
+        elapsedMs: getCurrentTimestampMs() - requestStartedAtMs,
+        errorName: error instanceof Error ? error.name : null,
+      })
       return null
     }
   }
+
+  const normalizeOrientationPromptStatus = (
+    orientation: PermissionStatusValue,
+  ): PermissionStatusValue => {
+    if (orientation === 'granted') {
+      return 'unknown'
+    }
+
+    if (orientation === 'unavailable') {
+      const capabilities = getOrientationCapabilities()
+
+      return capabilities.hasEvents ||
+        capabilities.hasAbsoluteSensor ||
+        capabilities.hasRelativeSensor
+        ? 'unknown'
+        : 'unavailable'
+    }
+
+    return orientation
+  }
+
+  const resetOrientationSessionState = (baselineAbsolute: boolean) => {
+    previousOrientationSampleTimestampRef.current = null
+    previousOrientationSelectionRef.current = {
+      source: null,
+      absolute: false,
+    }
+    setOrientationSampleRateHz(null)
+    setOrientationUpgradedFromRelative(false)
+    setOrientationNeedsCalibration(false)
+    setLatestOrientationSample(null)
+    setOrientationSource(null)
+    setOrientationAbsolute(baselineAbsolute)
+  }
+
+  const setViewerInteractionMode = useCallback((nextMode: InteractionMode) => {
+    const requestId = arInteractionRequestIdRef.current + 1
+    arInteractionRequestIdRef.current = requestId
+    interactionModeRef.current = nextMode
+    setInteractionMode(nextMode)
+    return requestId
+  }, [])
+
+  const stopArResources = useCallback(() => {
+    cameraRequestIdRef.current += 1
+    orientationControllerRef.current?.stop()
+    orientationControllerRef.current = null
+    clearOrientationStartupTimeout()
+    poorSinceRef.current = null
+
+    const videoElement = videoElementRef.current
+
+    if (videoElement) {
+      videoElement.srcObject = null
+    }
+
+    stopMediaStream(cameraStreamRef.current)
+    cameraStreamRef.current = null
+    lastOpenedCameraPreferenceRef.current = null
+    setCameraRuntimePhase('idle')
+    setCameraLifecycleDiagnostic((current) => ({
+      ...current,
+      transitionReason: 'ar-disabled',
+      lifecycleEvent: 'stopped',
+    }))
+    setCameraSourceSize(null)
+    setCalibrationBanner(null)
+    setShowAlignmentGuidance(false)
+    setMotionAffordanceSamples([])
+    setOrientationReadiness('idle')
+    setOrientationLifecycleDiagnostic((current) => ({
+      ...current,
+      transitionReason: 'ar-disabled',
+      lifecycleEvent: 'stopped',
+    }))
+    resetOrientationSessionState(viewerRouteStateRef.current.orientation === 'granted')
+  }, [clearOrientationStartupTimeout])
+
+  const enableArMode = useCallback(
+    () => setViewerInteractionMode('ar'),
+    [setViewerInteractionMode],
+  )
+
+  const disableArMode = useCallback(() => {
+    setViewerInteractionMode('free-navigation')
+    stopArResources()
+    setIsAlignmentPanelOpen(false)
+    setIsMobileAlignmentFocusActive(false)
+  }, [setViewerInteractionMode, stopArResources])
+
+  const isArRequestCurrent = useCallback(
+    (requestId: number) =>
+      interactionModeRef.current === 'ar' && arInteractionRequestIdRef.current === requestId,
+    [],
+  )
 
   const handleRetryPermissions = () => {
     setRetryError(null)
@@ -1101,36 +2184,34 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         return
       }
 
+      const requestId = enableArMode()
+
       if (!secureLiveArContext) {
-        startTransition(() => {
-          setStartupState('unsupported')
-        })
+        setStartupState('unsupported')
         return
       }
 
-      startTransition(() => {
-        markViewerOnboardingCompleted()
-        setViewerSettings((current) => ({
-          ...current,
-          onboardingCompleted: true,
-        }))
-      })
+      clearOrientationStartupTimeout()
+      resetOrientationSessionState(false)
 
       try {
-        const requestId = permissionRetryRequestIdRef.current + 1
-        permissionRetryRequestIdRef.current = requestId
-        const orientationPromise = requestOrientationRetry()
-        const observerPromise = requestInitialObserver()
+        const orientation = await requestOrientationRetry()
+
+        if (!isArRequestCurrent(requestId)) {
+          return
+        }
+
         let camera: PermissionStatusValue = 'unknown'
 
         try {
           await openLiveCamera(viewerSettings.selectedCameraDeviceId)
           camera = 'granted'
-        } catch {
-          camera = 'denied'
+        } catch (error) {
+          camera = getCameraPermissionStatus(error)
         }
 
-        if (permissionRetryRequestIdRef.current !== requestId) {
+        if (!isArRequestCurrent(requestId)) {
+          stopArResources()
           return
         }
 
@@ -1139,68 +2220,68 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
           camera,
         }
 
-        startTransition(() => {
-          setSelectedObjectId(null)
-          setMotionAffordanceSamples([])
-          setSceneTimeMs(getCurrentTimestampMs())
-          commitViewerRouteState(nextCameraState)
-          setStartupState(
-            resolveStartupState({
-              orientationStatus: nextCameraState.orientation,
-              cameraStatus: camera,
-              hasObserver: liveObserverRef.current !== null,
-              orientationNeedsCalibration: false,
-              orientationAbsolute,
-            }),
-          )
-        })
+        setSelectedObjectId(null)
+        setMotionAffordanceSamples([])
+        setSceneTimeMs(getCurrentTimestampMs())
 
-        const observerResult = await observerPromise
+        commitViewerRouteState(nextCameraState)
+        setStartupState(
+          resolveStartupState({
+            orientationStatus: nextCameraState.orientation,
+            cameraStatus: camera,
+            hasObserver: liveObserverRef.current !== null,
+            orientationNeedsCalibration: false,
+            orientationAbsolute,
+          }),
+        )
 
-        if (permissionRetryRequestIdRef.current !== requestId) {
+        const observerResult = await requestInitialObserver()
+
+        if (!isArRequestCurrent(requestId)) {
           return
         }
         applyInitialObserverResult(observerResult)
 
         const nextLocationState: ViewerRouteState = {
-          ...nextCameraState,
+          ...viewerRouteStateRef.current,
           location: observerResult.locationStatus,
         }
 
-        startTransition(() => {
-          commitViewerRouteState(nextLocationState)
-          setStartupState(
-            resolveStartupState({
-              orientationStatus: nextLocationState.orientation,
-              cameraStatus: nextLocationState.camera,
-              hasObserver: observerResult.hasObserver,
-              orientationNeedsCalibration: false,
-              orientationAbsolute,
-            }),
-          )
-        })
+        commitViewerRouteState(nextLocationState)
+        setStartupState(
+          resolveStartupState({
+            orientationStatus: nextLocationState.orientation,
+            cameraStatus: nextLocationState.camera,
+            hasObserver: observerResult.hasObserver,
+            orientationNeedsCalibration: false,
+            orientationAbsolute,
+          }),
+        )
 
-        const orientation = await orientationPromise
-
-        if (
-          orientation !== null &&
-          viewerRouteStateRef.current.entry === 'live' &&
-          permissionRetryRequestIdRef.current === requestId
-        ) {
-          const nextOrientationState: ViewerRouteState = {
-            ...viewerRouteStateRef.current,
-            orientation,
+        if (orientation !== null) {
+          // A provider can synchronously deliver its first usable sample as
+          // soon as the awaiting-orientation state mounts. Do not let the
+          // earlier prompt result overwrite that newer runtime evidence.
+          if (viewerRouteStateRef.current.orientation === 'granted') {
+            return
           }
-          startTransition(() => {
-            applyOrientationRetryResult({
-              orientation,
-              nextState: nextOrientationState,
-              hasObserver: observerResult.hasObserver,
-              orientationNeedsCalibration: false,
-            })
+
+          const normalizedOrientation = normalizeOrientationPromptStatus(orientation.status)
+          applyOrientationRetryResult({
+            orientation: normalizedOrientation,
+            nextState: {
+              ...viewerRouteStateRef.current,
+              orientation: normalizedOrientation,
+            },
+            hasObserver: liveObserverRef.current !== null,
+            orientationNeedsCalibration: false,
           })
+          if (orientation.readiness === 'error') {
+            setOrientationReadiness('error')
+          }
         }
       } catch {
+        setOrientationReadiness('error')
         startTransition(() => {
           setStartupState('error')
           setRetryError('SkyLens could not complete startup. Try again or switch to demo mode.')
@@ -1230,14 +2311,26 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     setManualObserverError(null)
     setLiveLocationError(null)
 
+    if (interactionModeRef.current !== 'ar') {
+      handleRetryPermissions()
+      return
+    }
+
     void (async () => {
       if (state.entry !== 'live') {
         return
       }
 
+      const requestId = enableArMode()
+
       const observerResult = await requestInitialObserver()
+
+      if (!isArRequestCurrent(requestId)) {
+        return
+      }
       applyInitialObserverResult(observerResult)
       const currentRouteState = viewerRouteStateRef.current
+
       const nextState: ViewerRouteState = {
         ...currentRouteState,
         location: observerResult.locationStatus,
@@ -1261,22 +2354,42 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const handleRetryMotionPermission = () => {
     setMotionRetryError(null)
 
+    if (interactionModeRef.current !== 'ar') {
+      handleRetryPermissions()
+      return
+    }
+
     void (async () => {
+      const requestId = enableArMode()
       const orientation = await requestOrientationRetry()
 
-      if (orientation === null || state.entry !== 'live') {
+      if (
+        orientation === null ||
+        viewerRouteStateRef.current.entry !== 'live' ||
+        !isArRequestCurrent(requestId)
+      ) {
+        return
+      }
+
+      const normalizedOrientation = normalizeOrientationPromptStatus(orientation.status)
+      const currentRouteState = viewerRouteStateRef.current
+
+      if (currentRouteState.orientation === 'granted') {
         return
       }
 
       startTransition(() => {
         applyOrientationRetryResult({
-          orientation,
+          orientation: normalizedOrientation,
           nextState: {
-            ...state,
-            orientation,
+            ...currentRouteState,
+            orientation: normalizedOrientation,
           },
-          hasObserver: observer !== null,
+          hasObserver: liveObserverRef.current !== null,
         })
+        if (orientation.readiness === 'error') {
+          setOrientationReadiness('error')
+        }
       })
     })()
   }
@@ -1286,30 +2399,43 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     setAstronomyFailureBanner(null)
     setCalibrationBanner(null)
 
+    if (interactionModeRef.current !== 'ar') {
+      handleRetryPermissions()
+      return
+    }
+
     void (async () => {
       if (state.entry !== 'live') {
         return
       }
+
+      const requestId = enableArMode()
 
       let camera: PermissionStatusValue = 'unknown'
 
       try {
         await openLiveCamera(viewerSettings.selectedCameraDeviceId)
         camera = 'granted'
-      } catch {
-        camera = 'denied'
+      } catch (error) {
+        camera = getCameraPermissionStatus(error)
       }
 
+      if (!isArRequestCurrent(requestId)) {
+        stopArResources()
+        return
+      }
+
+      const currentRouteState = viewerRouteStateRef.current
       startTransition(() => {
         commitViewerRouteState({
-          ...state,
+          ...currentRouteState,
           camera,
         })
         setStartupState(
           resolveStartupState({
-            orientationStatus: state.orientation,
+            orientationStatus: currentRouteState.orientation,
             cameraStatus: camera,
-            hasObserver: observer !== null,
+            hasObserver: liveObserverRef.current !== null,
             orientationNeedsCalibration:
               startupState === 'sensor-relative-needs-calibration',
             orientationAbsolute,
@@ -1320,26 +2446,23 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   }
 
   const handlePermissionRecoveryAction = () => {
-    switch (permissionRecoveryAction.kind) {
-      case 'motion-only':
+    switch (permissionRecoveryHandlerId) {
+      case 'retry-motion':
         handleRetryMotionPermission()
         break
-      case 'camera-only':
+      case 'retry-camera':
         handleRetryCameraPermission()
         break
-      default:
+      case 'retry-all':
         handleRetryPermissions()
+        break
+      default:
         break
     }
   }
 
   const handleEnterDemoMode = () => {
     const demoRoute = createDemoViewerRoute(demoScenario.id)
-    markViewerOnboardingCompleted()
-    setViewerSettings((current) => ({
-      ...current,
-      onboardingCompleted: true,
-    }))
     setSelectedObjectId(null)
     setMotionAffordanceSamples([])
     setCalibrationBanner(null)
@@ -1386,8 +2509,69 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   }, [])
 
   useEffect(() => {
+    if (!hasMounted || viewerSettingsHydrated || hasHydratedViewerSettingsRef.current) {
+      return
+    }
+
+    hasHydratedViewerSettingsRef.current = true
+    const hydratedSettings = readViewerSettings()
+    setViewerSettings(hydratedSettings)
+    setManualObserverDraft(createManualObserverDraft(hydratedSettings.manualObserver))
+
+    const currentState = viewerRouteStateRef.current
+    if (
+      currentState.entry === 'live' &&
+      currentState.location !== 'granted' &&
+      hydratedSettings.manualObserver
+    ) {
+      const hydratedObserver = createObserverStateFromManualSettings(
+        hydratedSettings.manualObserver,
+      )
+      liveObserverRef.current = hydratedObserver
+      setLiveObserver(hydratedObserver)
+      setObserverSource('manual')
+      setLiveLocationError(
+        'SkyLens is using your saved manual observer until a live location fix is available.',
+      )
+      setStartupState(
+        resolveStartupState({
+          orientationStatus: currentState.orientation,
+          cameraStatus: currentState.camera,
+          hasObserver: true,
+        }),
+      )
+    }
+
+    setViewerSettingsHydrated(true)
+  }, [hasMounted, viewerSettingsHydrated])
+
+  useEffect(() => {
     sceneTimeMsRef.current = sceneTimeMs
   }, [sceneTimeMs])
+
+  useEffect(() => {
+    if (state.entry !== 'live' || state.location !== 'granted') {
+      hasAppliedLocationZenithPoseRef.current = false
+      return
+    }
+
+    if (hasAppliedLocationZenithPoseRef.current) {
+      return
+    }
+
+    hasAppliedLocationZenithPoseRef.current = true
+    setManualPoseState((current) => {
+      if (current.pitchDeg === 90) {
+        return current
+      }
+
+      return createManualPoseState({
+        yawDeg: current.yawDeg,
+        pitchDeg: 90,
+        rollDeg: current.rollDeg,
+      })
+    })
+  }, [state.entry, state.location])
 
   useEffect(() => {
     const sceneClock = resolveSceneClock({
@@ -1467,19 +2651,133 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     return () => {
       window.clearTimeout(timeoutId)
     }
-  }, [router, sceneSnapshot.error, state.entry])
+  }, [commitViewerRouteState, sceneSnapshot.error, state.entry])
 
   useEffect(() => {
+    if (!viewerSettingsHydrated) {
+      return
+    }
+
     writeViewerSettings(viewerSettings)
-  }, [viewerSettings])
+  }, [viewerSettings, viewerSettingsHydrated])
+
+  useEffect(() => {
+    mainViewDeepStarGovernorStateRef.current = mainViewDeepStarGovernor
+  }, [mainViewDeepStarGovernor])
+
+  useEffect(() => {
+    if (!activeDeepStarsEnabled) {
+      scopeCatalogRequestTrackerRef.current.invalidate()
+      setScopeBandIndexState(null)
+      setScopeNamesTable({})
+      return
+    }
+
+    const generation = scopeCatalogRequestTrackerRef.current.begin()
+    let cancelled = false
+
+    void (async () => {
+      try {
+        const manifest = await loadScopeManifest()
+        const [namesTable, bandIndex] = await Promise.all([
+          loadScopeNamesTable(manifest),
+          loadScopeBandIndex(manifest, activeDeepStarBand.bandDir),
+        ])
+
+        if (cancelled || !scopeCatalogRequestTrackerRef.current.isCurrent(generation)) {
+          return
+        }
+
+        setScopeNamesTable(namesTable)
+        setScopeBandIndexState({
+          bandDir: activeDeepStarBand.bandDir,
+          index: bandIndex,
+        })
+      } catch {
+        if (cancelled || !scopeCatalogRequestTrackerRef.current.isCurrent(generation)) {
+          return
+        }
+
+        setScopeBandIndexState(null)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeDeepStarBand.bandDir, activeDeepStarsEnabled])
+
+  useEffect(() => {
+    if (
+      !activeDeepStarsEnabled ||
+      activeScopeBandIndex === null ||
+      scopeSelectedTileKey.length === 0
+    ) {
+      scopeTileRequestTrackerRef.current.invalidate()
+      setScopeLoadedDeepStars([])
+      return
+    }
+
+    const generation = scopeTileRequestTrackerRef.current.begin()
+    let cancelled = false
+
+    setScopeLoadedDeepStars([])
+
+    void (async () => {
+      try {
+        const tileFiles = scopeSelectedTileKey.split('|').filter((value) => value.length > 0)
+        const tiles = await Promise.all(
+          tileFiles.map(async (tileFile) => {
+            const rows = await loadScopeTileRows(activeDeepStarBand.bandDir, tileFile)
+
+            return rows.map((row, rowIndex) => ({
+              ...row,
+              id: `${activeDeepStarBand.bandDir}:${getScopeTileId({ file: tileFile })}:${rowIndex}`,
+              displayName:
+                row.nameId > 0 ? scopeNamesTable[String(row.nameId)] : undefined,
+            }))
+          }),
+        )
+
+        if (cancelled || !scopeTileRequestTrackerRef.current.isCurrent(generation)) {
+          return
+        }
+
+        setScopeLoadedDeepStars(tiles.flat())
+      } catch {
+        if (cancelled || !scopeTileRequestTrackerRef.current.isCurrent(generation)) {
+          return
+        }
+
+        setScopeLoadedDeepStars([])
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    activeScopeBandIndex,
+    activeDeepStarBand.bandDir,
+    activeDeepStarsEnabled,
+    scopeNamesTable,
+    scopeSelectedTileKey,
+  ])
+
+  useEffect(() => {
+    if (
+      hoveredObjectId !== null &&
+      !interactiveMarkerObjects.some(
+        (object) => object.id === hoveredObjectId && object.projection.visible,
+      )
+    ) {
+      setHoveredObjectId(null)
+    }
+  }, [hoveredObjectId, interactiveMarkerObjects])
 
   useEffect(() => {
     liveObserverRef.current = liveObserver
   }, [liveObserver])
-
-  useEffect(() => {
-    viewerRouteStateRef.current = state
-  }, [state])
 
   useEffect(() => {
     let cancelled = false
@@ -1529,15 +2827,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
 
     const refreshHealth = async () => {
       try {
-        const response = await fetch('/api/health', {
-          cache: 'no-store',
-        })
-
-        if (!response.ok) {
-          return
-        }
-
-        const payload = HealthApiResponseSchema.parse(await response.json())
+        const payload = await fetchHealthStatus()
 
         if (!disposed) {
           setHealthStatus(payload)
@@ -1846,82 +3136,6 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
 
   useEffect(() => {
     if (
-      state.entry !== 'live' ||
-      startupState === 'ready-to-request' ||
-      state.location !== 'granted' ||
-      liveObserver !== null
-    ) {
-      return
-    }
-
-    let disposed = false
-
-    requestStartupObserverState()
-      .then((nextObserver) => {
-        if (disposed) {
-          return
-        }
-
-        setLiveObserver(nextObserver)
-        setObserverSource('geo')
-        setLiveLocationError(null)
-      })
-      .catch(() => {
-        if (disposed) {
-          return
-        }
-
-        if (viewerSettings.manualObserver) {
-          applyManualObserver(viewerSettings.manualObserver)
-          return
-        }
-
-        setLiveLocationError(
-          'Location did not resolve in time. Enter latitude, longitude, and altitude manually or retry geolocation.',
-        )
-        setStartupState(
-          resolveStartupState({
-            orientationStatus: state.orientation,
-            cameraStatus: state.camera,
-            hasObserver: false,
-          }),
-        )
-      })
-
-    return () => {
-      disposed = true
-    }
-  }, [liveObserver, startupState, state, viewerSettings.manualObserver])
-
-  useEffect(() => {
-    const videoElement = videoElementRef.current
-
-    if (
-      state.entry !== 'live' ||
-      startupState === 'ready-to-request' ||
-      state.camera !== 'granted' ||
-      !videoElement ||
-      cameraStreamRef.current
-    ) {
-      return
-    }
-
-    let cancelled = false
-    queueMicrotask(() => {
-      if (cancelled) {
-        return
-      }
-
-      void openLiveCamera(viewerSettings.selectedCameraDeviceId).catch(() => undefined)
-    })
-
-    return () => {
-      cancelled = true
-    }
-  }, [startupState, state, viewerSettings.selectedCameraDeviceId])
-
-  useEffect(() => {
-    if (
       !hasLiveSessionStarted ||
       state.location !== 'granted' ||
       observerSource !== 'geo' ||
@@ -1955,10 +3169,6 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   }, [hasLiveSessionStarted, observerSource, state.location])
 
   useEffect(() => {
-    if (!hasLiveSessionStarted) {
-      return
-    }
-
     if (!cameraStreamActive) {
       return
     }
@@ -2012,10 +3222,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       })
     }
 
-    if (
-      callbackVideo &&
-      typeof callbackVideo.requestVideoFrameCallback === 'function'
-    ) {
+    if (callbackVideo && typeof callbackVideo.requestVideoFrameCallback === 'function') {
       const handleFrame = (_now: number, metadata: { width?: number; height?: number }) => {
         if (cancelled) {
           return
@@ -2047,7 +3254,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         callbackVideo.cancelVideoFrameCallback(videoFrameRequestId)
       }
     }
-  }, [cameraStreamActive, hasLiveSessionStarted])
+  }, [cameraStreamActive])
 
   useEffect(() => {
     const videoElement = videoElementRef.current
@@ -2055,7 +3262,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     if (
       state.entry !== 'live' ||
       state.camera !== 'granted' ||
-      !hasLiveSessionStarted ||
+      !arModeActive ||
       !videoElement
     ) {
       return
@@ -2077,15 +3284,16 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         return
       }
 
-      void openLiveCamera(preferredDeviceId).catch(() => {
+      void openLiveCamera(preferredDeviceId).catch((error) => {
+        const camera = getCameraPermissionStatus(error)
         commitViewerRouteState({
           ...state,
-          camera: 'denied',
+          camera,
         })
         setStartupState(
           resolveStartupState({
             orientationStatus: state.orientation,
-            cameraStatus: 'denied',
+            cameraStatus: camera,
             hasObserver: observer !== null,
             orientationNeedsCalibration: startupState === 'sensor-relative-needs-calibration',
           }),
@@ -2097,7 +3305,9 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       cancelled = true
     }
   }, [
-    hasLiveSessionStarted,
+    arModeActive,
+    commitViewerRouteState,
+    openLiveCamera,
     observer,
     startupState,
     state,
@@ -2107,7 +3317,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   useEffect(() => {
     const videoElement = videoElementRef.current
 
-    if (state.entry === 'live' && state.camera === 'granted') {
+    if (arModeActive && state.camera === 'granted') {
       return
     }
 
@@ -2125,14 +3335,157 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         return
       }
 
-      setLiveCameraStreamActive(false)
+      setCameraRuntimePhase('idle')
       setCameraSourceSize(null)
     })
 
     return () => {
       cancelled = true
     }
-  }, [state.camera, state.entry])
+  }, [arModeActive, state.camera])
+
+  useEffect(() => {
+    const stream = cameraStreamRef.current
+    const videoElement = videoElementRef.current
+    const track = stream?.getVideoTracks?.()[0]
+
+    if (!arModeActive || !stream || !track || !videoElement) {
+      return
+    }
+
+    let disposed = false
+
+    const markInterrupted = (message: string, transitionReason: string) => {
+      if (disposed || cameraStreamRef.current !== stream) {
+        return
+      }
+
+      setCameraRuntimePhase('interrupted')
+      setLiveCameraError(message)
+      setCameraLifecycleDiagnostic((current) => ({
+        ...current,
+        transitionReason,
+        lifecycleEvent: 'interrupted',
+      }))
+    }
+
+    const handleMute = () => {
+      if (disposed || cameraStreamRef.current !== stream) {
+        return
+      }
+
+      setCameraRuntimePhase('muted')
+      setLiveCameraError(
+        'The camera is temporarily interrupted. Return to SkyLens and tap Resume camera if video does not recover.',
+      )
+      setCameraLifecycleDiagnostic((current) => ({
+        ...current,
+        transitionReason: 'track-muted',
+        lifecycleEvent: 'mute',
+      }))
+    }
+
+    const handleUnmute = () => {
+      if (disposed || cameraStreamRef.current !== stream) {
+        return
+      }
+
+      void waitForCameraPlayback(videoElement, CAMERA_READY_TIMEOUT_MS)
+        .then(() => {
+          if (!disposed && cameraStreamRef.current === stream && track.readyState === 'live') {
+            setLiveCameraError(null)
+            setCameraRuntimePhase('playing')
+            setCameraLifecycleDiagnostic((current) => ({
+              ...current,
+              transitionReason: 'resume-frame-ready',
+              lifecycleEvent: 'unmute',
+              errorName: null,
+            }))
+          }
+        })
+        .catch(() => {
+          markInterrupted(
+            'The camera returned without producing video. Tap Resume camera to try again.',
+            'resume-no-frame',
+          )
+        })
+    }
+
+    const handleEnded = () => {
+      if (disposed || cameraStreamRef.current !== stream) {
+        return
+      }
+
+      cameraStreamRef.current = null
+      videoElement.srcObject = null
+      setCameraRuntimePhase('ended')
+      setLiveCameraError('The camera session ended. Tap Enable camera to start a new session.')
+      setCameraLifecycleDiagnostic((current) => ({
+        ...current,
+        transitionReason: 'track-ended',
+        lifecycleEvent: 'ended',
+      }))
+      const currentState = viewerRouteStateRef.current
+
+      if (currentState.camera === 'granted') {
+        commitViewerRouteState({
+          ...currentState,
+          camera: 'unavailable',
+        })
+      }
+    }
+
+    const handlePageHide = () => {
+      markInterrupted(
+        'The camera paused while SkyLens was in the background.',
+        'document-backgrounded',
+      )
+    }
+
+    const revalidateAfterResume = () => {
+      if (disposed || document.visibilityState === 'hidden') {
+        return
+      }
+
+      if (track.readyState === 'ended') {
+        handleEnded()
+        return
+      }
+
+      if (track.muted) {
+        handleMute()
+        return
+      }
+
+      handleUnmute()
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        handlePageHide()
+        return
+      }
+
+      revalidateAfterResume()
+    }
+
+    track.addEventListener('mute', handleMute)
+    track.addEventListener('unmute', handleUnmute)
+    track.addEventListener('ended', handleEnded)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('pagehide', handlePageHide)
+    window.addEventListener('pageshow', revalidateAfterResume)
+
+    return () => {
+      disposed = true
+      track.removeEventListener('mute', handleMute)
+      track.removeEventListener('unmute', handleUnmute)
+      track.removeEventListener('ended', handleEnded)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('pagehide', handlePageHide)
+      window.removeEventListener('pageshow', revalidateAfterResume)
+    }
+  }, [arModeActive, cameraRuntimePhase, commitViewerRouteState])
 
   useEffect(() => {
     return () => {
@@ -2145,16 +3498,29 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       stopMediaStream(cameraStreamRef.current)
       cameraStreamRef.current = null
       lastOpenedCameraPreferenceRef.current = null
-      setLiveCameraStreamActive(false)
+      setCameraRuntimePhase('idle')
     }
   }, [])
+
+  useEffect(() => {
+    viewerRouteStateRef.current = state
+  }, [state])
+
+  useEffect(() => {
+    interactionModeRef.current = interactionMode
+  }, [interactionMode])
 
   useEffect(() => {
     orientationControllerRef.current?.stop()
     orientationControllerRef.current = null
     poorSinceRef.current = null
 
-    if (!hasLiveSessionStarted || manualMode) {
+    if (!shouldRunOrientationSession || manualMode) {
+      clearOrientationStartupTimeout()
+      setCalibrationBanner(null)
+      resetOrientationSessionState(
+        viewerRouteStateRef.current.orientation === 'granted',
+      )
       return
     }
 
@@ -2172,10 +3538,51 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         setOrientationAbsolute(orientationAbsolute)
         setOrientationNeedsCalibration(orientationNeedsCalibration)
         setLatestOrientationSample(sample)
+        setOrientationReadiness('ready')
+        setOrientationLifecycleDiagnostic((current) => ({
+          ...current,
+          transitionReason: nextOrientationSource,
+          lifecycleEvent: 'first-usable-sample',
+          elapsedMs:
+            orientationRequestStartedAtMsRef.current === null
+              ? null
+              : getCurrentTimestampMs() - orientationRequestStartedAtMsRef.current,
+          errorName: null,
+        }))
+        clearOrientationStartupTimeout()
+        if (previousOrientationSampleTimestampRef.current !== null) {
+          const sampleIntervalMs = sample.timestampMs - previousOrientationSampleTimestampRef.current
+
+          if (sampleIntervalMs > 0) {
+            setOrientationSampleRateHz(1_000 / sampleIntervalMs)
+          }
+        }
+        previousOrientationSampleTimestampRef.current = sample.timestampMs
+        const previousSelection = previousOrientationSelectionRef.current
+        const upgradedFromRelative =
+          orientationAbsolute &&
+          (previousSelection.source === 'relative-sensor' ||
+            previousSelection.source === 'deviceorientation-relative' ||
+            (!previousSelection.absolute && previousSelection.source !== null))
+        setOrientationUpgradedFromRelative((current) =>
+          orientationAbsolute ? current || upgradedFromRelative : false,
+        )
+        previousOrientationSelectionRef.current = {
+          source: nextOrientationSource,
+          absolute: orientationAbsolute,
+        }
+        const currentRouteState = viewerRouteStateRef.current
+
+        if (currentRouteState.orientation !== 'granted') {
+          commitViewerRouteState({
+            ...currentRouteState,
+            orientation: 'granted',
+          })
+        }
         setStartupState(
           resolveStartupState({
             orientationStatus: 'granted',
-            cameraStatus: state.camera,
+            cameraStatus: currentRouteState.camera,
             hasObserver: liveObserverRef.current !== null,
             orientationNeedsCalibration,
             orientationAbsolute,
@@ -2218,17 +3625,55 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         orientationControllerRef.current = null
       }
 
+      clearOrientationStartupTimeout()
       poorSinceRef.current = null
       setCalibrationBanner(null)
-      setOrientationSource(null)
-      setOrientationAbsolute(state.orientation === 'granted')
-      setOrientationNeedsCalibration(false)
-      setLatestOrientationSample(null)
+      previousOrientationSampleTimestampRef.current = null
+      previousOrientationSelectionRef.current = {
+        source: null,
+        absolute: false,
+      }
     }
   }, [
-    hasLiveSessionStarted,
+    clearOrientationStartupTimeout,
+    commitViewerRouteState,
     manualMode,
-    state.camera,
+    shouldRunOrientationSession,
+    viewerSettings.poseCalibration,
+  ])
+
+  useEffect(() => {
+    clearOrientationStartupTimeout()
+
+    if (
+      state.entry !== 'live' ||
+      startupState !== 'awaiting-orientation' ||
+      state.orientation !== 'unknown'
+    ) {
+      return
+    }
+
+    orientationStartupTimeoutRef.current = window.setTimeout(() => {
+      setOrientationReadiness('no-sample')
+      setMotionRetryError(getMotionNoSampleMessage(browserFamily))
+      setOrientationLifecycleDiagnostic((current) => ({
+        ...current,
+        transitionReason: 'provider-no-sample',
+        lifecycleEvent: 'readiness-timeout',
+        elapsedMs:
+          orientationRequestStartedAtMsRef.current === null
+            ? ORIENTATION_READY_TIMEOUT_MS
+            : getCurrentTimestampMs() - orientationRequestStartedAtMsRef.current,
+      }))
+      setStartupState('manual')
+    }, ORIENTATION_READY_TIMEOUT_MS)
+
+    return clearOrientationStartupTimeout
+  }, [
+    browserFamily,
+    clearOrientationStartupTimeout,
+    startupState,
+    state.entry,
     state.orientation,
   ])
 
@@ -2251,29 +3696,6 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   }, [manualMode, showAlignmentGuidance])
 
   useEffect(() => {
-    if (shouldUseDesktopShell) {
-      if (isMobileOverlayOpen) {
-        setIsMobileOverlayOpen(false)
-      }
-
-      if (isMobileAlignmentFocusActive) {
-        setIsMobileAlignmentFocusActive(false)
-      }
-
-      return
-    }
-
-    if (isDesktopOverlayOpen) {
-      setIsDesktopOverlayOpen(false)
-    }
-  }, [
-    isDesktopOverlayOpen,
-    isMobileAlignmentFocusActive,
-    isMobileOverlayOpen,
-    shouldUseDesktopShell,
-  ])
-
-  useEffect(() => {
     if (!manualMode) {
       return
     }
@@ -2284,6 +3706,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         return
       }
 
+      setHoveredObjectId(null)
       setIsAlignmentPanelOpen(false)
       setIsMobileAlignmentFocusActive(false)
     })
@@ -2333,6 +3756,60 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   ])
 
   useEffect(() => {
+    if (!isDesktopSettingsSheetOpen && !isAlignmentPanelOpen) {
+      return
+    }
+
+    setIsDesktopViewerPanelOpen(false)
+  }, [isAlignmentPanelOpen, isDesktopSettingsSheetOpen])
+
+  useLayoutEffect(() => {
+    if (!isMobileOverlayOpen || isMobileAlignmentFocusActive) {
+      return
+    }
+
+    mobileViewerOverlayCloseButtonRef.current?.focus()
+  }, [isMobileAlignmentFocusActive, isMobileOverlayOpen])
+
+  useLayoutEffect(() => {
+    if (isMobileOverlayOpen) {
+      return
+    }
+
+    const restoreFocus = pendingMobileViewerFocusRestoreRef.current
+
+    if (!restoreFocus) {
+      return
+    }
+
+    pendingMobileViewerFocusRestoreRef.current = null
+    focusAfterDismiss(restoreFocus())
+  }, [isMobileOverlayOpen])
+
+  useLayoutEffect(() => {
+    if (!shouldShowAlignmentInstructions) {
+      return
+    }
+
+    mobileAlignmentOverlayCloseButtonRef.current?.focus()
+  }, [shouldShowAlignmentInstructions])
+
+  useLayoutEffect(() => {
+    if (shouldShowAlignmentInstructions || isMobileAlignmentFocusActive) {
+      return
+    }
+
+    const restoreFocus = pendingAlignmentFocusRestoreRef.current
+
+    if (!restoreFocus) {
+      return
+    }
+
+    pendingAlignmentFocusRestoreRef.current = null
+    focusAfterDismiss(restoreFocus())
+  }, [isMobileAlignmentFocusActive, shouldShowAlignmentInstructions])
+
+  useEffect(() => {
     if (typeof document === 'undefined') {
       return
     }
@@ -2379,7 +3856,19 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   }
 
   const fixAlignment = () => {
-    openAlignmentExperience()
+    const activeOpener = getActiveFocusableElement()
+    const activeSurface = activeOpener?.getAttribute('data-focus-surface')
+
+    openAlignmentExperience({
+      opener:
+        activeSurface === 'mobile-settings-trigger' || activeSurface === 'desktop-settings-trigger'
+          ? activeOpener
+          : null,
+      surface:
+        isMobileSettingsSheetOpen || activeSurface === 'mobile-settings-trigger'
+          ? 'mobile'
+          : 'desktop',
+    })
   }
 
   const alignCalibrationTarget = () => {
@@ -2460,8 +3949,9 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
 
   const mobileAlignmentPanelProps = {
     targetLabel: calibrationTarget.label,
-    nextAction: alignmentTutorial.nextAction,
-    notices: alignmentTutorial.notices,
+    status: alignmentTutorial.status,
+    supportingNotice: alignmentTutorial.supportingNotice,
+    primaryStep: alignmentTutorial.primaryStep,
     selectedTarget: alignmentTargetPreference,
     availability: calibrationTargetResolution.availability,
     onSelectTarget: handleAlignmentTargetPreferenceChange,
@@ -2473,32 +3963,42 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     canStartAlignment: canAlignCalibration,
     showStartAlignmentAction: usesCameraStageAlignmentFocus,
   }
-
-  const setScopeModeEnabled = (enabled: boolean) => {
-    setViewerSettings((current) => ({
-      ...current,
-      scopeModeEnabled: enabled,
-    }))
-  }
-
-  const updateScopeOpticsValue = <Key extends keyof ScopeOpticsSettings>(
-    key: Key,
-    value: ScopeOpticsSettings[Key],
-  ) => {
-    setViewerSettings((current) => {
-      const range =
-        key === 'apertureMm' && !current.scopeModeEnabled
-          ? NORMAL_VIEW_APERTURE_RANGE
-          : SCOPE_OPTICS_RANGES[key]
-
-      return {
+  const activeQuickOptics = scopeModeActive ? normalizedScopeOptics : normalizedMainViewOptics
+  const activeApertureRange = scopeModeActive
+    ? SCOPE_OPTICS_RANGES.apertureMm
+    : MAIN_VIEW_OPTICS_RANGES.apertureMm
+  const updateActiveAperture = (value: number) => {
+    if (scopeModeActive) {
+      setViewerSettings((current) => ({
         ...current,
         scopeOptics: {
           ...current.scopeOptics,
-          [key]: clampNumber(value, range.min, range.max),
+          apertureMm: value,
         },
-      }
-    })
+      }))
+      return
+    }
+
+    setViewerSettings((current) => ({
+      ...current,
+      mainViewOptics: {
+        ...current.mainViewOptics,
+        apertureMm: value,
+      },
+    }))
+  }
+  const updateActiveMagnification = (value: number) => {
+    if (!scopeModeActive) {
+      return
+    }
+
+    setViewerSettings((current) => ({
+      ...current,
+      scopeOptics: {
+        ...current.scopeOptics,
+        magnificationX: value,
+      },
+    }))
   }
 
   const settingsSheetProps = {
@@ -2510,6 +4010,12 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     onRecenter: recenter,
     canFixAlignment,
     canRecenter: manualMode,
+    onReplayOnboarding: () => {
+      setViewerSettings((current) => ({
+        ...current,
+        onboardingCompleted: false,
+      }))
+    },
     alignmentTargetPreference,
     alignmentTargetAvailability: calibrationTargetResolution.availability,
     alignmentTargetFallbackLabel: calibrationTargetResolution.preferredTargetUnavailable
@@ -2517,12 +4023,15 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       : null,
     onAlignmentTargetPreferenceChange: handleAlignmentTargetPreferenceChange,
     verticalFovAdjustmentDeg: viewerSettings.verticalFovAdjustmentDeg,
+    showScopeControls: scopeControlsAvailable,
     scopeModeEnabled: viewerSettings.scopeModeEnabled,
+    scopeLensDiameterPct: viewerSettings.scopeLensDiameterPct,
     transparencyPct: viewerSettings.scopeOptics.transparencyPct,
     markerScale: viewerSettings.markerScale,
     cameraDevices,
     selectedCameraDeviceId: viewerSettings.selectedCameraDeviceId,
     layers: enabledLayers,
+    mainViewDeepStarsEnabled: viewerSettings.mainViewDeepStarsEnabled,
     layerAvailabilityLabels: {
       aircraft: getAircraftAvailabilityMessage(activeAircraftAvailability) ?? undefined,
       satellites: getSatelliteLayerStatusLabel(healthStatus),
@@ -2539,6 +4048,12 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
           ...current.enabledLayers,
           [layer]: enabled,
         },
+      }))
+    },
+    onMainViewDeepStarsEnabledChange: (enabled: boolean) => {
+      setViewerSettings((current) => ({
+        ...current,
+        mainViewDeepStarsEnabled: enabled,
       }))
     },
     onLikelyVisibleOnlyChange: (enabled: boolean) => {
@@ -2565,14 +4080,31 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         verticalFovAdjustmentDeg: value,
       }))
     },
-    onScopeModeEnabledChange: setScopeModeEnabled,
-    onTransparencyPctChange: (value: number) => {
-      updateScopeOpticsValue('transparencyPct', value)
+    onScopeModeEnabledChange: (enabled: boolean) => {
+      setViewerSettings((current) => ({
+        ...current,
+        scopeModeEnabled: enabled,
+      }))
+    },
+    onScopeLensDiameterPctChange: (value: number) => {
+      setViewerSettings((current) => ({
+        ...current,
+        scopeLensDiameterPct: normalizeScopeLensDiameterPct(value),
+      }))
+    },
+    onTransparencyChange: (value: number) => {
+      setViewerSettings((current) => ({
+        ...current,
+        scopeOptics: {
+          ...current.scopeOptics,
+          transparencyPct: value,
+        },
+      }))
     },
     onMarkerScaleChange: (value: number) => {
       setViewerSettings((current) => ({
         ...current,
-        markerScale: clampNumber(value, 1, 4),
+        markerScale: value,
       }))
     },
     onSelectedCameraDeviceChange: (deviceId: string) => {
@@ -2585,43 +4117,15 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const desktopSettingsSheetProps = {
     ...settingsSheetProps,
     onOpenChange: setIsDesktopSettingsSheetOpen,
+    presentation: 'desktop-dialog' as const,
+    triggerSurfaceId: 'desktop-settings-trigger',
   }
   const mobileSettingsSheetProps = {
     ...settingsSheetProps,
     onOpenChange: setIsMobileSettingsSheetOpen,
+    presentation: 'mobile-sheet' as const,
+    triggerSurfaceId: 'mobile-settings-trigger',
   }
-  const motionDisabledWarning =
-    state.entry !== 'demo' && state.orientation !== 'granted'
-      ? {
-          title: 'Motion is not enabled.',
-          body: 'Sky elements will not appear in the right location until motion is enabled. Use manual pan in the meantime.',
-        }
-      : null
-  const motionRecoveryPanel =
-    state.entry !== 'demo' && state.orientation !== 'granted' ? (
-      <section className="rounded-[1.25rem] border border-sky-100/10 bg-white/5 p-4">
-        <p className="text-xs uppercase tracking-[0.2em] text-amber-200/70">Motion recovery</p>
-        <p className="mt-2 text-sm leading-6 text-sky-100/80">
-          On iPhone Safari, enable motion in iOS Settings → Safari → Motion & Orientation
-          Access, then return and retry.
-        </p>
-        <button
-          type="button"
-          onClick={handlePermissionRecoveryAction}
-          disabled={isPending}
-          className="mt-3 rounded-full border border-sky-100/20 px-4 py-2 text-sm font-semibold text-sky-50 disabled:cursor-wait disabled:opacity-70"
-        >
-          {isPending
-            ? permissionRecoveryAction.pendingLabel
-            : permissionRecoveryAction.label}
-        </button>
-        {motionRetryError ? (
-          <p className="mt-3 text-sm text-amber-200" role="alert">
-            {motionRetryError}
-          </p>
-        ) : null}
-      </section>
-    ) : null
   const manualObserverPanel =
     state.entry !== 'demo' &&
     startupState !== 'ready-to-request' &&
@@ -2641,387 +4145,257 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         isPending={isPending}
       />
     ) : null
-  const canEnableCamera =
-    state.entry === 'live' && (state.camera !== 'granted' || !cameraStreamActive)
-  const canEnableMotion = state.entry === 'live' && state.orientation !== 'granted'
-  const canUseAlignmentAction = state.entry === 'live' && !manualMode && canFixAlignment
-  const handleDesktopCameraAction = () => {
-    if (!canEnableCamera) {
-      return
-    }
-
-    if (state.orientation !== 'granted') {
-      handlePermissionRecoveryAction()
-      return
-    }
-
-    handleRetryCameraPermission()
-  }
-  const handleDesktopMotionAction = () => {
-    if (!canEnableMotion) {
-      return
-    }
-
-    if (state.camera !== 'granted') {
-      handlePermissionRecoveryAction()
-      return
-    }
-
-    handleRetryMotionPermission()
-  }
-  const warningRailItems = [
-    astronomyFailureBanner
+  const sharedMotionRecoveryBanner =
+    state.entry !== 'demo' &&
+    (state.orientation === 'denied' ||
+      state.orientation === 'unavailable' ||
+      orientationReadiness === 'no-sample' ||
+      orientationReadiness === 'interrupted' ||
+      orientationReadiness === 'error')
       ? {
-          id: 'astronomy',
-          eyebrow: 'Fallback',
-          title: 'Astronomy fallback active.',
-          body: astronomyFailureBanner,
-          critical: true,
-        }
-      : null,
-    experience.mode === 'blocked' && state.entry !== 'demo'
-      ? {
-          id: 'blocked',
-          eyebrow: blockingEyebrow(state, startupState),
-          title: blockingCopy.title,
-          body: blockingCopy.body,
-          critical: true,
-          note: retryError,
-        }
-      : null,
-    motionDisabledWarning
-      ? {
-          id: 'motion',
-          eyebrow: 'Motion',
-          title: motionDisabledWarning.title,
-          body: motionDisabledWarning.body,
-          critical: false,
+          body:
+            state.orientation === 'denied'
+              ? 'Motion access is denied. Sky elements cannot follow the phone until access is restored.'
+              : orientationReadiness === 'no-sample'
+                ? 'Motion access was not denied, but SkyLens has not received a usable sensor sample yet.'
+                : 'Motion is not ready. Sky elements will not follow the phone until sensor data resumes.',
           actionLabel: isPending
             ? permissionRecoveryAction.pendingLabel
             : permissionRecoveryAction.label,
           actionDisabled: isPending,
-          onAction: handlePermissionRecoveryAction,
-          note: motionRetryError,
+          footer: motionRetryError ?? getMotionRecoveryBody(browserFamily),
         }
-      : null,
-    state.camera !== 'granted' && experience.mode !== 'blocked'
-      ? {
-          id: 'camera',
-          eyebrow: 'Camera',
-          title: 'Camera access is off.',
-          body: 'SkyLens switched to the dark gradient background while keeping the same pose and projection pipeline available.',
-          critical: false,
-        }
-      : null,
-    locationError
-      ? {
-          id: 'location',
-          eyebrow: 'Location',
-          title: 'Live location is temporarily unavailable.',
-          body: locationError,
-          critical: true,
-        }
-      : null,
-    cameraError
-      ? {
-          id: 'camera-attach',
-          eyebrow: 'Camera',
-          title: 'Rear camera could not attach.',
-          body: cameraError,
-          critical: true,
-        }
-      : null,
-    startupState === 'sensor-relative-needs-calibration'
-      ? {
-          id: 'relative-sensor',
-          eyebrow: 'Alignment',
-          title: 'Relative sensor mode needs alignment.',
-          body: `Center ${calibrationTarget.label} in the crosshair, then press the middle of the screen to align before trusting label placement.`,
-          critical: false,
-          actionLabel: 'Align',
-          actionDisabled: !canUseAlignmentAction,
-          onAction: openAlignmentExperience,
-        }
-      : null,
-    calibrationBanner
-      ? {
-          id: 'calibration',
-          eyebrow: 'Calibration',
-          title: 'Calibration',
-          body: calibrationBanner,
-          critical: false,
-        }
-      : null,
-    showAlignmentGuidance && !manualMode
-      ? {
-          id: 'alignment-guidance',
-          eyebrow: 'Alignment',
-          title: 'Alignment looks off.',
-          body: `Move phone in a figure eight or open Alignment to use ${calibrationTarget.label}.`,
-          critical: false,
-          actionLabel: 'Align',
-          actionDisabled: !canUseAlignmentAction,
-          onAction: openAlignmentExperience,
-        }
-      : null,
+      : null
+  const sharedBannerFeed = resolveViewerBannerFeed({
+    astronomyFailureBanner,
+    demoScenario:
+      state.entry === 'demo'
+        ? {
+            label: demoScenario.label,
+            description: demoScenario.description,
+          }
+        : null,
+    cameraStatus:
+      state.entry !== 'demo' &&
+      startupState !== 'ready-to-request' &&
+      startupState !== 'requesting'
+        ? state.camera
+        : null,
+    cameraRetryAvailable:
+      state.entry !== 'demo' &&
+      startupState !== 'ready-to-request' &&
+      startupState !== 'requesting',
+    motionRecovery: sharedMotionRecoveryBanner,
+    locationError,
+    locationRetryAvailable:
+      state.entry !== 'demo' &&
+      startupState !== 'ready-to-request' &&
+      startupState !== 'requesting',
+    cameraError,
+    startupState,
+    calibrationTargetLabel: calibrationTarget.label,
+    calibrationBanner,
+    showAlignmentGuidance,
+    alignmentActionAvailable:
+      state.entry === 'live' &&
+      !manualMode &&
+      !isMobileAlignmentFocusActive &&
+      canFixAlignment,
+    manualMode,
+  })
+  const desktopWarningRailItems: ViewerBannerItem[] = []
+  const desktopWarningRailSeenIds = new Set<string>()
+  const appendDesktopWarningRailItem = (item: ViewerBannerItem | null) => {
+    if (
+      !item ||
+      desktopWarningRailSeenIds.has(item.id) ||
+      desktopWarningUiState[item.id]?.dismissed
+    ) {
+      return
+    }
+
+    desktopWarningRailSeenIds.add(item.id)
+    desktopWarningRailItems.push(item)
+  }
+  appendDesktopWarningRailItem(sharedBannerFeed.primary)
+  appendDesktopWarningRailItem(sharedBannerFeed.compactNotice)
+  sharedBannerFeed.overflow.forEach(appendDesktopWarningRailItem)
+  const desktopArToggleActionDisabled =
+    isPending || state.entry === 'demo'
+  const desktopEnableArActionStatus =
     state.entry === 'demo'
+      ? 'Demo only'
+      : arToggleStatus
+  const canOpenDesktopAlignment =
+    state.entry === 'live' &&
+    !manualMode &&
+    !isMobileAlignmentFocusActive &&
+    canFixAlignment
+  const desktopAlignActionStatus = manualMode
+    ? 'Motion required'
+    : alignmentBadgeValue(state, cameraPose, startupState)
+  const handleSharedBannerAction = (
+    actionId?: ViewerBannerActionId,
+    context?: {
+      opener?: HTMLElement | null
+      surface?: ViewerSurface
+    },
+  ) => {
+    switch (actionId) {
+      case 'open-alignment':
+        openAlignmentExperience(context)
+        break
+      case 'recover-motion':
+        handlePermissionRecoveryAction()
+        break
+      case 'retry-camera':
+        handleRetryCameraPermission()
+        break
+      case 'retry-location':
+        handleRetryLocation()
+        break
+      default:
+        break
+    }
+  }
+  const toggleDesktopWarningExpanded = (id: string) => {
+    setDesktopWarningUiState((current) => ({
+      ...current,
+      [id]: {
+        expanded: !current[id]?.expanded,
+        dismissed: current[id]?.dismissed ?? false,
+      },
+    }))
+  }
+  const dismissDesktopWarning = (id: string) => {
+    setDesktopWarningUiState((current) => ({
+      ...current,
+      [id]: {
+        expanded: false,
+        dismissed: true,
+      },
+    }))
+  }
+  const desktopStatusSummary = renderedActiveSummaryObject
+    ? {
+        eyebrow: 'Current focus',
+        title: renderedActiveSummaryObject.label,
+        body: formatSkyObjectSublabel(renderedActiveSummaryObject),
+        rows: getDetailRows(renderedActiveSummaryObject).slice(0, 2),
+      }
+    : {
+        eyebrow: 'Current status',
+        title: sharedBannerFeed.primary?.title ?? experience.title,
+        body:
+          sharedBannerFeed.primary?.body ??
+          (state.entry === 'demo'
+            ? 'Demo mode is active. Open the viewer only when you need deeper object details or diagnostics.'
+            : describeCalibrationStatus({
+                startupState,
+                cameraPose,
+                poseCalibration: viewerSettings.poseCalibration,
+                calibrationTarget,
+                appliedCalibrationTarget: lastAppliedCalibrationTarget,
+              })),
+        rows: [
+          {
+            label: 'Alignment',
+            value: alignmentBadgeValue(state, cameraPose, startupState),
+          },
+          {
+            label: 'Camera',
+            value: cameraStatusValue,
+          },
+        ],
+      }
+  const sharedPrimaryBanner = sharedBannerFeed.primary
+  const desktopEnableArActionCopy =
+    interactionMode === 'ar'
       ? {
-          id: 'demo',
-          eyebrow: 'Demo',
-          title: 'Demo mode is active.',
-          body: `${demoScenario.label}. ${demoScenario.description}`,
-          critical: false,
+          title: 'Disable live AR',
+          body: 'Stop the rear camera and motion pipeline while keeping free navigation, observer data, scope controls, and diagnostics available.',
         }
-      : null,
-  ].filter((item) => item !== null)
-  const renderViewerSnapshotSection = (compact: boolean) => (
-    <section
-      className={
-        compact
-          ? 'rounded-[1.25rem] border border-sky-100/10 bg-white/5 p-4'
-          : 'rounded-[1.5rem] border border-sky-100/10 bg-white/5 p-5'
-      }
-    >
-      <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">Viewer snapshot</p>
-      <div className="mt-2 flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className={`${compact ? 'text-base' : 'text-lg'} truncate font-semibold text-white`}>
-            {renderedActiveSummaryObject ? renderedActiveSummaryObject.label : experience.title}
-          </p>
-          <p className="mt-1 text-sm leading-6 text-sky-100/80">
-            {renderedCenterLockedObject
-              ? `${renderedCenterLockedObject.label} is nearest the center crosshair.`
-              : visibilityDiagnosticsNote}
-          </p>
-        </div>
-        <div className="rounded-full border border-sky-100/10 bg-slate-950/35 px-3 py-1 text-xs text-sky-100/75">
-          Target {calibrationTarget.label}
-        </div>
-      </div>
-      <div className="mt-3 grid grid-cols-2 gap-2 text-sm text-sky-100/75">
-        <div className="rounded-2xl border border-sky-100/10 bg-slate-950/35 px-4 py-3">
-          Yaw {Math.round(cameraPose.yawDeg)}°
-        </div>
-        <div className="rounded-2xl border border-sky-100/10 bg-slate-950/35 px-4 py-3">
-          Pitch {Math.round(cameraPose.pitchDeg)}°
-        </div>
-        <div className="rounded-2xl border border-sky-100/10 bg-slate-950/35 px-4 py-3">
-          FOV {getEffectiveVerticalFovDeg(viewerSettings.verticalFovAdjustmentDeg)}° vertical
-        </div>
-        <div className="rounded-2xl border border-sky-100/10 bg-slate-950/35 px-4 py-3">
-          Visible markers {renderedMarkerObjects.length}
-        </div>
-        <div className="rounded-2xl border border-sky-100/10 bg-slate-950/35 px-4 py-3">
-          Sensor {sensorStatusValue}
-        </div>
-        <div className="rounded-2xl border border-sky-100/10 bg-slate-950/35 px-4 py-3">
-          Alignment {alignmentBadgeValue(state, cameraPose, startupState)}
-        </div>
-        {cameraFrameLayout ? (
-          <div className="col-span-2 rounded-2xl border border-sky-100/10 bg-slate-950/35 px-4 py-3">
-            Frame {cameraFrameLayout.sourceWidth}×{cameraFrameLayout.sourceHeight}
-          </div>
-        ) : null}
-      </div>
-    </section>
-  )
-  const renderCenterObjectSection = (compact: boolean) => (
-    <section
-      className={
-        compact
-          ? 'rounded-[1.25rem] border border-sky-100/10 bg-white/5 p-4 text-sm text-sky-50/85'
-          : 'rounded-[1.5rem] border border-sky-100/10 bg-white/5 p-5 text-sm text-sky-50/85'
-      }
-    >
-      <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">Center object</p>
-      {renderedCenterLockedObject ? (
-        <div className="mt-2 flex flex-col gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <p className="text-base font-semibold text-white">
-                {renderedCenterLockedObject.label}
-              </p>
-              {renderObjectBadges(renderedCenterLockedObject)}
-            </div>
-            <p className="text-sky-100/75">
-              {formatSkyObjectSublabel(renderedCenterLockedObject)}
-            </p>
-          </div>
-          <p className="text-sky-100/70">
-            Angular distance {renderedCenterLockedObject.projection.angularDistanceDeg.toFixed(1)}°
-          </p>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {getDetailRows(renderedCenterLockedObject).map((row) => (
-              <div
-                key={`${renderedCenterLockedObject.id}-${row.label}`}
-                className="rounded-2xl border border-sky-100/10 bg-slate-950/35 px-4 py-3"
-              >
-                <p className="text-[11px] uppercase tracking-[0.18em] text-sky-200/55">
-                  {row.label}
-                </p>
-                <p className="mt-1 text-sm text-white">{row.value}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <p className="mt-2 text-sm leading-6 text-sky-100/80">Move until an object snaps here.</p>
-      )}
-    </section>
-  )
-  const renderSelectedObjectSection = (compact: boolean) =>
-    renderedSelectedDetailObject ? (
-      <section
-        className={
-          compact
-            ? 'rounded-[1.25rem] border border-sky-100/10 bg-white/5 p-4'
-            : 'rounded-[1.5rem] border border-sky-100/10 bg-white/5 p-5'
+      : permissionRecoveryAction.kind === 'camera-only'
+      ? {
+          title: 'Enable the live camera feed',
+          body: 'Retry the rear camera so the viewer can move beyond the fallback sky background.',
         }
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">Selected object</p>
-            <div className="mt-2 flex items-center gap-2">
-              <p className="text-base font-semibold text-white">
-                {renderedSelectedDetailObject.label}
-              </p>
-              {renderObjectBadges(renderedSelectedDetailObject)}
-            </div>
-            <p className="text-sm text-sky-100/75">
-              {formatSkyObjectSublabel(renderedSelectedDetailObject)}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setSelectedObjectId(null)}
-            className="rounded-full border border-sky-100/15 px-3 py-1 text-xs text-sky-50"
-          >
-            Close
-          </button>
-        </div>
-        <div className="mt-3 grid gap-2 sm:grid-cols-2">
-          {getDetailRows(renderedSelectedDetailObject).map((row) => (
-            <div
-              key={`${renderedSelectedDetailObject.id}-${row.label}`}
-              className="rounded-2xl border border-sky-100/10 bg-slate-950/35 px-4 py-3"
-            >
-              <p className="text-[11px] uppercase tracking-[0.18em] text-sky-200/55">
-                {row.label}
-              </p>
-              <p className="mt-1 text-sm text-white">{row.value}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-    ) : null
-  const renderPrivacySection = (compact: boolean) => (
-    <section
-      className={
-        compact
-          ? 'rounded-[1.25rem] border border-sky-100/10 bg-white/5 p-4'
-          : 'rounded-[1.5rem] border border-sky-100/10 bg-white/5 p-5'
+      : permissionRecoveryAction.kind === 'motion-only'
+        ? {
+            title: 'Enable motion tracking',
+            body: 'Retry motion so the viewer can lock labels instead of staying in manual pan.',
+          }
+        : {
+            title:
+              startupState === 'ready-to-request'
+                ? 'Start the live AR viewer'
+                : 'Finish enabling AR',
+            body:
+              startupState === 'ready-to-request'
+                ? 'Request motion, camera, and location to move from the fallback sky into live AR.'
+                : 'Retry motion, camera, and location through the existing recovery flow so the live AR viewer can resume.',
+          }
+  const desktopPrimaryAction =
+    sharedPrimaryBanner?.actionLabel && sharedPrimaryBanner.actionId
+    ? {
+        kind: sharedPrimaryBanner.actionId,
+        eyebrow: 'Next action',
+        title: sharedPrimaryBanner.title,
+        body: sharedPrimaryBanner.body,
+        label: sharedPrimaryBanner.actionLabel,
+        onClick:
+          sharedPrimaryBanner.actionId === 'open-alignment'
+            ? ((event) =>
+                handleSharedBannerAction(sharedPrimaryBanner.actionId, {
+                  opener: event.currentTarget,
+                  surface: 'desktop',
+                })) satisfies MouseEventHandler<HTMLButtonElement>
+            : () => handleSharedBannerAction(sharedPrimaryBanner.actionId),
+        disabled: sharedPrimaryBanner.actionDisabled,
+        tone: sharedPrimaryBanner.critical
+          ? 'critical'
+          : sharedPrimaryBanner.tone === 'info'
+            ? 'info'
+            : 'default',
       }
-    >
-      <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">Privacy reassurance</p>
-      <div className={`mt-3 grid gap-3 ${compact ? '' : 'sm:grid-cols-2'}`}>
-        {PRIVACY_REASSURANCE_COPY.map((copy) => (
-          <p
-            key={copy}
-            className="rounded-2xl border border-sky-100/10 bg-slate-950/35 px-4 py-3 text-sm leading-6 text-sky-50/85"
-          >
-            {copy}
-          </p>
-        ))}
-      </div>
-    </section>
-  )
-  const renderBlockedStateSection = (compact: boolean) => (
-    <section
-      className={
-        compact
-          ? 'rounded-[1.25rem] border border-sky-100/10 bg-white/5 p-4'
-          : 'rounded-[1.5rem] border border-sky-100/10 bg-white/5 p-5'
-      }
-    >
-      <p className="text-xs uppercase tracking-[0.2em] text-amber-200/70">
-        {blockingEyebrow(state, startupState)}
-      </p>
-      <h2 className={`mt-2 ${compact ? 'text-lg' : 'text-xl'} font-semibold text-white`}>
-        {blockingCopy.title}
-      </h2>
-      <p className="mt-2 text-sm leading-6 text-sky-100/80">{blockingCopy.body}</p>
-      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-        {startupState !== 'unsupported' ? (
-          <button
-            type="button"
-            onClick={handleRetryPermissions}
-            disabled={isPending}
-            className="rounded-full bg-amber-300 px-4 py-2 text-sm font-semibold text-slate-950 disabled:cursor-wait disabled:bg-amber-100"
-          >
-            {isPending
-              ? 'Starting AR...'
-              : startupState === 'ready-to-request'
-                ? 'Start AR'
-                : 'Retry startup'}
-          </button>
-        ) : null}
-        <Link
-          href={createDemoViewerRoute().href}
-          className="rounded-full border border-sky-100/20 px-4 py-2 text-center text-sm font-semibold text-sky-50"
-        >
-          Try demo mode
-        </Link>
-      </div>
-      {retryError ? (
-        <p className="mt-3 text-sm text-amber-200" role="alert">
-          {retryError}
-        </p>
-      ) : null}
-      {startupState === 'unsupported' ? (
-        <p className="mt-3 text-sm text-amber-200">
-          Live AR requires HTTPS or `localhost` plus delegated camera, geolocation, and sensor
-          permissions.
-        </p>
-      ) : null}
-    </section>
-  )
-  const renderSharedOverlayContent = (compact: boolean) => (
-    <div className="grid gap-3">
-      <div className="flex flex-wrap gap-2">
-        <StatusBadge label="Location" value={locationStatusValue} />
-        <StatusBadge label="Camera" value={cameraStatusValue} />
-        <StatusBadge label="Motion" value={motionStatusValue} />
-        <StatusBadge label="Sensor" value={sensorStatusValue} />
-      </div>
-      {experience.mode === 'blocked' && state.entry !== 'demo' ? (
-        renderBlockedStateSection(compact)
-      ) : (
-        <>
-          {motionRecoveryPanel}
-          {manualObserverPanel}
-          {shouldShowAlignmentInstructions && !compact ? (
-            <AlignmentInstructionsPanel
-              targetLabel={calibrationTarget.label}
-              nextAction={alignmentTutorial.nextAction}
-              notices={alignmentTutorial.notices}
-              selectedTarget={alignmentTargetPreference}
-              availability={calibrationTargetResolution.availability}
-              onSelectTarget={handleAlignmentTargetPreferenceChange}
-              onResetCalibration={resetCalibration}
-              onFineAdjustCalibration={fineAdjustCalibration}
-              canResetCalibration={canResetCalibration}
-              onClose={closeAlignmentExperience}
-              showStartAlignmentAction={false}
-            />
-          ) : null}
-          {renderViewerSnapshotSection(compact)}
-          {renderCenterObjectSection(compact)}
-          {renderSelectedObjectSection(compact)}
-        </>
-      )}
-      {renderPrivacySection(compact)}
-    </div>
-  )
+    : canOpenDesktopAlignment
+      ? {
+          kind: 'open-alignment',
+          eyebrow: 'Next action',
+          title: alignmentTutorial.primaryStep.title,
+          body: alignmentTutorial.primaryStep.body,
+          label: alignmentTutorial.primaryStep.ctaLabel ?? 'Open alignment',
+          onClick: ((event) =>
+            openAlignmentExperience({
+              opener: event.currentTarget,
+              surface: 'desktop',
+            })) satisfies MouseEventHandler<HTMLButtonElement>,
+          disabled: false,
+          tone: 'success',
+        }
+        : !isDesktopViewerPanelOpen
+        ? {
+            kind: 'open-viewer',
+            eyebrow: 'Next action',
+            title: 'Open the viewer details',
+            body: 'Inspect the current crosshair object, selected target, and fallback state without covering the stage.',
+            label: 'Sky details',
+            onClick: () => setIsDesktopViewerPanelOpen(true),
+            disabled: false,
+            tone: 'default',
+          }
+        : !desktopArToggleActionDisabled
+          ? {
+              kind: interactionMode === 'ar' ? 'disable-ar' : 'enable-ar',
+              eyebrow: 'Next action',
+              title: desktopEnableArActionCopy.title,
+              body: desktopEnableArActionCopy.body,
+              label: interactionMode === 'ar' ? 'Disable AR' : 'Enable AR',
+              onClick: handleDesktopArToggleAction,
+              disabled: false,
+              tone: 'default',
+            }
+          : null
 
   const handleStagePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!manualMode) {
@@ -3124,8 +4498,48 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     setManualPoseState((current) => applyManualPoseDrag(current, delta.x, delta.y))
   }
 
+  function handleDesktopArToggleAction() {
+    if (state.entry === 'demo') {
+      return
+    }
+
+    if (interactionModeRef.current === 'ar') {
+      disableArMode()
+      return
+    }
+
+    if (permissionRecoveryAction.kind === 'none') {
+      // Route values are historical hints, not proof that this document still
+      // has live camera and motion access. Revalidate on every AR entry.
+      handleRetryPermissions()
+      return
+    }
+
+    handlePermissionRecoveryAction()
+  }
+
+  function handleMobileArClick() {
+    handleDesktopArToggleAction()
+  }
+
+  const mobileArToggleLabel =
+    interactionMode === 'ar'
+      ? 'Disable AR'
+      : isPending
+        ? permissionRecoveryAction.pendingLabel
+        : 'Enable AR'
+  const mobileArToggleStandaloneButtonClassName =
+    'min-h-11 rounded-full bg-amber-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-[0_12px_30px_rgba(251,191,36,0.22)] disabled:cursor-wait disabled:bg-amber-100'
+
   return (
     <main
+      data-viewer-settings-hydrated={viewerSettingsHydrated}
+      data-interaction-mode={interactionMode}
+      data-ar-request-id={arInteractionRequestIdRef.current}
+      data-camera-request-id={cameraLifecycleDiagnostic.requestId}
+      data-camera-runtime-phase={cameraRuntimePhase}
+      data-orientation-request-id={orientationLifecycleDiagnostic.requestId}
+      data-orientation-readiness={orientationReadiness}
       className={`relative min-h-screen text-sky-50 ${
         shouldLockViewerScroll ? 'overflow-hidden' : 'overflow-x-hidden'
       }`}
@@ -3142,6 +4556,9 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         ref={handleStageRef}
         className="absolute inset-0 touch-none"
         data-frame-token={renderFrameToken}
+        data-debug-camera-yaw-deg={
+          process.env.NODE_ENV === 'production' ? undefined : cameraPose.yawDeg
+        }
         tabIndex={manualMode ? 0 : -1}
         aria-label="Sky viewer stage"
         onPointerDown={handleStagePointerDown}
@@ -3170,7 +4587,9 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             <div className="rounded-full border border-sky-100/10 bg-slate-950/45 px-4 py-2 text-xs uppercase tracking-[0.16em] text-sky-100/75">
               {state.entry === 'demo'
                 ? 'Demo backdrop active'
-                : cameraStreamActive
+                : interactionMode === 'free-navigation'
+                  ? 'AR disabled'
+                  : cameraStreamActive
                   ? 'Rear camera active'
                   : 'Rear camera unavailable'}
             </div>
@@ -3182,9 +4601,38 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             data-testid="alignment-focus-instruction"
           >
             <div className="rounded-full border border-emerald-300/20 bg-slate-950/58 px-4 py-2 text-center text-xs font-medium uppercase tracking-[0.16em] text-emerald-100/80 shadow-[0_16px_36px_rgba(3,7,13,0.24)] backdrop-blur">
-              {alignmentTutorial.focusPrompt}
+              {alignmentFocusPrompt}
             </div>
           </div>
+        ) : null}
+        {!viewerSettings.onboardingCompleted && !isMobileAlignmentFocusActive ? (
+          <section
+            className="pointer-events-auto absolute inset-x-4 top-36 z-30 mx-auto max-w-sm rounded-[1.5rem] border border-amber-200/25 bg-slate-950/92 p-5 text-sky-50 shadow-[0_20px_60px_rgba(2,6,23,0.58)] backdrop-blur"
+            data-testid="viewer-onboarding"
+            aria-labelledby="viewer-onboarding-title"
+          >
+            <p className="text-xs uppercase tracking-[0.2em] text-amber-100/70">First look</p>
+            <h2 id="viewer-onboarding-title" className="mt-1 text-lg font-semibold">
+              Find your way around the sky
+            </h2>
+            <ol className="mt-3 grid gap-2 text-sm leading-6 text-sky-100/82">
+              <li>1. Point your phone, or drag the sky in free navigation.</li>
+              <li>2. Center an object in the crosshair or tap its marker.</li>
+              <li>3. Open Sky details to identify it and see what to do next.</li>
+            </ol>
+            <button
+              type="button"
+              onClick={() => {
+                setViewerSettings((current) => ({
+                  ...current,
+                  onboardingCompleted: true,
+                }))
+              }}
+              className="mt-4 min-h-11 w-full rounded-full bg-amber-300 px-5 py-3 text-sm font-semibold text-slate-950"
+            >
+              Got it
+            </button>
+          </section>
         ) : null}
         <svg className="pointer-events-none absolute inset-0 h-full w-full">
           {focusedAircraftTrails.map((trail) => (
@@ -3201,18 +4649,20 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             />
           ))}
           {renderMotionAffordance(activeMotionAffordance, activeMotionAffordanceKind)}
-          {renderedLineSegments.map((segment, index) => (
-            <line
-              key={`${segment.constellationId}-${index}`}
-              x1={segment.start.x}
-              y1={segment.start.y}
-              x2={segment.end.x}
-              y2={segment.end.y}
-              stroke="rgba(186, 230, 253, 0.42)"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-            />
-          ))}
+          {!scopeModeActive
+            ? renderedLineSegments.map((segment, index) => (
+                <line
+                  key={`${segment.constellationId}-${index}`}
+                  x1={segment.start.x}
+                  y1={segment.start.y}
+                  x2={segment.end.x}
+                  y2={segment.end.y}
+                  stroke="rgba(186, 230, 253, 0.42)"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+              ))
+            : null}
         </svg>
         {viewerSettings.labelDisplayMode === 'top_list' && renderedTopListObjects.length > 0 ? (
           <div className="pointer-events-none absolute inset-x-4 top-24 z-20 flex justify-center px-2">
@@ -3225,7 +4675,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                   key={object.id}
                   data-testid="sky-object-top-list-item"
                   className={`rounded-full border px-3 py-1 text-xs ${
-                    object.id === selectedObject?.id || object.id === centerLockedObject?.id
+                    object.id === selectedObject?.id || object.id === stageCenterLockedObjectId
                       ? 'border-amber-200/60 bg-amber-200/16 text-amber-50'
                       : 'border-sky-100/10 bg-white/5 text-sky-50'
                   }`}
@@ -3236,23 +4686,40 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             </div>
           </div>
         ) : null}
+        {!scopeModeActive && renderedMainViewDeepStarCanvasPoints.length > 0 ? (
+          <MainStarCanvas
+            widthPx={viewport.width}
+            heightPx={viewport.height}
+            stars={renderedMainViewDeepStarCanvasPoints}
+          />
+        ) : null}
         {renderedMarkerObjects.map((object) => {
-          const scopeRender = getScopeRenderMetadata(object)
-          const isFocusedMarker =
-            object.id === selectedObject?.id || object.id === centerLockedObject?.id
-          const markerSizePx = getMarkerSizePx(
+          const markerSizePx = getMarkerSizePxForEffectiveVerticalFovDeg(
             object,
-            viewerSettings.verticalFovAdjustmentDeg,
+            stageProjectionContext.profile.verticalFovDeg,
             viewerSettings.markerScale,
           )
+          const markerVisualStyle = getMarkerVisualStyle(object, {
+            centerLockedObjectId: stageCenterLockedObjectId,
+            selectedObjectId,
+          })
 
           return (
             <button
               key={object.id}
               type="button"
-              onClick={() =>
+              onClick={() => {
+                setSelectedObjectInteractionSurface('stage')
                 setSelectedObjectId((current) => (current === object.id ? null : object.id))
-              }
+                setIsDesktopViewerPanelOpen(true)
+              }}
+              onPointerEnter={() => {
+                setHoveredObjectInteractionSurface('stage')
+                setHoveredObjectId(object.id)
+              }}
+              onPointerLeave={() => {
+                setHoveredObjectId((current) => (current === object.id ? null : current))
+              }}
               aria-label={`${object.label} ${formatSkyObjectSublabel(object)}`}
               aria-pressed={selectedObject?.id === object.id}
               data-testid="sky-object-marker"
@@ -3263,30 +4730,20 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
               style={{
                 left: `${object.projection.x}px`,
                 top: `${object.projection.y}px`,
-                opacity: getObjectMarkerOpacity(object),
+                opacity: getObjectMotionOpacity(object),
               }}
             >
               <span className="sr-only">
                 {object.label} {formatSkyObjectSublabel(object)}
               </span>
-              {scopeRender ? (
-                <ScopeStarMarker
-                  scopeRender={scopeRender}
-                  markerScale={viewerSettings.markerScale}
-                  isFocused={isFocusedMarker}
-                />
-              ) : (
-                <span
-                  className={`block ${getMarkerVisualClassName(object, {
-                    centerLockedObjectId: centerLockedObject?.id ?? null,
-                    selectedObjectId,
-                  })}`}
-                  style={{
-                    width: `${markerSizePx}px`,
-                    height: `${markerSizePx}px`,
-                  }}
-                />
-              )}
+              <span
+                className={`block ${markerVisualStyle.className}`}
+                style={{
+                  width: `${markerSizePx}px`,
+                  height: `${markerSizePx}px`,
+                  ...markerVisualStyle.style,
+                }}
+              />
             </button>
           )
         })}
@@ -3296,7 +4753,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             data-testid="sky-object-label"
             data-object-id={object.object.id}
             className={`pointer-events-none absolute rounded-2xl border px-3 py-2 text-left text-xs shadow-[0_12px_30px_rgba(3,7,13,0.22)] ${
-              object.object.id === selectedObject?.id || object.object.id === centerLockedObject?.id
+              object.object.id === selectedObject?.id || object.object.id === stageCenterLockedObjectId
                 ? 'border-amber-200/70 bg-slate-950/82 text-amber-50'
                 : 'border-sky-100/18 bg-slate-950/72 text-sky-50'
             }`}
@@ -3314,6 +4771,18 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             </span>
           </div>
         ))}
+        {hasMounted && scopeModeActive ? (
+          <ScopeLensOverlay
+            diameterPx={scopeLensDiameterPx}
+            lensVisualScale={scopeLensVisualScale}
+            showGradientBackground={showGradientBackground}
+            cameraStream={cameraStreamRef.current}
+            cameraStreamActive={cameraStreamActive}
+            stars={scopeStarCanvasPoints}
+            lineSegments={scopeLensConstellationLineSegments}
+            objects={scopeLensObjects}
+          />
+        ) : null}
         <div
           className={`absolute inset-0 flex items-center justify-center ${
             isMobileAlignmentFocusActive ? 'pointer-events-auto' : 'pointer-events-none'
@@ -3328,7 +4797,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
               data-testid="alignment-crosshair-button"
               className="relative flex h-16 w-16 items-center justify-center rounded-full disabled:cursor-not-allowed"
             >
-              <span className="sr-only">{alignmentTutorial.focusPrompt}</span>
+              <span className="sr-only">{alignmentFocusPrompt}</span>
               <span className="relative h-16 w-16 rounded-full border border-emerald-300/35 bg-emerald-300/6">
                 <span className="absolute inset-x-1/2 top-2 h-12 w-px -translate-x-1/2 bg-emerald-200/55" />
                 <span className="absolute inset-y-1/2 left-2 h-px w-12 -translate-y-1/2 bg-emerald-200/55" />
@@ -3358,379 +4827,917 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         ) : null}
       </div>
 
-      {warningRailItems.length > 0 ? (
-        <div
-          className="pointer-events-none fixed inset-x-0 top-0 z-20 px-4 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:px-6"
-          data-testid="viewer-warning-rail"
-        >
-          <div className="mx-auto flex max-w-6xl gap-2 overflow-x-auto pb-2">
-            {warningRailItems.map((item) => (
-              <section
-                key={item.id}
-                className={`pointer-events-auto min-w-[22rem] max-w-full flex-1 rounded-[1.25rem] border px-4 py-3 shadow-[0_12px_30px_rgba(3,7,13,0.24)] backdrop-blur ${
-                  item.critical
-                    ? 'border-amber-200/30 bg-slate-950/80'
-                    : 'border-sky-100/12 bg-slate-950/72'
-                }`}
-                data-testid={`viewer-warning-rail-item-${item.id}`}
-                role={item.critical ? 'alert' : undefined}
+      <div className="pointer-events-none relative z-10 flex min-h-screen flex-col justify-between px-4 pb-5 pt-4 sm:px-6 sm:pb-6">
+        <div className="flex flex-col gap-3">
+          {desktopWarningRailItems.length > 0 ? (
+            <section
+              className="desktop-only-shell desktop-only-shell-flex pointer-events-auto mx-auto w-full max-w-4xl flex-col gap-2"
+              data-testid="viewer-top-warning-stack"
+            >
+              <div
+                className="flex flex-col gap-2"
+                data-testid="viewer-warning-rail"
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p
-                      className={`text-[11px] uppercase tracking-[0.18em] ${
-                        item.critical ? 'text-amber-200/75' : 'text-sky-200/65'
-                      }`}
-                    >
-                      {item.eyebrow}
-                    </p>
-                    <p className="mt-1 text-sm font-semibold text-white">{item.title}</p>
-                    <p className="mt-1 text-sm leading-5 text-sky-100/78">{item.body}</p>
-                  </div>
-                  {item.actionLabel ? (
-                    <button
-                      type="button"
-                      onClick={item.onAction}
-                      disabled={item.actionDisabled}
-                      className={`shrink-0 rounded-full px-3 py-2 text-xs font-semibold ${
-                        item.critical
-                          ? 'bg-amber-300 text-slate-950 disabled:bg-amber-100'
-                          : 'border border-sky-100/15 text-sky-50 disabled:opacity-60'
-                      }`}
-                    >
-                      {item.actionLabel}
-                    </button>
-                  ) : null}
-                </div>
-                {item.note ? (
-                  <p className="mt-2 text-sm text-amber-200" role="alert">
-                    {item.note}
-                  </p>
-                ) : null}
-              </section>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      <div className="pointer-events-none relative z-10 flex min-h-screen flex-col justify-end px-4 pb-5 pt-4 sm:px-6 sm:pb-6">
-        <div className="mx-auto hidden w-full max-w-5xl sm:flex sm:justify-center">
-          <div
-            className="pointer-events-auto flex w-full max-w-4xl flex-wrap items-stretch justify-center gap-3 rounded-[1.75rem] border border-sky-100/12 bg-slate-950/72 p-3 shadow-[0_20px_48px_rgba(3,7,13,0.32)] backdrop-blur"
-            data-testid="desktop-primary-action-row"
-          >
-            <button
-              type="button"
-              onClick={() => setIsDesktopOverlayOpen(true)}
-              aria-controls="desktop-viewer-overlay"
-              aria-expanded={isDesktopOverlayActive}
-              data-testid="desktop-viewer-overlay-trigger"
-              className="min-h-16 min-w-[10rem] flex-1 rounded-[1.25rem] border border-sky-100/15 bg-white/5 px-4 py-3 text-left"
-            >
-              <span className="block text-sm font-semibold text-white">Open Viewer</span>
-              <span className="mt-1 block text-xs text-sky-100/70">
-                Details, recovery, and privacy
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={handleDesktopCameraAction}
-              disabled={!canEnableCamera}
-              data-testid="desktop-enable-camera-action"
-              className="min-h-16 min-w-[10rem] flex-1 rounded-[1.25rem] border border-sky-100/15 bg-white/5 px-4 py-3 text-left disabled:opacity-55"
-            >
-              <span className="block text-sm font-semibold text-white">Enable Camera</span>
-              <span className="mt-1 block text-xs text-sky-100/70">
-                {canEnableCamera ? 'Retry the live rear camera' : 'Rear camera ready'}
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={handleDesktopMotionAction}
-              disabled={!canEnableMotion}
-              data-testid="desktop-motion-action"
-              className="min-h-16 min-w-[10rem] flex-1 rounded-[1.25rem] border border-sky-100/15 bg-white/5 px-4 py-3 text-left disabled:opacity-55"
-            >
-              <span className="block text-sm font-semibold text-white">Motion</span>
-              <span className="mt-1 block text-xs text-sky-100/70">
-                {canEnableMotion ? 'Retry motion access' : motionStatusValue}
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={openAlignmentExperience}
-              disabled={!canUseAlignmentAction}
-              data-testid="desktop-align-action"
-              className="min-h-16 min-w-[10rem] flex-1 rounded-[1.25rem] border border-sky-100/15 bg-white/5 px-4 py-3 text-left disabled:opacity-55"
-            >
-              <span className="block text-sm font-semibold text-white">Align</span>
-              <span className="mt-1 block text-xs text-sky-100/70">
-                {canUseAlignmentAction ? `Target ${calibrationTarget.label}` : 'Live only'}
-              </span>
-            </button>
-            <ScopeQuickControls
-              layout="desktop"
-              scopeModeEnabled={viewerSettings.scopeModeEnabled}
-              scopeOptics={viewerSettings.scopeOptics}
-              onScopeModeEnabledChange={setScopeModeEnabled}
-              onApertureChange={(value) => updateScopeOpticsValue('apertureMm', value)}
-              onMagnificationChange={(value) =>
-                updateScopeOpticsValue('magnificationX', value)
-              }
-            />
-            <div className="flex items-center justify-center rounded-[1.25rem] border border-sky-100/15 bg-white/5 px-4 py-3">
-              <SettingsSheet {...desktopSettingsSheetProps} />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div
-        className={`fixed inset-0 z-30 hidden sm:block ${isDesktopOverlayActive ? 'pointer-events-auto' : 'pointer-events-none'}`}
-        aria-hidden={!isDesktopOverlayActive}
-      >
-        <button
-          type="button"
-          aria-label="Close viewer overlay"
-          data-testid="desktop-viewer-overlay-backdrop"
-          onClick={() => setIsDesktopOverlayOpen(false)}
-          className={`absolute inset-0 bg-slate-950/45 transition-opacity ${
-            isDesktopOverlayActive ? 'opacity-100' : 'opacity-0'
-          }`}
-        />
-        <div className="pointer-events-none relative flex h-full items-end justify-center px-6 pb-8 pt-24">
-          <section
-            id="desktop-viewer-overlay"
-            data-testid="desktop-viewer-overlay"
-            onClick={(event) => event.stopPropagation()}
-            className={`pointer-events-auto shell-panel relative w-full max-w-3xl rounded-[1.75rem] p-5 transition-all sm:p-6 ${
-              isDesktopOverlayActive
-                ? 'translate-y-0 opacity-100'
-                : 'translate-y-4 opacity-0'
-            }`}
-          >
-            <div
-              className="mb-4 flex items-start justify-between gap-3"
-              data-testid="desktop-viewer-header"
-            >
-              <div className="min-w-0 rounded-[1.25rem] border border-sky-100/10 bg-white/5 px-4 py-3">
-                <div className="flex items-center gap-3">
-                  <div className="min-w-0">
-                    <p className="text-xs uppercase tracking-[0.2em] text-sky-200/65">
-                      SkyLens
-                    </p>
-                    <h2 className="truncate text-sm text-sky-50/90">{experience.title}</h2>
-                  </div>
-                  <div className="rounded-full bg-emerald-400/10 px-3 py-1 text-xs text-emerald-100/85">
-                    {alignmentBadgeValue(state, cameraPose, startupState)}
-                  </div>
-                </div>
+                {desktopWarningRailItems.map((item) => (
+                  <CompactWarningRailRow
+                    key={item.id}
+                    item={item}
+                    expanded={desktopWarningUiState[item.id]?.expanded ?? false}
+                    onToggleExpanded={() => toggleDesktopWarningExpanded(item.id)}
+                    onDismiss={() => dismissDesktopWarning(item.id)}
+                    onAction={
+                      item.actionId
+                        ? (event) =>
+                            handleSharedBannerAction(item.actionId, {
+                              opener: event.currentTarget,
+                              surface: 'desktop',
+                            })
+                        : undefined
+                    }
+                  />
+                ))}
               </div>
-              <div className="flex shrink-0 items-start gap-2">
-                <div>
+            </section>
+          ) : null}
+
+          <header
+            className="desktop-only-shell mx-auto w-full max-w-5xl"
+            data-testid="desktop-viewer-header"
+          >
+            <div className="pointer-events-auto shell-panel rounded-[1.6rem] px-4 py-4 sm:px-5">
+              <div className="flex flex-col gap-4">
+                <div className="flex justify-end">
                   <SettingsSheet {...desktopSettingsSheetProps} />
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setIsDesktopOverlayOpen(false)}
-                  className="rounded-full border border-sky-100/15 px-3 py-1 text-xs text-sky-50"
-                >
-                  Close
-                </button>
+                {isDesktopViewerPanelOpen ? (
+                  <>
+                    <section
+                      className="min-w-0 rounded-[1.2rem] border border-sky-100/10 bg-white/5 px-4 py-4"
+                      data-testid="desktop-active-object-summary"
+                    >
+                      <div className="flex flex-wrap items-center gap-3">
+                        <div className="min-w-0">
+                          <p className="text-[11px] uppercase tracking-[0.18em] text-sky-200/55">
+                            SkyLens
+                          </p>
+                          <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">
+                            {desktopStatusSummary.eyebrow}
+                          </p>
+                          <p className="mt-2 truncate text-base font-semibold text-white">
+                            {desktopStatusSummary.title}
+                          </p>
+                        </div>
+                        <div className="rounded-full bg-emerald-400/10 px-3 py-1 text-xs text-emerald-100/85">
+                          {alignmentBadgeValue(state, cameraPose, startupState)}
+                        </div>
+                      </div>
+                      {renderedActiveSummaryObject ? (
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          {renderObjectBadges(renderedActiveSummaryObject)}
+                        </div>
+                      ) : null}
+                    </section>
+                    <section
+                      className="rounded-[1.2rem] border border-sky-100/10 bg-slate-950/38 px-4 py-4"
+                      data-testid="desktop-next-action"
+                    >
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                        <div className="min-w-0">
+                          <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">
+                            {desktopPrimaryAction?.eyebrow ?? 'Viewer controls'}
+                          </p>
+                          <p className="mt-2 text-sm font-medium text-sky-100/82">
+                            {desktopPrimaryAction?.title ?? 'Viewer ready'}
+                          </p>
+                        </div>
+                        {desktopPrimaryAction ? (
+                          <button
+                            type="button"
+                            onClick={desktopPrimaryAction.onClick}
+                            disabled={desktopPrimaryAction.disabled}
+                            data-testid={
+                              desktopPrimaryAction.kind === 'open-viewer'
+                                ? 'desktop-primary-open-viewer-action'
+                                : 'desktop-primary-next-action'
+                            }
+                            className={`inline-flex min-h-11 items-center justify-center rounded-full px-5 py-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60 ${
+                              desktopPrimaryAction.tone === 'critical'
+                                ? 'bg-rose-400/90 text-rose-950'
+                                : desktopPrimaryAction.tone === 'info'
+                                  ? 'bg-sky-300 text-slate-950'
+                                  : desktopPrimaryAction.tone === 'success'
+                                    ? 'bg-emerald-300 text-slate-950'
+                                    : 'bg-amber-300 text-slate-950'
+                            }`}
+                          >
+                            {desktopPrimaryAction.label}
+                          </button>
+                        ) : null}
+                      </div>
+                    </section>
+                  </>
+                ) : null}
+                <section className="rounded-[1.2rem] border border-sky-100/10 bg-slate-950/38 px-4 py-4">
+                  <div
+                    className="flex flex-wrap items-center gap-2"
+                    data-testid="desktop-viewer-actions"
+                  >
+                    <DesktopActionButton
+                      label="Sky details"
+                      status={
+                        isDesktopViewerPanelOpen
+                          ? 'Viewer open'
+                          : renderedActiveSummaryObject?.label ?? 'Details'
+                      }
+                      onClick={() =>
+                        setIsDesktopViewerPanelOpen((current) => !current)
+                      }
+                      dataTestId="desktop-open-viewer-action"
+                    />
+                    <DesktopActionButton
+                      label="Align"
+                      status={desktopAlignActionStatus}
+                      onClick={(event) =>
+                        openAlignmentExperience({
+                          opener: event.currentTarget,
+                          surface: 'desktop',
+                        })
+                      }
+                      disabled={!canOpenDesktopAlignment}
+                      dataTestId="desktop-align-action"
+                    />
+                    <DesktopActionButton
+                      label={interactionMode === 'ar' ? 'Disable AR' : 'Enable AR'}
+                      status={desktopEnableArActionStatus}
+                      onClick={handleDesktopArToggleAction}
+                      disabled={desktopArToggleActionDisabled}
+                      dataTestId="desktop-enable-ar-action"
+                    />
+                    <DesktopActionButton
+                      label="Scope"
+                      status={
+                        scopeControlsAvailable
+                          ? formatScopeActionStatus(
+                              hydratedScopeEnabled,
+                              hydratedScopeVerticalFovDeg,
+                            )
+                          : 'Unavailable'
+                      }
+                      onClick={() =>
+                        setViewerSettings((current) => ({
+                          ...current,
+                          scopeModeEnabled: !current.scopeModeEnabled,
+                        }))
+                      }
+                      disabled={!scopeControlsAvailable}
+                      pressed={hydratedScopeEnabled}
+                      dataTestId="desktop-scope-action"
+                    />
+                  </div>
+                </section>
               </div>
             </div>
-            {renderSharedOverlayContent(false)}
-          </section>
+          </header>
+
+          {shouldShowAlignmentInstructions ? (
+            <section className="desktop-only-shell pointer-events-auto mx-auto w-full max-w-5xl">
+              <AlignmentInstructionsPanel
+                targetLabel={calibrationTarget.label}
+                status={alignmentTutorial.status}
+                supportingNotice={alignmentTutorial.supportingNotice}
+                primaryStep={alignmentTutorial.primaryStep}
+                selectedTarget={alignmentTargetPreference}
+                availability={calibrationTargetResolution.availability}
+                onSelectTarget={handleAlignmentTargetPreferenceChange}
+                onResetCalibration={resetCalibration}
+                onFineAdjustCalibration={fineAdjustCalibration}
+                canResetCalibration={canResetCalibration}
+                onClose={closeAlignmentExperience}
+                showStartAlignmentAction={false}
+              />
+            </section>
+          ) : null}
+
+          {isDesktopViewerPanelOpen ? (
+            <section
+              className="desktop-only-shell desktop-only-shell-flex mx-auto w-full max-w-5xl flex-col gap-3"
+              data-testid="desktop-viewer-panel"
+            >
+              {experience.mode === 'blocked' && state.entry !== 'demo' ? (
+                <section className="pointer-events-auto shell-panel rounded-[2rem] p-6">
+                  <p className="text-xs uppercase tracking-[0.2em] text-amber-200/70">
+                    {blockingEyebrow(state, startupState)}
+                  </p>
+                  <h1
+                    className="mt-2 text-2xl font-semibold text-white"
+                    style={{ fontFamily: 'var(--font-display)' }}
+                  >
+                    {blockingCopy.title}
+                  </h1>
+                  <p className="mt-3 max-w-2xl text-sm leading-7 text-sky-100/78">
+                    {blockingCopy.body}
+                  </p>
+                  <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+                    {startupState !== 'unsupported' ? (
+                      <button
+                        type="button"
+                        onClick={handleRetryPermissions}
+                        disabled={isPending}
+                        className="rounded-full bg-amber-300 px-5 py-3 text-sm font-semibold text-slate-950 disabled:cursor-wait disabled:bg-amber-100"
+                      >
+                        {isPending
+                          ? 'Starting AR...'
+                          : startupState === 'ready-to-request'
+                            ? 'Start AR'
+                            : 'Retry startup'}
+                      </button>
+                    ) : null}
+                    <Link
+                      href={createDemoViewerRoute().href}
+                      className="rounded-full border border-sky-100/20 px-5 py-3 text-sm font-semibold text-sky-50"
+                    >
+                      Try demo mode
+                    </Link>
+                  </div>
+                  {retryError ? (
+                    <p className="mt-3 text-sm text-amber-200" role="alert">
+                      {retryError}
+                    </p>
+                  ) : null}
+                  {startupState === 'unsupported' ? (
+                    <p className="mt-3 text-sm text-amber-200">
+                      Live AR requires HTTPS or `localhost`, plus camera, geolocation, and motion
+                      sensor permissions delegated to this page.
+                    </p>
+                  ) : null}
+                </section>
+              ) : (
+                <>
+                  <section className="pointer-events-auto shell-panel rounded-[1.75rem] p-5">
+                    <div className="grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(18rem,0.8fr)]">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">
+                          Viewer snapshot
+                        </p>
+                        <p className="mt-2 text-lg font-semibold text-white">
+                          {renderedActiveSummaryObject
+                            ? renderedActiveSummaryObject.label
+                            : experience.title}
+                        </p>
+                        <p className="mt-2 text-sm leading-6 text-sky-100/80">
+                          {renderedActiveSummaryObject
+                            ? describeSkyObjectForUser(renderedActiveSummaryObject)
+                            : `${experience.body} ${visibilityDiagnosticsNote}`}
+                        </p>
+                      </div>
+                      <div className="rounded-[1.25rem] border border-sky-100/10 bg-white/5 px-4 py-3 text-sm text-sky-100/75">
+                        <p>Location {locationStatusValue}</p>
+                        <p>Camera {cameraStatusValue}</p>
+                        <p>Motion {motionStatusValue}</p>
+                        <p>
+                          Next: {renderedActiveSummaryObject
+                            ? 'keep it centered or select it for more facts'
+                            : 'move the sky until a marker reaches the crosshair'}
+                        </p>
+                      </div>
+                    </div>
+                  </section>
+                  {scopeControlsAvailable && scopeModeActive ? (
+                    <section
+                      className="pointer-events-auto shell-panel rounded-[1.75rem] p-5"
+                      data-testid="desktop-scope-quick-controls"
+                    >
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">
+                            Scope controls
+                          </p>
+                          <p className="mt-2 text-base font-semibold text-white">
+                            Tune the telescope view inside Sky details
+                          </p>
+                        </div>
+                        <p className="text-sm leading-6 text-sky-100/75">
+                          Adjust aperture and magnification here without expanding the desktop
+                          header.
+                        </p>
+                      </div>
+                      <div className={`mt-4 grid gap-3 ${scopeModeActive ? 'sm:grid-cols-2' : ''}`}>
+                        <QuickRangeSlider
+                          label={scopeModeActive ? 'Scope aperture' : 'Aperture'}
+                          value={activeQuickOptics.apertureMm}
+                          suffix=" mm"
+                          min={activeApertureRange.min}
+                          max={activeApertureRange.max}
+                          step={activeApertureRange.step}
+                          valueTestId="desktop-scope-aperture-value"
+                          sliderTestId="desktop-scope-aperture-slider"
+                          onChange={updateActiveAperture}
+                        />
+                        {scopeModeActive ? (
+                          <QuickRangeSlider
+                            label="Scope magnification"
+                            value={activeQuickOptics.magnificationX}
+                            suffix="x"
+                            min={SCOPE_OPTICS_RANGES.magnificationX.min}
+                            max={SCOPE_OPTICS_RANGES.magnificationX.max}
+                            step={SCOPE_OPTICS_RANGES.magnificationX.step}
+                            valueTestId="desktop-scope-magnification-value"
+                            sliderTestId="desktop-scope-magnification-slider"
+                            onChange={updateActiveMagnification}
+                          />
+                        ) : null}
+                      </div>
+                    </section>
+                  ) : null}
+                  <section className="pointer-events-auto shell-panel rounded-[1.75rem] p-5">
+                    <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">
+                      Crosshair object
+                    </p>
+                    {renderedCenterLockedObject ? (
+                      <div className="mt-3 flex flex-col gap-3 text-sm leading-6 text-sky-50/85">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="text-base font-semibold text-white">
+                              {renderedCenterLockedObject.label}
+                            </p>
+                            {renderObjectBadges(renderedCenterLockedObject)}
+                          </div>
+                          <p className="text-sky-100/75">
+                            {formatSkyObjectSublabel(renderedCenterLockedObject)}
+                          </p>
+                        </div>
+                        <p className="text-sky-100/70">
+                          Angular distance {renderedCenterLockedObject.projection.angularDistanceDeg.toFixed(1)}
+                          °
+                        </p>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          {getDetailRows(renderedCenterLockedObject).map((row) => (
+                            <div
+                              key={`${renderedCenterLockedObject.id}-${row.label}`}
+                              className="rounded-2xl border border-sky-100/10 bg-white/5 px-4 py-3"
+                            >
+                              <p className="text-[11px] uppercase tracking-[0.18em] text-sky-200/55">
+                                {row.label}
+                              </p>
+                              <p className="mt-1 text-sm text-white">{row.value}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="mt-3 text-sm leading-6 text-sky-100/80">
+                        Move until an object snaps here.
+                      </p>
+                    )}
+                  </section>
+                  {renderedSelectedDetailObject ? (
+                    <section className="pointer-events-auto shell-panel rounded-[1.75rem] p-5">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">
+                            {detailObjectHeading}
+                          </p>
+                          <div className="mt-2 flex items-center gap-2">
+                            <p className="text-base font-semibold text-white">
+                              {renderedSelectedDetailObject.label}
+                            </p>
+                            {renderObjectBadges(renderedSelectedDetailObject)}
+                          </div>
+                          <p className="text-sm text-sky-100/75">
+                            {formatSkyObjectSublabel(renderedSelectedDetailObject)}
+                          </p>
+                        </div>
+                        {selectedObject ? (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedObjectId(null)}
+                            className="rounded-full border border-sky-100/15 px-3 py-1 text-xs text-sky-50"
+                          >
+                            Close
+                          </button>
+                        ) : null}
+                      </div>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                        {getDetailRows(renderedSelectedDetailObject).map((row) => (
+                          <div
+                            key={`${renderedSelectedDetailObject.id}-${row.label}`}
+                            className="rounded-2xl border border-sky-100/10 bg-white/5 px-4 py-3"
+                          >
+                            <p className="text-[11px] uppercase tracking-[0.18em] text-sky-200/55">
+                              {row.label}
+                            </p>
+                            <p className="mt-1 text-sm text-white">{row.value}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  ) : null}
+                  {manualObserverPanel}
+                  <DevelopmentOrientationDiagnostics
+                    sample={latestOrientationSample}
+                    sampleAgeMs={orientationSampleAgeMs}
+                    sampleRateHz={orientationSampleRateHz}
+                    poseCalibration={viewerSettings.poseCalibration}
+                    orientationUpgradedFromRelative={orientationUpgradedFromRelative}
+                    orientationLifecycle={orientationLifecycleDiagnostic}
+                    cameraLifecycle={cameraLifecycleDiagnostic}
+                  />
+                  <DevelopmentMainViewDeepStarDiagnostics
+                    governor={mainViewDeepStarGovernor}
+                  />
+                  <section className="pointer-events-auto shell-panel rounded-[1.75rem] p-5">
+                    <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">
+                      Privacy reassurance
+                    </p>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      {PRIVACY_REASSURANCE_COPY.map((copy) => (
+                        <p
+                          key={copy}
+                          className="rounded-2xl border border-sky-100/10 bg-white/5 px-4 py-3 text-sm leading-6 text-sky-50/85"
+                        >
+                          {copy}
+                        </p>
+                      ))}
+                    </div>
+                  </section>
+                </>
+              )}
+            </section>
+          ) : null}
         </div>
       </div>
-
-      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-20 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:hidden">
+      <div className="compact-only-shell pointer-events-none fixed inset-x-0 bottom-0 z-20 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
         {shouldShowAlignmentInstructions ? (
           <CompactMobilePanelShell
+            ref={mobileAlignmentOverlayPanelRef}
             shellTestId="mobile-alignment-overlay-shell"
-            shellClassName="pointer-events-none z-40"
+            shellClassName="pointer-events-auto z-40"
+            shellChildren={
+              <button
+                type="button"
+                aria-label="Close alignment instructions"
+                data-testid="mobile-alignment-overlay-backdrop"
+                onClick={closeAlignmentExperience}
+                className="absolute inset-0 bg-slate-950/45"
+              />
+            }
             panelTestId="mobile-alignment-overlay-panel"
             panelClassName="pointer-events-auto"
+            panelProps={{
+              role: 'dialog',
+              'aria-modal': 'true',
+              'aria-label': 'Alignment instructions',
+              tabIndex: -1,
+              onKeyDown: handleMobileAlignmentOverlayKeyDown,
+            }}
             scrollRegionTestId="mobile-alignment-overlay-scroll-region"
           >
             <div className="grid gap-3 pb-1 pr-1" data-testid="alignment-instructions-panel">
               <AlignmentInstructionsContent
                 {...mobileAlignmentPanelProps}
                 compact
+                closeButtonRef={mobileAlignmentOverlayCloseButtonRef}
               />
             </div>
           </CompactMobilePanelShell>
         ) : null}
         {isMobileOverlayOpen && !isMobileAlignmentFocusActive ? (
-          shouldUseCompactNonScrollingOverlay ? (
+          <>
             <CompactMobilePanelShell
-              shellTestId="mobile-viewer-overlay-shell"
-              shellClassName="pointer-events-auto z-30"
-              shellChildren={
-                <button
-                  type="button"
-                  aria-label="Close viewer overlay"
-                  data-testid="mobile-viewer-overlay-backdrop"
-                  onClick={() => setIsMobileOverlayOpen(false)}
-                  className="absolute inset-0 bg-slate-950/45"
-                />
-              }
-              panelTestId="mobile-viewer-overlay"
-              panelProps={{
-                id: 'mobile-viewer-overlay',
-                onClick: (event) => event.stopPropagation(),
-              }}
-              header={
-                <div className="mb-3 flex items-start justify-between gap-3">
-                  <div
-                    className="min-w-0 rounded-[1.25rem] border border-sky-100/10 bg-white/5 px-4 py-3"
-                    data-testid="mobile-viewer-header"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="min-w-0">
-                        <p className="text-xs uppercase tracking-[0.2em] text-sky-200/65">
-                          SkyLens
-                        </p>
-                        <h2 className="truncate text-sm text-sky-50/90">{experience.title}</h2>
-                      </div>
-                      <div className="rounded-full bg-emerald-400/10 px-3 py-1 text-xs text-emerald-100/85">
-                        {alignmentBadgeValue(state, cameraPose, startupState)}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 items-start gap-2">
-                    <div>
-                      <SettingsSheet {...mobileSettingsSheetProps} />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setIsMobileOverlayOpen(false)}
-                      className="min-h-11 rounded-full border border-sky-100/15 px-3 py-1 text-xs text-sky-50"
-                    >
-                      Close
-                    </button>
-                  </div>
-                </div>
-              }
-              scrollRegionTestId="mobile-viewer-overlay-compact-content"
-            >
-              <div className="grid gap-3 pb-1 pr-1">{renderSharedOverlayContent(true)}</div>
-            </CompactMobilePanelShell>
-          ) : (
-            <div
-              className="pointer-events-auto fixed inset-0 z-30 overflow-y-auto px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-[calc(1rem+env(safe-area-inset-top))]"
-              data-testid="mobile-viewer-overlay-scroll-region"
-            >
+            ref={mobileViewerOverlayPanelRef}
+            shellTestId="mobile-viewer-overlay-shell"
+            shellClassName="pointer-events-auto z-30"
+            shellChildren={
               <button
                 type="button"
                 aria-label="Close viewer overlay"
                 data-testid="mobile-viewer-overlay-backdrop"
-                onClick={() => setIsMobileOverlayOpen(false)}
+                onClick={closeMobileViewerOverlay}
                 className="absolute inset-0 bg-slate-950/45"
               />
-              <div className="relative flex min-h-full items-end">
-                <section
-                  id="mobile-viewer-overlay"
-                  data-testid="mobile-viewer-overlay"
-                  onClick={(event) => event.stopPropagation()}
-                  className="shell-panel relative mx-auto w-full max-w-xl rounded-[1.5rem] p-4"
+            }
+            panelTestId="mobile-viewer-overlay"
+            panelProps={{
+              id: 'mobile-viewer-overlay',
+              role: 'dialog',
+              'aria-modal': 'true',
+              'aria-label': 'Viewer details',
+              tabIndex: -1,
+              onClick: (event) => event.stopPropagation(),
+              onKeyDown: handleMobileViewerOverlayKeyDown,
+            }}
+            header={
+              <div className="mb-3 flex flex-col gap-3 min-[390px]:flex-row min-[390px]:items-start min-[390px]:justify-between">
+                <div
+                  className="min-w-0 flex-1 rounded-[1.25rem] border border-sky-100/10 bg-white/5 px-4 py-3"
+                  data-testid="mobile-viewer-header"
                 >
-                  <div className="mb-3 flex items-start justify-between gap-3">
-                    <div
-                      className="min-w-0 rounded-[1.25rem] border border-sky-100/10 bg-white/5 px-4 py-3"
-                      data-testid="mobile-viewer-header"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="min-w-0">
-                          <p className="text-xs uppercase tracking-[0.2em] text-sky-200/65">
-                            SkyLens
-                          </p>
-                          <h2 className="truncate text-sm text-sky-50/90">{experience.title}</h2>
-                        </div>
-                        <div className="rounded-full bg-emerald-400/10 px-3 py-1 text-xs text-emerald-100/85">
-                          {alignmentBadgeValue(state, cameraPose, startupState)}
-                        </div>
-                      </div>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs uppercase tracking-[0.2em] text-sky-200/65">
+                        SkyLens
+                      </p>
+                      <p className="text-sm text-sky-50/90">{experience.title}</p>
                     </div>
-                    <div className="flex shrink-0 items-start gap-2">
-                      <div>
-                        <SettingsSheet {...mobileSettingsSheetProps} />
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setIsMobileOverlayOpen(false)}
-                        className="min-h-11 rounded-full border border-sky-100/15 px-3 py-1 text-xs text-sky-50"
-                      >
-                        Close
-                      </button>
+                    <div className="rounded-full bg-emerald-400/10 px-3 py-1 text-xs text-emerald-100/85">
+                      {alignmentBadgeValue(state, cameraPose, startupState)}
                     </div>
                   </div>
-                  <div className="grid gap-3">{renderSharedOverlayContent(true)}</div>
-              </section>
+                </div>
+                <div className="flex shrink-0 items-start gap-2 self-end">
+                  <div>
+                    <SettingsSheet {...mobileSettingsSheetProps} />
+                  </div>
+                  <button
+                    ref={mobileViewerOverlayCloseButtonRef}
+                    type="button"
+                    onClick={closeMobileViewerOverlay}
+                    className="min-h-11 rounded-full border border-sky-100/15 px-3 py-1 text-xs text-sky-50"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            }
+            scrollRegionTestId={
+              shouldUseCompactNonScrollingOverlay
+                ? 'mobile-viewer-overlay-compact-content'
+                : 'mobile-viewer-overlay-scroll-region'
+            }
+          >
+            <div className={`grid gap-3 ${shouldUseCompactNonScrollingOverlay ? 'pb-1 pr-1' : ''}`}>
+              <div className="flex flex-wrap gap-2">
+                <StatusBadge label="Location" value={locationStatusValue} />
+                <StatusBadge label="Camera" value={cameraStatusValue} />
+                <StatusBadge label="Motion" value={motionStatusValue} />
+              </div>
+              {sharedBannerFeed.primary ? (
+                <div className="grid gap-2">
+                  <FallbackBanner
+                    title={sharedBannerFeed.primary.title}
+                    body={sharedBannerFeed.primary.body}
+                    critical={sharedBannerFeed.primary.critical}
+                    tone={sharedBannerFeed.primary.tone}
+                    actionLabel={sharedBannerFeed.primary.actionLabel}
+                    onAction={
+                      sharedBannerFeed.primary.actionId
+                        ? () =>
+                            handleSharedBannerAction(sharedBannerFeed.primary!.actionId, {
+                              surface: 'mobile',
+                            })
+                        : undefined
+                    }
+                    actionDisabled={sharedBannerFeed.primary.actionDisabled}
+                    footer={sharedBannerFeed.primary.footer}
+                  />
+                  {sharedBannerFeed.compactNotice ? (
+                    <CompactPersistentNotice
+                      testId="mobile-compact-motion-warning"
+                      title={sharedBannerFeed.compactNotice.title}
+                      body={sharedBannerFeed.compactNotice.body}
+                    />
+                  ) : null}
+                  {sharedBannerFeed.overflow.length > 0 ? (
+                    <BannerOverflowDisclosure
+                      banners={sharedBannerFeed.overflow}
+                      variant="mobile"
+                      onAction={handleSharedBannerAction}
+                    />
+                  ) : null}
+                </div>
+              ) : null}
+              {shouldUseCompactNonScrollingOverlay ? (
+                <>
+                  <DevelopmentOrientationDiagnostics
+                    sample={latestOrientationSample}
+                    sampleAgeMs={orientationSampleAgeMs}
+                    sampleRateHz={orientationSampleRateHz}
+                    poseCalibration={viewerSettings.poseCalibration}
+                    orientationUpgradedFromRelative={orientationUpgradedFromRelative}
+                    orientationLifecycle={orientationLifecycleDiagnostic}
+                    cameraLifecycle={cameraLifecycleDiagnostic}
+                  />
+                  <DevelopmentMainViewDeepStarDiagnostics
+                    governor={mainViewDeepStarGovernor}
+                  />
+                  <section className="rounded-[1.25rem] border border-sky-100/10 bg-white/5 p-4">
+                    <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">
+                      Viewer snapshot
+                    </p>
+                    <div className="mt-2 flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-base font-semibold text-white">
+                          {renderedActiveSummaryObject
+                            ? renderedActiveSummaryObject.label
+                            : experience.title}
+                        </p>
+                        <p className="mt-1 text-sm leading-6 text-sky-100/80">
+                          {renderedCenterLockedObject
+                            ? `${renderedCenterLockedObject.label} is nearest the center crosshair.`
+                            : visibilityDiagnosticsNote}
+                        </p>
+                      </div>
+                      <div className="rounded-full border border-sky-100/10 bg-slate-950/35 px-3 py-1 text-xs text-sky-100/75">
+                        Target {calibrationTarget.label}
+                      </div>
+                    </div>
+                    <p className="mt-3 rounded-2xl border border-sky-100/10 bg-slate-950/35 px-4 py-3 text-sm text-sky-100/75">
+                      {renderedActiveSummaryObject
+                        ? describeSkyObjectForUser(renderedActiveSummaryObject)
+                        : 'Move the sky until a marker reaches the crosshair, then tap it for details.'}
+                    </p>
+                  </section>
+                </>
+              ) : (
+                <>
+                  {experience.mode === 'blocked' && state.entry !== 'demo' ? (
+                    <section className="rounded-[1.25rem] border border-sky-100/10 bg-white/5 p-4">
+                      <p className="text-xs uppercase tracking-[0.2em] text-amber-200/70">
+                        {blockingEyebrow(state, startupState)}
+                      </p>
+                      <h2 className="mt-2 text-lg font-semibold text-white">
+                        {blockingCopy.title}
+                      </h2>
+                      <p className="mt-2 text-sm leading-6 text-sky-100/80">{blockingCopy.body}</p>
+                      <div className="mt-4 flex flex-col gap-2">
+                        {startupState !== 'unsupported' ? (
+                          <button
+                            type="button"
+                            onClick={handleRetryPermissions}
+                            disabled={isPending}
+                            className="rounded-full bg-amber-300 px-4 py-2 text-sm font-semibold text-slate-950 disabled:cursor-wait disabled:bg-amber-100"
+                          >
+                            {isPending
+                              ? 'Starting AR...'
+                              : startupState === 'ready-to-request'
+                                ? 'Start AR'
+                                : 'Retry startup'}
+                          </button>
+                        ) : null}
+                        <Link
+                          href={createDemoViewerRoute().href}
+                          className="rounded-full border border-sky-100/20 px-4 py-2 text-center text-sm font-semibold text-sky-50"
+                        >
+                          Try demo mode
+                        </Link>
+                      </div>
+                      {retryError ? (
+                        <p className="mt-3 text-sm text-amber-200" role="alert">
+                          {retryError}
+                        </p>
+                      ) : null}
+                      {startupState === 'unsupported' ? (
+                        <p className="mt-3 text-sm text-amber-200">
+                          Live AR requires HTTPS or `localhost` plus delegated camera,
+                          geolocation, and sensor permissions.
+                        </p>
+                      ) : null}
+                    </section>
+                  ) : (
+                    <>
+                      {manualObserverPanel}
+                      <DevelopmentOrientationDiagnostics
+                        sample={latestOrientationSample}
+                        sampleAgeMs={orientationSampleAgeMs}
+                        sampleRateHz={orientationSampleRateHz}
+                        poseCalibration={viewerSettings.poseCalibration}
+                        orientationUpgradedFromRelative={orientationUpgradedFromRelative}
+                        orientationLifecycle={orientationLifecycleDiagnostic}
+                        cameraLifecycle={cameraLifecycleDiagnostic}
+                      />
+                      <DevelopmentMainViewDeepStarDiagnostics
+                        governor={mainViewDeepStarGovernor}
+                      />
+                      <section className="rounded-[1.25rem] border border-sky-100/10 bg-white/5 p-4">
+                        <div className="flex flex-col gap-4">
+                          <div>
+                            <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">
+                              Celestial layer
+                            </p>
+                            <h2 className="mt-2 text-lg font-semibold text-white">
+                              {renderedActiveSummaryObject
+                                ? renderedActiveSummaryObject.label
+                                : experience.title}
+                            </h2>
+                            <p className="mt-2 text-sm leading-6 text-sky-100/80">
+                              {renderedActiveSummaryObject
+                                ? describeSkyObjectForUser(renderedActiveSummaryObject)
+                                : `${experience.body} ${visibilityDiagnosticsNote}`}
+                            </p>
+                          </div>
+                          <div className="rounded-[1rem] border border-sky-100/10 bg-slate-950/35 px-4 py-3 text-sm text-sky-100/75">
+                            <p>Location {locationStatusValue}</p>
+                            <p>Camera {cameraStatusValue}</p>
+                            <p>Motion {motionStatusValue}</p>
+                            <p className="mt-2 text-sky-50">
+                              Next: {renderedActiveSummaryObject
+                                ? 'keep it centered or tap it for more facts'
+                                : 'move until a marker reaches the crosshair'}
+                            </p>
+                          </div>
+                        </div>
+                      </section>
+                      <section className="rounded-[1.25rem] border border-sky-100/10 bg-white/5 p-4 text-sm text-sky-50/85">
+                        {renderedCenterLockedObject ? (
+                          <>
+                            <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">
+                              Center object
+                            </p>
+                            <div className="mt-2 flex items-center gap-2">
+                              <p className="text-base font-semibold text-white">
+                                {renderedCenterLockedObject.label}
+                              </p>
+                              {renderObjectBadges(renderedCenterLockedObject)}
+                            </div>
+                            <p className="text-sky-100/75">
+                              {formatSkyObjectSublabel(renderedCenterLockedObject)}
+                            </p>
+                            <p className="mt-2 text-sky-100/70">
+                              Angular distance{' '}
+                              {renderedCenterLockedObject.projection.angularDistanceDeg.toFixed(1)}°
+                            </p>
+                          </>
+                        ) : (
+                          <p className="text-sm leading-6 text-sky-100/80">
+                            Move until an object snaps here.
+                          </p>
+                        )}
+                      </section>
+                      {renderedSelectedDetailObject ? (
+                        <section className="rounded-[1.25rem] border border-sky-100/10 bg-white/5 p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">
+                                Selected object
+                              </p>
+                              <div className="mt-2 flex items-center gap-2">
+                                <p className="text-base font-semibold text-white">
+                                  {renderedSelectedDetailObject.label}
+                                </p>
+                                {renderObjectBadges(renderedSelectedDetailObject)}
+                              </div>
+                              <p className="text-sm text-sky-100/75">
+                                {formatSkyObjectSublabel(renderedSelectedDetailObject)}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedObjectId(null)}
+                              className="rounded-full border border-sky-100/15 px-3 py-1 text-xs text-sky-50"
+                            >
+                              Close
+                            </button>
+                          </div>
+                          <div className="mt-3 grid gap-2">
+                            {getDetailRows(renderedSelectedDetailObject).map((row) => (
+                              <div
+                                key={`${renderedSelectedDetailObject.id}-${row.label}`}
+                                className="rounded-2xl border border-sky-100/10 bg-slate-950/35 px-4 py-3"
+                              >
+                                <p className="text-[11px] uppercase tracking-[0.18em] text-sky-200/55">
+                                  {row.label}
+                                </p>
+                                <p className="mt-1 text-sm text-white">{row.value}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </section>
+                      ) : null}
+                    </>
+                  )}
+                  <section className="rounded-[1.25rem] border border-sky-100/10 bg-white/5 p-4">
+                    <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">
+                      Privacy reassurance
+                    </p>
+                    <div className="mt-3 grid gap-3">
+                      {PRIVACY_REASSURANCE_COPY.map((copy) => (
+                        <p
+                          key={copy}
+                          className="rounded-2xl border border-sky-100/10 bg-slate-950/35 px-4 py-3 text-sm leading-6 text-sky-50/85"
+                        >
+                          {copy}
+                        </p>
+                      ))}
+                    </div>
+                  </section>
+                </>
+              )}
             </div>
-          </div>
-          )
+          </CompactMobilePanelShell>
+          </>
         ) : (
           <>
             <div className="grid justify-center gap-3" data-testid="mobile-viewer-quick-actions">
               {!isMobileAlignmentFocusActive ? (
-                <ScopeQuickControls
-                  layout="mobile"
-                  scopeModeEnabled={viewerSettings.scopeModeEnabled}
-                  scopeOptics={viewerSettings.scopeOptics}
-                  onScopeModeEnabledChange={setScopeModeEnabled}
-                  onApertureChange={(value) => updateScopeOpticsValue('apertureMm', value)}
-                  onMagnificationChange={(value) =>
-                    updateScopeOpticsValue('magnificationX', value)
-                  }
-                />
+                <div
+                  className="grid gap-3"
+                  data-testid="mobile-scope-quick-controls"
+                >
+                  <QuickRangeSlider
+                    label={scopeModeActive ? 'Scope aperture' : 'Aperture'}
+                    value={activeQuickOptics.apertureMm}
+                    suffix=" mm"
+                    min={activeApertureRange.min}
+                    max={activeApertureRange.max}
+                    step={activeApertureRange.step}
+                    valueTestId="mobile-scope-aperture-value"
+                    sliderTestId="mobile-scope-aperture-slider"
+                    onChange={updateActiveAperture}
+                  />
+                  {scopeModeActive ? (
+                    <QuickRangeSlider
+                      label="Scope magnification"
+                      value={activeQuickOptics.magnificationX}
+                      suffix="x"
+                      min={SCOPE_OPTICS_RANGES.magnificationX.min}
+                      max={SCOPE_OPTICS_RANGES.magnificationX.max}
+                      step={SCOPE_OPTICS_RANGES.magnificationX.step}
+                      valueTestId="mobile-scope-magnification-value"
+                      sliderTestId="mobile-scope-magnification-slider"
+                      onChange={updateActiveMagnification}
+                    />
+                  ) : null}
+                </div>
               ) : null}
               <div className="pointer-events-auto flex flex-wrap justify-center gap-2">
                 {!isMobileAlignmentFocusActive ? (
                   <button
+                    ref={mobileViewerOverlayTriggerRef}
                     type="button"
-                    onClick={() => setIsMobileOverlayOpen(true)}
+                    onClick={openMobileViewerOverlay}
                     aria-controls="mobile-viewer-overlay"
                     aria-expanded={isMobileOverlayOpen}
                     data-testid="mobile-viewer-overlay-trigger"
                     className="min-h-11 rounded-full border border-sky-100/15 bg-slate-950/70 px-5 py-3 text-sm font-semibold text-sky-50 shadow-[0_12px_30px_rgba(3,7,13,0.32)]"
                   >
-                    Open viewer
-                  </button>
-                ) : null}
-                {showMobilePermissionAction && !isMobileAlignmentFocusActive ? (
-                  <button
-                    type="button"
-                    onClick={handlePermissionRecoveryAction}
-                    disabled={isPending}
-                    data-testid="mobile-permission-action"
-                    className="min-h-11 rounded-full bg-amber-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-[0_12px_30px_rgba(251,191,36,0.22)] disabled:cursor-wait disabled:bg-amber-100"
-                  >
-                    {isPending
-                      ? permissionRecoveryAction.pendingLabel
-                      : permissionRecoveryAction.label}
+                    Sky details
                   </button>
                 ) : null}
                 {showMobileAlignAction ? (
                   <button
+                    ref={mobileAlignActionRef}
                     type="button"
-                    onClick={openAlignmentExperience}
+                    onClick={() =>
+                      openAlignmentExperience({
+                        opener: mobileAlignActionRef.current,
+                        surface: 'mobile',
+                      })
+                    }
                     data-testid="mobile-align-action"
                     className="min-h-11 rounded-full border border-sky-100/15 bg-slate-950/80 px-5 py-3 text-sm font-semibold text-sky-50 shadow-[0_12px_30px_rgba(3,7,13,0.32)]"
                   >
                     Align
                   </button>
                 ) : null}
+                {showMobileScopeAction ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setViewerSettings((current) => ({
+                        ...current,
+                        scopeModeEnabled: !current.scopeModeEnabled,
+                      }))
+                    }
+                    aria-pressed={hydratedScopeEnabled}
+                    data-testid="mobile-scope-action"
+                    className={`min-h-11 rounded-full border px-5 py-3 text-sm font-semibold shadow-[0_12px_30px_rgba(3,7,13,0.32)] ${
+                      hydratedScopeEnabled
+                        ? 'border-amber-200/45 bg-amber-200/18 text-amber-50'
+                        : 'border-sky-100/15 bg-slate-950/80 text-sky-50'
+                    }`}
+                  >
+                    Scope
+                  </button>
+                ) : null}
               </div>
             </div>
           </>
         )}
+        {showMobileArToggle ? (
+          <div
+            className="pointer-events-auto relative z-50 flex justify-center pt-3"
+            data-testid="mobile-ar-toggle-bar"
+          >
+            <button
+              type="button"
+              onClick={handleMobileArClick}
+              disabled={
+                state.entry === 'demo' ||
+                (isPending && interactionModeRef.current !== 'ar')
+              }
+              data-testid="mobile-permission-action"
+              className={mobileArToggleStandaloneButtonClassName}
+            >
+              {mobileArToggleLabel}
+            </button>
+          </div>
+        ) : null}
       </div>
     </main>
   )
 }
 
-function isMotionAffordanceEligible(object: ProjectedSkyObject | null) {
+function isMotionAffordanceEligible(object: SummarySkyObject | null) {
   if (!object) {
     return false
   }
@@ -3805,7 +5812,49 @@ function renderMotionAffordance(
   )
 }
 
-function getMarkerVisualClassName(
+function resolveInteractionSummaryObject(
+  objectId: string | null,
+  interactionSurface: InteractionSurface,
+  {
+    scopeModeActive,
+    stageAllObjects,
+    stageObjects,
+    stageDeepStars,
+    scopeAllObjects,
+    scopeObjects,
+    scopeDeepStars,
+  }: {
+    scopeModeActive: boolean
+    stageAllObjects: ProjectedSkyObject[]
+    stageObjects: ProjectedSkyObject[]
+    stageDeepStars: ProjectedDeepStarObject[]
+    scopeAllObjects: ScopeProjectedSkyObject[]
+    scopeObjects: ScopeProjectedSkyObject[]
+    scopeDeepStars: ProjectedDeepStarObject[]
+  },
+) {
+  if (objectId === null) {
+    return null
+  }
+
+  if (scopeModeActive && interactionSurface === 'scope') {
+    return (
+      scopeObjects.find((object) => object.id === objectId) ??
+      scopeAllObjects.find((object) => object.id === objectId) ??
+      scopeDeepStars.find((object) => object.id === objectId && object.scopeInLensCircle) ??
+      null
+    )
+  }
+
+  return (
+    stageObjects.find((object) => object.id === objectId) ??
+    stageAllObjects.find((object) => object.id === objectId) ??
+    stageDeepStars.find((object) => object.id === objectId) ??
+    null
+  )
+}
+
+function getMarkerVisualStyle(
   object: SkyObject,
   {
     centerLockedObjectId,
@@ -3818,30 +5867,98 @@ function getMarkerVisualClassName(
   const isFocused = object.id === centerLockedObjectId || object.id === selectedObjectId
   const motionStateClassName = getMovingObjectMarkerStateClassName(object)
 
+  if (isFocused && isMainViewDeepStarObject(object)) {
+    const color = getStarColorFromBMinusV(object.bMinusV)
+
+    return {
+      className: `rotate-45 border ${motionStateClassName}`,
+      style: {
+        backgroundColor: color,
+        borderColor: 'rgba(254, 243, 199, 0.85)',
+        boxShadow:
+          '0 0 0 4px rgba(251,191,36,0.14), 0 0 18px rgba(251,191,36,0.4), 0 0 10px ' +
+          color,
+      },
+    }
+  }
+
   if (isFocused) {
-    return `rounded-full border border-amber-100/80 bg-amber-200/35 shadow-[0_0_0_4px_rgba(251,191,36,0.14),0_0_18px_rgba(251,191,36,0.4)] ${motionStateClassName}`
+    return {
+      className: `rounded-full border border-amber-100/80 bg-amber-200/35 shadow-[0_0_0_4px_rgba(251,191,36,0.14),0_0_18px_rgba(251,191,36,0.4)] ${motionStateClassName}`,
+      style: undefined,
+    }
+  }
+
+  if (isMainViewDeepStarObject(object)) {
+    const color = getStarColorFromBMinusV(object.bMinusV)
+
+    return {
+      className: 'rotate-45 border',
+      style: {
+        backgroundColor: color,
+        borderColor: color,
+        boxShadow: `0 0 12px ${color}`,
+      },
+    }
   }
 
   switch (object.type) {
     case 'sun':
-      return 'rounded-full border border-amber-100/75 bg-amber-200/55 shadow-[0_0_16px_rgba(251,191,36,0.42)]'
+      return {
+        className:
+          'rounded-full border border-amber-100/75 bg-amber-200/55 shadow-[0_0_16px_rgba(251,191,36,0.42)]',
+        style: undefined,
+      }
     case 'moon':
-      return 'rounded-full border border-slate-100/70 bg-slate-100/65 shadow-[0_0_14px_rgba(226,232,240,0.24)]'
+      return {
+        className:
+          'rounded-full border border-slate-100/70 bg-slate-100/65 shadow-[0_0_14px_rgba(226,232,240,0.24)]',
+        style: undefined,
+      }
     case 'planet':
-      return 'rounded-full border border-emerald-100/65 bg-emerald-200/45 shadow-[0_0_14px_rgba(110,231,183,0.24)]'
+      return {
+        className:
+          'rounded-full border border-emerald-100/65 bg-emerald-200/45 shadow-[0_0_14px_rgba(110,231,183,0.24)]',
+        style: undefined,
+      }
     case 'star':
-      return 'rotate-45 border border-sky-100/80 bg-sky-50/80 shadow-[0_0_12px_rgba(186,230,253,0.22)]'
+      return {
+        className:
+          'rotate-45 border border-sky-100/80 bg-sky-50/80 shadow-[0_0_12px_rgba(186,230,253,0.22)]',
+        style: undefined,
+      }
     case 'constellation':
-      return 'rounded-sm border border-sky-100/65 bg-sky-100/18 shadow-[0_0_10px_rgba(186,230,253,0.16)]'
+      return {
+        className:
+          'rounded-sm border border-sky-100/65 bg-sky-100/18 shadow-[0_0_10px_rgba(186,230,253,0.16)]',
+        style: undefined,
+      }
     case 'satellite':
-      return object.metadata.isIss === true
-        ? `rounded-[0.4rem] border border-violet-100/70 bg-violet-200/42 shadow-[0_0_14px_rgba(196,181,253,0.28)] ${motionStateClassName}`
-        : `rounded-[0.35rem] border border-sky-100/70 bg-sky-200/38 shadow-[0_0_12px_rgba(125,211,252,0.2)] ${motionStateClassName}`
+      return {
+        className:
+          object.metadata.isIss === true
+            ? `rounded-[0.4rem] border border-violet-100/70 bg-violet-200/42 shadow-[0_0_14px_rgba(196,181,253,0.28)] ${motionStateClassName}`
+            : `rounded-[0.35rem] border border-sky-100/70 bg-sky-200/38 shadow-[0_0_12px_rgba(125,211,252,0.2)] ${motionStateClassName}`,
+        style: undefined,
+      }
     case 'aircraft':
-      return `rounded-[0.35rem] border border-cyan-100/70 bg-cyan-200/38 shadow-[0_0_12px_rgba(103,232,249,0.22)] ${motionStateClassName}`
+      return {
+        className:
+          `rounded-[0.35rem] border border-cyan-100/70 bg-cyan-200/38 shadow-[0_0_12px_rgba(103,232,249,0.22)] ${motionStateClassName}`,
+        style: undefined,
+      }
     default:
-      return 'rounded-full border border-sky-100/70 bg-sky-100/30'
+      return {
+        className: 'rounded-full border border-sky-100/70 bg-sky-100/30',
+        style: undefined,
+      }
   }
+}
+
+function isMainViewDeepStarObject(
+  object: SkyObject,
+): object is ProjectedDeepStarObject {
+  return 'source' in object && object.source === 'scope-deep-star'
 }
 
 function getMovingObjectMarkerStateClassName(object: SkyObject) {
@@ -3855,12 +5972,112 @@ function getMovingObjectMarkerStateClassName(object: SkyObject) {
   }
 }
 
-function getMarkerSizePx(
+function resolveMarkerEligibleProjectedObjects<T extends ProjectedSkyObject>(
+  objects: T[],
+  {
+    centerLockedObjectId,
+    selectedObjectId,
+  }: {
+    centerLockedObjectId: string | null
+    selectedObjectId: string | null
+  },
+) {
+  return objects.filter(
+    (object) =>
+      object.projection.visible &&
+      (!isCelestialDaylightLabelSuppressed(object) ||
+        object.id === centerLockedObjectId ||
+        object.id === selectedObjectId),
+  )
+}
+
+function toCenterLockCandidate(object: SummarySkyObject) {
+  return {
+    id: object.id,
+    angularDistanceDeg: object.projection.angularDistanceDeg,
+    brightnessScore: getCenterLockBrightnessScore(object),
+  }
+}
+
+function getCenterLockBrightnessScore(object: SkyObject) {
+  if (typeof object.magnitude === 'number' && Number.isFinite(object.magnitude)) {
+    return -object.magnitude
+  }
+
+  return object.importance
+}
+
+function offsetScopeProjectionToStage(
+  projection: ReturnType<typeof projectWorldPointToScreenWithProfile>,
+  offsetX: number,
+  offsetY: number,
+) {
+  return {
+    ...projection,
+    x: projection.x + offsetX,
+    y: projection.y + offsetY,
+    inViewport: projection.inViewport,
+  }
+}
+
+function getScopeMarkerSizePx(
   object: SkyObject,
-  verticalFovAdjustmentDeg: number,
+  {
+    lensDiameterPx,
+    scopeVerticalFovDeg,
+    markerScale,
+  }: {
+    lensDiameterPx: number
+    scopeVerticalFovDeg: number
+    markerScale: number
+  },
+) {
+  const scopeRender = getScopeRenderProfile(object)
+
+  if (object.type === 'star' && scopeRender) {
+    return Math.max(1, Math.round(scopeRender.haloPx * markerScale))
+  }
+
+  if (isScopeExtendedObject(object)) {
+    return getScopeExtendedObjectSizePx(object, {
+      lensDiameterPx,
+      scopeVerticalFovDeg,
+      markerScale,
+    })
+  }
+
+  return getMarkerSizePxForEffectiveVerticalFovDeg(
+    object,
+    scopeVerticalFovDeg,
+    markerScale,
+  )
+}
+
+function getScopeMarkerOpacity(object: SkyObject, scopeOptics: ScopeOptics) {
+  const scopeRender = getScopeRenderProfile(object)
+
+  if (object.type === 'star' && scopeRender) {
+    return clampNumber(scopeRender.intensity, 0.18, 1)
+  }
+
+  if (isScopeExtendedObject(object)) {
+    return getScopeExtendedObjectOpacity(object, scopeOptics)
+  }
+
+  return 1
+}
+
+function getScopeDeepStarImportance(magnitude: number, hasDisplayName: boolean) {
+  const baseImportance = clampNumber((12 - magnitude) * 4.5, 8, 54)
+
+  return hasDisplayName ? baseImportance + 10 : baseImportance
+}
+
+function getMarkerSizePxForEffectiveVerticalFovDeg(
+  object: SkyObject,
+  effectiveFovDeg: number,
   markerScale: number,
 ) {
-  const effectiveFovDeg = getEffectiveVerticalFovDeg(verticalFovAdjustmentDeg)
   const fovScale = clampNumber(50 / effectiveFovDeg, 0.82, 1.24)
 
   if (object.type === 'star') {
@@ -3905,6 +6122,199 @@ function getMarkerSizePx(
   const scaleOneSizePx = Math.max(6, Math.round(sizePx * fovScale))
 
   return Math.max(1, Math.round(scaleOneSizePx * markerScale))
+}
+
+function getScopeLensDiameterPx(
+  viewport: {
+    width: number
+    height: number
+  },
+  scopeLensDiameterPct: number,
+) {
+  const safeWidth = Number.isFinite(viewport.width) ? viewport.width : DEFAULT_VIEWPORT.width
+  const safeHeight = Number.isFinite(viewport.height) ? viewport.height : DEFAULT_VIEWPORT.height
+  const normalizedScopeLensDiameterPct = normalizeScopeLensDiameterPct(scopeLensDiameterPct)
+  const requestedDiameterPx = safeHeight * (normalizedScopeLensDiameterPct / 100)
+  const viewportSafeMaxPx = Math.max(
+    1,
+    Math.min(
+      safeWidth - SCOPE_LENS_VIEWPORT_MARGIN_PX,
+      safeHeight - SCOPE_LENS_VIEWPORT_MARGIN_PX,
+      SCOPE_LENS_DIAMETER_PX_RANGE.max,
+    ),
+  )
+  const viewportSafeMinPx = Math.min(SCOPE_LENS_DIAMETER_PX_RANGE.min, viewportSafeMaxPx)
+  const supportedRangeMinDiameterPx =
+    safeHeight * (SCOPE_LENS_DIAMETER_PCT_RANGE.min / 100)
+
+  if (
+    supportedRangeMinDiameterPx > viewportSafeMaxPx &&
+    viewportSafeMaxPx > viewportSafeMinPx
+  ) {
+    const normalizedPercentWithinRange =
+      (normalizedScopeLensDiameterPct - SCOPE_LENS_DIAMETER_PCT_RANGE.min) /
+      (SCOPE_LENS_DIAMETER_PCT_RANGE.max - SCOPE_LENS_DIAMETER_PCT_RANGE.min)
+
+    return clampNumber(
+      viewportSafeMinPx +
+        normalizedPercentWithinRange * (viewportSafeMaxPx - viewportSafeMinPx),
+      viewportSafeMinPx,
+      viewportSafeMaxPx,
+    )
+  }
+
+  return clampNumber(requestedDiameterPx, viewportSafeMinPx, viewportSafeMaxPx)
+}
+
+function getScopeRenderProfile(object: SkyObject): ScopeRenderProfile | null {
+  const candidate = object.metadata.scopeRender
+
+  if (!candidate || typeof candidate !== 'object') {
+    return null
+  }
+
+  const {
+    effectiveLimitMag,
+    relativeFlux,
+    transmission,
+    opticsGain,
+    intensity,
+    corePx,
+    haloPx,
+  } = candidate as Partial<ScopeRenderProfile>
+
+  if (
+    !isFiniteScopeRenderValue(effectiveLimitMag) ||
+    !isFiniteScopeRenderValue(relativeFlux) ||
+    !isFiniteScopeRenderValue(transmission) ||
+    !isFiniteScopeRenderValue(opticsGain) ||
+    !isFiniteScopeRenderValue(intensity) ||
+    !isFiniteScopeRenderValue(corePx) ||
+    !isFiniteScopeRenderValue(haloPx)
+  ) {
+    return null
+  }
+
+  return {
+    effectiveLimitMag,
+    relativeFlux,
+    transmission,
+    opticsGain,
+    intensity,
+    corePx,
+    haloPx,
+  }
+}
+
+function toDeepStarCanvasPoint(
+  object: ProjectedDeepStarObject,
+  position: {
+    x: number
+    y: number
+  },
+): ScopeStarCanvasPoint {
+  const scopeRender = getScopeRenderProfile(object)
+  const safeMagnitude =
+    typeof object.magnitude === 'number' && Number.isFinite(object.magnitude)
+      ? object.magnitude
+      : 12
+  const deltaMag =
+    (scopeRender?.effectiveLimitMag ?? safeMagnitude) - safeMagnitude
+
+  return {
+    id: object.id,
+    x: position.x,
+    y: position.y,
+    bMinusV: object.bMinusV,
+    alpha: computeScopeDeepStarEmergenceAlpha(deltaMag),
+    radius: computeScopeDeepStarCoreRadiusPx(safeMagnitude),
+  }
+}
+
+function isFiniteScopeRenderValue(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
+}
+
+function isScopeExtendedObject(object: SkyObject): object is SkyObject & {
+  type: 'sun' | 'moon' | 'planet'
+} {
+  return object.type === 'sun' || object.type === 'moon' || object.type === 'planet'
+}
+
+function getScopeExtendedObjectSizePx(
+  object: SkyObject & {
+    type: 'sun' | 'moon' | 'planet'
+  },
+  {
+    lensDiameterPx,
+    scopeVerticalFovDeg,
+    markerScale,
+  }: {
+    lensDiameterPx: number
+    scopeVerticalFovDeg: number
+    markerScale: number
+  },
+) {
+  const baselineAngularDiameterDeg = getScopeExtendedObjectBaselineAngularDiameterDeg(object)
+  const projectedDiameterPx =
+    lensDiameterPx * (baselineAngularDiameterDeg / Math.max(scopeVerticalFovDeg, 0.1))
+  const markerScaleFactor = 0.85 + clampNumber(markerScale, 1, 4) * 0.15
+  const scaledDiameterPx = projectedDiameterPx * markerScaleFactor
+
+  switch (object.type) {
+    case 'sun':
+      return Math.round(
+        clampNumber(scaledDiameterPx, 22, lensDiameterPx * 0.78),
+      )
+    case 'moon':
+      return Math.round(
+        clampNumber(scaledDiameterPx, 20, lensDiameterPx * 0.72),
+      )
+    case 'planet':
+      return Math.round(
+        clampNumber(scaledDiameterPx, 5, Math.min(34, lensDiameterPx * 0.22)),
+      )
+  }
+}
+
+function getScopeExtendedObjectOpacity(
+  object: SkyObject & {
+    type: 'sun' | 'moon' | 'planet'
+  },
+  scopeOptics: ScopeOptics,
+) {
+  const normalizedOptics = normalizeScopeOptics(scopeOptics)
+  const apertureFactor = clampNumber(
+    (normalizedOptics.apertureMm - SCOPE_OPTICS_RANGES.apertureMm.min) /
+      (240 - SCOPE_OPTICS_RANGES.apertureMm.min),
+    0,
+    1,
+  )
+
+  switch (object.type) {
+    case 'sun':
+      return clampNumber(0.74 + apertureFactor * 0.2, 0.72, 0.94)
+    case 'moon':
+      return clampNumber(0.66 + apertureFactor * 0.22, 0.62, 0.92)
+    case 'planet':
+      return clampNumber(0.4 + apertureFactor * 0.28, 0.34, 0.82)
+  }
+}
+
+function getScopeExtendedObjectBaselineAngularDiameterDeg(
+  object: SkyObject & {
+    type: 'sun' | 'moon' | 'planet'
+  },
+) {
+  if (object.type === 'planet') {
+    return (
+      SCOPE_EXTENDED_OBJECT_BASELINE_ANGULAR_DIAMETER_DEG_BY_ID[
+        object.id as keyof typeof SCOPE_EXTENDED_OBJECT_BASELINE_ANGULAR_DIAMETER_DEG_BY_ID
+      ] ?? DEFAULT_SCOPE_PLANET_BASELINE_ANGULAR_DIAMETER_DEG
+    )
+  }
+
+  return SCOPE_EXTENDED_OBJECT_BASELINE_ANGULAR_DIAMETER_DEG_BY_ID[object.type]
 }
 
 function getMagnitudeBoost(magnitude?: number) {
@@ -3956,45 +6366,6 @@ function getServerHydrationSnapshot() {
 
 function clampNumber(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max)
-}
-
-function formatScopeApertureValue(value: number) {
-  return `${Math.round(value)} mm`
-}
-
-function formatScopeMagnificationValue(value: number) {
-  return `${Math.round(value)}x`
-}
-
-export function getScopeRenderMetadata(object: SkyObject): ScopeRenderMetadata | null {
-  if (object.type !== 'star') {
-    return null
-  }
-
-  const candidate = object.metadata.scopeRender
-
-  if (
-    !candidate ||
-    typeof candidate !== 'object' ||
-    !('displayIntensity' in candidate) ||
-    !('corePx' in candidate) ||
-    !('haloPx' in candidate) ||
-    !isFiniteNumber(candidate.displayIntensity) ||
-    !isFiniteNumber(candidate.corePx) ||
-    !isFiniteNumber(candidate.haloPx)
-  ) {
-    return null
-  }
-
-  return {
-    displayIntensity: candidate.displayIntensity,
-    corePx: candidate.corePx,
-    haloPx: candidate.haloPx,
-  }
-}
-
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value)
 }
 
 function resolveCalibrationTarget(
@@ -4176,40 +6547,6 @@ function describeCalibrationStatus({
   return 'Absolute sensors are active, but manual alignment is still available.'
 }
 
-function getSensorStatusValue({
-  startupState,
-  orientationSource,
-  orientationAbsolute,
-  cameraPose,
-}: {
-  startupState: StartupState
-  orientationSource: OrientationSource | null
-  orientationAbsolute: boolean
-  cameraPose: CameraPose
-}) {
-  if (cameraPose.mode === 'manual') {
-    return 'Manual'
-  }
-
-  if (startupState === 'sensor-relative-needs-calibration') {
-    return 'Relative'
-  }
-
-  if (orientationSource === 'absolute-sensor') {
-    return 'Absolute sensor'
-  }
-
-  if (orientationSource === 'deviceorientation-absolute' || orientationAbsolute) {
-    return 'Absolute'
-  }
-
-  if (orientationSource === 'deviceorientation-relative') {
-    return 'Relative'
-  }
-
-  return 'Pending'
-}
-
 function subtractProjectedComponent(
   vector: [number, number, number],
   normal: [number, number, number],
@@ -4242,11 +6579,325 @@ function quaternionsApproximatelyEqual(
   return Math.min(sameSignDistance, flippedSignDistance) < 1e-6
 }
 
+function DesktopActionButton({
+  label,
+  status,
+  onClick,
+  disabled = false,
+  pressed,
+  dataTestId,
+}: {
+  label: string
+  status: string
+  onClick: MouseEventHandler<HTMLButtonElement>
+  disabled?: boolean
+  pressed?: boolean
+  dataTestId?: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-pressed={pressed}
+      data-testid={dataTestId}
+      className="min-h-11 rounded-full border border-sky-100/12 bg-slate-950/45 px-4 py-2 text-left text-sky-50 shadow-[0_10px_24px_rgba(3,7,13,0.2)] disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      <span className="block text-sm font-semibold">{label}</span>
+      <span className="mt-1 block text-[11px] uppercase tracking-[0.16em] text-sky-200/60">
+        {status}
+      </span>
+    </button>
+  )
+}
+
+function QuickRangeSlider({
+  label,
+  value,
+  suffix,
+  min,
+  max,
+  step,
+  valueTestId,
+  sliderTestId,
+  onChange,
+}: {
+  label: string
+  value: number
+  suffix: string
+  min: number
+  max: number
+  step: number
+  valueTestId: string
+  sliderTestId: string
+  onChange: (value: number) => void
+}) {
+  return (
+    <label className="pointer-events-auto grid gap-2 rounded-[1.25rem] border border-sky-100/15 bg-slate-950/70 px-4 py-3 text-sm text-sky-50 shadow-[0_12px_30px_rgba(3,7,13,0.32)]">
+      <span className="flex items-center justify-between gap-3">
+        <span>{label}</span>
+        <span
+          className="text-xs uppercase tracking-[0.16em] text-sky-200/65"
+          data-testid={valueTestId}
+        >
+          {formatQuickRangeValue(value, suffix)}
+        </span>
+      </span>
+      <input
+        aria-label={label}
+        data-testid={sliderTestId}
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
+    </label>
+  )
+}
+
+function formatScopeActionStatus(enabled: boolean, verticalFovDeg: number) {
+  return `${enabled ? 'On' : 'Off'} ${formatScopeFovValue(verticalFovDeg)}`
+}
+
+function formatScopeFovValue(verticalFovDeg: number) {
+  return `${Number.isInteger(verticalFovDeg) ? verticalFovDeg : verticalFovDeg.toFixed(1)}° lens`
+}
+
+function formatQuickRangeValue(value: number, suffix: string) {
+  return `${Number.isInteger(value) ? value : value.toFixed(1)}${suffix}`
+}
+
+function CompactTopBanner({
+  title,
+  body,
+  critical = false,
+  tone,
+  actionLabel,
+  onAction,
+  actionDisabled = false,
+  footer,
+}: Omit<ViewerBannerItem, 'id' | 'actionId'> & {
+  onAction?: MouseEventHandler<HTMLButtonElement>
+}) {
+  const className = critical
+    ? 'border-rose-300/20 bg-rose-500/12 text-rose-50'
+    : tone === 'info'
+      ? 'border-sky-200/15 bg-sky-300/10 text-sky-50'
+      : 'border-amber-200/15 bg-amber-300/10 text-amber-50'
+  const bodyClassName = critical
+    ? 'text-rose-100/80'
+    : tone === 'info'
+      ? 'text-sky-100/78'
+      : 'text-amber-50/80'
+
+  return (
+    <section
+      className={`rounded-[1rem] border px-4 py-2.5 text-sm shadow-[0_10px_24px_rgba(3,7,13,0.14)] ${className}`}
+    >
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <p className="font-semibold">{title}</p>
+          <p className={`mt-1 leading-5 ${bodyClassName}`}>{body}</p>
+          {footer ? (
+            <p className={`mt-2 text-xs ${bodyClassName}`} role="alert">
+              {footer}
+            </p>
+          ) : null}
+        </div>
+        {actionLabel && onAction ? (
+          <button
+            type="button"
+            onClick={onAction}
+            disabled={actionDisabled}
+            className="min-h-11 shrink-0 rounded-full border border-current/20 px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {actionLabel}
+          </button>
+        ) : null}
+      </div>
+    </section>
+  )
+}
+
+function CompactWarningRailRow({
+  item,
+  expanded,
+  onToggleExpanded,
+  onDismiss,
+  onAction,
+}: {
+  item: ViewerBannerItem
+  expanded: boolean
+  onToggleExpanded: () => void
+  onDismiss: () => void
+  onAction?: MouseEventHandler<HTMLButtonElement>
+}) {
+  const containerClassName = item.critical
+    ? 'border-rose-300/20 bg-rose-500/12 text-rose-50'
+    : item.tone === 'info'
+      ? 'border-sky-200/15 bg-sky-300/10 text-sky-50'
+      : 'border-amber-200/15 bg-amber-300/10 text-amber-50'
+  const bodyClassName = item.critical
+    ? 'text-rose-100/80'
+    : item.tone === 'info'
+      ? 'text-sky-100/78'
+      : 'text-amber-50/80'
+  const detailsId = `viewer-warning-rail-details-${item.id}`
+
+  return (
+    <section
+      className={`rounded-[1rem] border px-3 py-2 text-sm shadow-[0_10px_24px_rgba(3,7,13,0.14)] ${containerClassName}`}
+      data-testid={`viewer-warning-rail-item-${item.id}`}
+    >
+      <div className="flex items-center gap-3">
+        <p className="min-w-0 flex-1 truncate font-semibold">{item.title}</p>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            aria-controls={detailsId}
+            aria-expanded={expanded}
+            aria-label={`${expanded ? 'Collapse' : 'Expand'} ${item.title}`}
+            data-testid={`viewer-warning-rail-toggle-${item.id}`}
+            onClick={onToggleExpanded}
+            className="min-h-11 rounded-full border border-current/20 px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em]"
+          >
+            {expanded ? 'Hide' : 'Details'}
+          </button>
+          <button
+            type="button"
+            aria-label={`Dismiss ${item.title}`}
+            data-testid={`viewer-warning-rail-dismiss-${item.id}`}
+            onClick={onDismiss}
+            className="min-h-11 rounded-full border border-current/20 px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em]"
+          >
+            Dismiss
+          </button>
+        </div>
+      </div>
+      {expanded ? (
+        <div className="mt-3 border-t border-current/10 pt-3" id={detailsId}>
+          <p className={`leading-5 ${bodyClassName}`}>{item.body}</p>
+          {item.footer ? (
+            <p className={`mt-2 text-xs ${bodyClassName}`} role="alert">
+              {item.footer}
+            </p>
+          ) : null}
+          {item.actionLabel && onAction ? (
+            <button
+              type="button"
+              onClick={onAction}
+              disabled={item.actionDisabled}
+              data-testid={`viewer-warning-rail-action-${item.id}`}
+              className="mt-3 min-h-11 rounded-full border border-current/20 px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {item.actionLabel}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+function BannerOverflowDisclosure({
+  banners,
+  variant,
+  onAction,
+}: {
+  banners: ViewerBannerItem[]
+  variant: 'desktop' | 'mobile'
+  onAction: (
+    actionId?: ViewerBannerActionId,
+    context?: {
+      opener?: HTMLElement | null
+      surface?: ViewerSurface
+    },
+  ) => void
+}) {
+  return (
+    <details
+      className={`rounded-[1.1rem] border border-sky-100/10 bg-slate-950/35 px-4 py-3 ${
+        variant === 'desktop' ? 'text-sm text-sky-50/85' : 'text-sm text-sky-50/85'
+      }`}
+    >
+      <summary className="cursor-pointer list-none text-xs uppercase tracking-[0.18em] text-sky-200/60">
+        More updates ({banners.length})
+      </summary>
+      <div className="mt-3 grid gap-2">
+        {banners.map((banner) =>
+          variant === 'desktop' ? (
+            <CompactTopBanner
+              key={banner.id}
+              title={banner.title}
+              body={banner.body}
+              critical={banner.critical}
+              tone={banner.tone}
+              actionLabel={banner.actionLabel}
+              onAction={
+                banner.actionId
+                  ? (event) =>
+                      onAction(banner.actionId, {
+                        opener: event.currentTarget,
+                        surface: 'desktop',
+                      })
+                  : undefined
+              }
+              actionDisabled={banner.actionDisabled}
+              footer={banner.footer}
+            />
+          ) : (
+            <FallbackBanner
+              key={banner.id}
+              title={banner.title}
+              body={banner.body}
+              critical={banner.critical}
+              tone={banner.tone}
+              actionLabel={banner.actionLabel}
+              onAction={
+                banner.actionId
+                  ? () =>
+                      onAction(banner.actionId, {
+                        surface: 'mobile',
+                      })
+                  : undefined
+              }
+              actionDisabled={banner.actionDisabled}
+              footer={banner.footer}
+            />
+          ),
+        )}
+      </div>
+    </details>
+  )
+}
+
 function StatusBadge({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-full border border-sky-100/10 bg-slate-950/55 px-3 py-2 text-xs uppercase tracking-[0.16em] text-sky-100/80">
       {label}: {value}
     </div>
+  )
+}
+
+function CompactPersistentNotice({
+  testId,
+  title,
+  body,
+}: {
+  testId: string
+  title: string
+  body: string
+}) {
+  return (
+    <section
+      className="rounded-full border border-amber-200/15 bg-slate-950/48 px-3 py-2 text-[11px] text-amber-50/88 shadow-[0_10px_24px_rgba(3,7,13,0.14)]"
+      data-testid={testId}
+      role="status"
+    >
+      <span className="font-semibold">{title}</span> <span>{body}</span>
+    </section>
   )
 }
 
@@ -4268,25 +6919,435 @@ function FallbackBanner({
   title,
   body,
   critical = false,
+  tone,
+  actionLabel,
+  onAction,
+  actionDisabled = false,
+  footer,
 }: {
   title: string
   body: string
   critical?: boolean
+  tone?: 'info'
+  actionLabel?: string
+  onAction?: () => void
+  actionDisabled?: boolean
+  footer?: string | null
 }) {
+  const className = critical
+    ? 'border border-rose-300/25 bg-rose-500/14 text-rose-50'
+    : tone === 'info'
+      ? 'border border-sky-200/15 bg-sky-300/10 text-sky-50'
+      : 'border border-amber-200/15 bg-amber-300/10 text-amber-50'
+  const bodyClassName = critical
+    ? 'text-rose-100/80'
+    : tone === 'info'
+      ? 'text-sky-100/78'
+      : 'text-amber-50/80'
+
   return (
-    <section
-      className={`rounded-[1.5rem] px-4 py-3 text-sm ${
-        critical
-          ? 'border border-rose-300/25 bg-rose-500/14 text-rose-50'
-          : 'border border-amber-200/15 bg-amber-300/10 text-amber-50'
-      }`}
-    >
-      <p className="font-semibold">{title}</p>
-      <p className={`mt-1 ${critical ? 'text-rose-100/80' : 'text-amber-50/80'}`}>
-        {body}
-      </p>
+    <section className={`rounded-[1.5rem] px-4 py-3 text-sm ${className}`}>
+      <div className="flex flex-col gap-2">
+        <div>
+          <p className="font-semibold">{title}</p>
+          <p className={`mt-1 ${bodyClassName}`}>{body}</p>
+          {footer ? (
+            <p className={`mt-2 text-xs ${bodyClassName}`} role="alert">
+              {footer}
+            </p>
+          ) : null}
+        </div>
+        {actionLabel && onAction ? (
+          <button
+            type="button"
+            onClick={onAction}
+            disabled={actionDisabled}
+            className="min-h-11 self-start rounded-full border border-current/20 px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {actionLabel}
+          </button>
+        ) : null}
+      </div>
     </section>
   )
+}
+
+function DevelopmentOrientationDiagnostics({
+  sample,
+  sampleAgeMs,
+  sampleRateHz,
+  poseCalibration,
+  orientationUpgradedFromRelative,
+  orientationLifecycle,
+  cameraLifecycle,
+}: {
+  sample: OrientationSample | null
+  sampleAgeMs: number | null
+  sampleRateHz: number | null
+  poseCalibration: PoseCalibration
+  orientationUpgradedFromRelative: boolean
+  orientationLifecycle: RuntimeLifecycleDiagnostic
+  cameraLifecycle: RuntimeLifecycleDiagnostic
+}) {
+  if (process.env.NODE_ENV === 'production') {
+    return null
+  }
+
+  const rows = [
+    ['Selected source', sample?.source ?? 'pending'],
+    ['Provider kind', sample?.rawSample.providerKind ?? 'pending'],
+    ['Absolute', formatDiagnosticsBoolean(sample?.absolute)],
+    ['Compass-backed', formatDiagnosticsBoolean(sample?.compassBacked)],
+    ['Sample rate', sampleRateHz === null ? 'pending' : `${sampleRateHz.toFixed(1)} Hz`],
+    ['Last sample age', sampleAgeMs === null ? 'pending' : `${Math.round(sampleAgeMs)} ms`],
+    ['Screen angle', `${getScreenOrientationCorrectionDeg()}°`],
+    ['Compass heading', formatDiagnosticsDegrees(sample?.reportedCompassHeadingDeg)],
+    ['Compass accuracy', formatDiagnosticsDegrees(sample?.compassAccuracyDeg)],
+    ['Calibration active', formatDiagnosticsBoolean(poseCalibration.calibrated)],
+    ['Upgraded', formatDiagnosticsBoolean(orientationUpgradedFromRelative)],
+    ['Motion request ID', String(orientationLifecycle.requestId)],
+    ['Motion transition', orientationLifecycle.transitionReason],
+    ['Motion lifecycle event', orientationLifecycle.lifecycleEvent],
+    ['Motion readiness elapsed', formatDiagnosticsElapsed(orientationLifecycle.elapsedMs)],
+    ['Motion error', orientationLifecycle.errorName ?? 'none'],
+    ['Camera request ID', String(cameraLifecycle.requestId)],
+    ['Camera transition', cameraLifecycle.transitionReason],
+    ['Camera lifecycle event', cameraLifecycle.lifecycleEvent],
+    ['Camera readiness elapsed', formatDiagnosticsElapsed(cameraLifecycle.elapsedMs)],
+    ['Camera error', cameraLifecycle.errorName ?? 'none'],
+  ] as const
+
+  return (
+    <section
+      className="rounded-[1.25rem] border border-sky-100/10 bg-slate-950/55 p-4 text-sm"
+      data-testid="orientation-diagnostics"
+    >
+      <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">Orientation diagnostics</p>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        {rows.map(([label, value]) => (
+          <div
+            key={label}
+            className="rounded-2xl border border-sky-100/10 bg-white/5 px-3 py-2"
+          >
+            <p className="text-[10px] uppercase tracking-[0.16em] text-sky-200/60">{label}</p>
+            <p className="mt-1 text-sm text-sky-50">{value}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function DevelopmentMainViewDeepStarDiagnostics({
+  governor,
+}: {
+  governor: MainViewDeepStarGovernorSnapshot
+}) {
+  if (process.env.NODE_ENV === 'production') {
+    return null
+  }
+
+  const rows = [
+    ['Quality tier', governor.tier],
+    ['Decision source', governor.decisionSource],
+    ['Transition reason', governor.transitionReason],
+    [
+      'Startup visible band',
+      `${MAIN_VIEW_DEEP_STAR_STARTUP_VISIBLE_COUNT_BAND.min}-${MAIN_VIEW_DEEP_STAR_STARTUP_VISIBLE_COUNT_BAND.max}`,
+    ],
+  ] as const
+
+  return (
+    <section
+      className="rounded-[1.25rem] border border-sky-100/10 bg-slate-950/55 p-4 text-sm"
+      data-testid="main-view-deep-star-diagnostics"
+    >
+      <p className="text-xs uppercase tracking-[0.2em] text-sky-200/60">
+        Main-view deep stars
+      </p>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        {rows.map(([label, value]) => (
+          <div
+            key={label}
+            className="rounded-2xl border border-sky-100/10 bg-white/5 px-3 py-2"
+          >
+            <p className="text-[10px] uppercase tracking-[0.16em] text-sky-200/60">{label}</p>
+            <p className="mt-1 text-sm text-sky-50">{value}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function formatDiagnosticsBoolean(value: boolean | undefined) {
+  if (typeof value !== 'boolean') {
+    return 'pending'
+  }
+
+  return value ? 'yes' : 'no'
+}
+
+function formatDiagnosticsDegrees(value: number | undefined) {
+  return typeof value === 'number' ? `${value.toFixed(1)}°` : 'n/a'
+}
+
+function formatDiagnosticsElapsed(value: number | null) {
+  return value === null ? 'pending' : `${Math.max(0, Math.round(value))} ms`
+}
+
+function describeSkyObjectForUser(object: Pick<SkyObject, 'label' | 'type' | 'azimuthDeg' | 'elevationDeg'>) {
+  const typeLabel = object.type === 'aircraft'
+    ? 'aircraft'
+    : object.type === 'satellite'
+      ? 'satellite'
+      : object.type
+  const direction = formatCompassDirection(object.azimuthDeg)
+
+  return `${object.label} is a ${typeLabel} ${Math.round(object.elevationDeg)}° above the horizon toward ${direction}. Keep it centered or tap its marker for more details.`
+}
+
+function formatCompassDirection(azimuthDeg: number) {
+  const directions = ['north', 'northeast', 'east', 'southeast', 'south', 'southwest', 'west', 'northwest']
+  const normalized = ((azimuthDeg % 360) + 360) % 360
+
+  return directions[Math.round(normalized / 45) % directions.length]
+}
+
+export async function waitForCameraPlayback(
+  videoElement: HTMLVideoElement,
+  timeoutMs = CAMERA_READY_TIMEOUT_MS,
+) {
+  await videoElement.play()
+
+  if (
+    videoElement.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+    videoElement.videoWidth > 0 &&
+    videoElement.videoHeight > 0
+  ) {
+    return
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const frameVideo = videoElement as HTMLVideoElement & {
+      requestVideoFrameCallback?: (callback: () => void) => number
+      cancelVideoFrameCallback?: (handle: number) => void
+    }
+    let settled = false
+    let frameRequestId: number | null = null
+    const timeoutId = window.setTimeout(() => {
+      finish(() => reject(new DOMException('Camera did not produce a frame in time.', 'AbortError')))
+    }, timeoutMs)
+
+    const cleanup = () => {
+      window.clearTimeout(timeoutId)
+      videoElement.removeEventListener('loadeddata', handleMediaReady)
+      videoElement.removeEventListener('canplay', handleMediaReady)
+      videoElement.removeEventListener('playing', handleMediaReady)
+      videoElement.removeEventListener('resize', handleMediaReady)
+
+      if (frameRequestId !== null) {
+        frameVideo.cancelVideoFrameCallback?.(frameRequestId)
+      }
+    }
+
+    const finish = (complete: () => void) => {
+      if (settled) {
+        return
+      }
+
+      settled = true
+      cleanup()
+      complete()
+    }
+
+    const handleMediaReady = () => {
+      if (
+        videoElement.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+        videoElement.videoWidth > 0 &&
+        videoElement.videoHeight > 0
+      ) {
+        finish(resolve)
+      }
+    }
+
+    videoElement.addEventListener('loadeddata', handleMediaReady)
+    videoElement.addEventListener('canplay', handleMediaReady)
+    videoElement.addEventListener('playing', handleMediaReady)
+    videoElement.addEventListener('resize', handleMediaReady)
+
+    if (typeof frameVideo.requestVideoFrameCallback === 'function') {
+      frameRequestId = frameVideo.requestVideoFrameCallback(() => finish(resolve))
+    }
+
+    handleMediaReady()
+  })
+}
+
+function describeCameraFailure(error: unknown): {
+  phase: CameraRuntimePhase
+  message: string
+} {
+  const kind = error instanceof RearCameraRequestError
+    ? error.kind
+    : getCameraErrorName(error) === 'NotAllowedError'
+      ? 'denied'
+      : getCameraErrorName(error) === 'NotReadableError'
+        ? 'busy'
+        : getCameraErrorName(error) === 'AbortError'
+          ? 'aborted'
+          : 'unknown'
+
+  switch (kind) {
+    case 'denied':
+      return {
+        phase: 'denied',
+        message: 'Camera access was denied. Allow camera access for this site, then try again.',
+      }
+    case 'busy':
+      return {
+        phase: 'busy',
+        message: 'The camera is busy or temporarily unavailable. Close other camera uses, then try again.',
+      }
+    case 'not-found':
+    case 'overconstrained':
+    case 'unavailable':
+      return {
+        phase: 'unavailable',
+        message: 'No usable rear camera is available with the current browser and device settings.',
+      }
+    case 'inactive-document':
+      return {
+        phase: 'interrupted',
+        message: 'SkyLens must be visible and active before it can start the camera. Return to the page and retry.',
+      }
+    case 'security':
+      return {
+        phase: 'error',
+        message: 'Browser security policy blocked the camera on this page.',
+      }
+    case 'aborted':
+      return {
+        phase: 'interrupted',
+        message: 'Camera startup was interrupted before video became ready. Tap Enable camera to retry.',
+      }
+    default:
+      return {
+        phase: 'error',
+        message: `The camera could not start (${getCameraErrorName(error)}). Try again or continue without camera.`,
+      }
+  }
+}
+
+function getCameraPermissionStatus(error: unknown): PermissionStatusValue {
+  return error instanceof RearCameraRequestError && error.kind === 'denied'
+    ? 'denied'
+    : getCameraErrorName(error) === 'NotAllowedError'
+      ? 'denied'
+      : 'unavailable'
+}
+
+function getCameraErrorName(error: unknown) {
+  if (error && typeof error === 'object' && 'name' in error) {
+    const name = (error as { name?: unknown }).name
+
+    return typeof name === 'string' && name.length > 0 ? name : 'Error'
+  }
+
+  return 'Error'
+}
+
+function getBrowserFamily(): BrowserFamily {
+  if (typeof navigator === 'undefined') {
+    return 'other'
+  }
+
+  const userAgent = navigator.userAgent
+  const isAndroid = /Android/i.test(userAgent)
+  const isSafari = /Safari/i.test(userAgent) && !/CriOS|Chrome|FxiOS|Firefox|SamsungBrowser/i.test(userAgent)
+
+  if (/iPhone|iPad|iPod/i.test(userAgent) && isSafari) {
+    return 'ios-safari'
+  }
+
+  if (isAndroid && /SamsungBrowser/i.test(userAgent)) {
+    return 'samsung-internet'
+  }
+
+  if (isAndroid && /Firefox/i.test(userAgent)) {
+    return 'firefox-android'
+  }
+
+  if (isAndroid && /Chrome|CriOS/i.test(userAgent)) {
+    return 'chrome-android'
+  }
+
+  return 'other'
+}
+
+function getMotionRecoveryBody(browserFamily: BrowserFamily) {
+  switch (browserFamily) {
+    case 'ios-safari':
+      return 'On iPhone Safari, enable motion in iOS Settings → Safari → Motion & Orientation Access, then return and retry.'
+    case 'chrome-android':
+      return 'On Chrome for Android, confirm site motion sensors are allowed for this origin, then retry from the viewer.'
+    case 'firefox-android':
+      return 'On Firefox for Android, motion can stay on a relative event path. Retry here, then align before trusting labels if relative mode comes back.'
+    case 'samsung-internet':
+      return 'On Samsung Internet, retry motion here and confirm site sensor permissions. Chromium-like behavior can vary by Samsung Internet version.'
+    default:
+      return 'Retry motion from this viewer and confirm this browser allows accelerometer, gyroscope, and magnetometer access for the page.'
+  }
+}
+
+function getMotionDeniedMessage(browserFamily: BrowserFamily) {
+  switch (browserFamily) {
+    case 'ios-safari':
+      return 'Motion access is still denied. Check iOS Settings → Safari → Motion & Orientation Access, then retry.'
+    case 'chrome-android':
+      return 'Motion access is still denied. Check this site’s motion sensor permission in Chrome for Android, then retry.'
+    case 'firefox-android':
+      return 'Motion access is still denied. Firefox for Android can require a relative fallback, so retry and align if sensors return.'
+    case 'samsung-internet':
+      return 'Motion access is still denied. Check Samsung Internet site permissions, then retry because sensor behavior can vary by version.'
+    default:
+      return 'Motion access is still denied. Check this browser’s site sensor permissions, then retry.'
+  }
+}
+
+function getMotionUnavailableMessage(browserFamily: BrowserFamily) {
+  switch (browserFamily) {
+    case 'firefox-android':
+      return 'Motion sensors are unavailable right now. Firefox for Android can fall back to relative events when they are exposed, so retry and align if that path returns.'
+    case 'samsung-internet':
+      return 'Motion sensors are unavailable right now. Samsung Internet can vary by version and device, so retry and fall back to manual pan if needed.'
+    default:
+      return 'Motion sensors are unavailable on this device/browser right now.'
+  }
+}
+
+function getMotionNoSampleMessage(browserFamily: BrowserFamily) {
+  const retryHint = browserFamily === 'ios-safari'
+    ? 'Keep this tab visible, move the phone slightly, and tap Enable motion to retry.'
+    : 'Keep the page visible, move the device slightly, and retry motion.'
+
+  return `Motion permission was not reported as denied, but no usable sensor sample arrived. ${retryHint}`
+}
+
+function getMotionPermissionFailureMessage(
+  reason: OrientationPermissionFailureReason,
+  errorName?: string,
+) {
+  switch (reason) {
+    case 'activation-required':
+      return 'Motion permission must be requested directly from a tap. Tap Enable motion again without switching tabs.'
+    case 'policy-or-security':
+      return 'Browser or embedding policy blocked motion sensors. Open SkyLens directly over HTTPS and retry.'
+    case 'unsupported':
+      return 'This browser does not expose a supported motion permission path.'
+    default:
+      return `Motion permission could not be requested${errorName ? ` (${errorName})` : ''}. Keep this page visible and retry.`
+  }
 }
 
 function getInitialReducedMotionPreference() {
@@ -4324,8 +7385,9 @@ function resolveSceneClock({
 
 type AlignmentInstructionsProps = {
   targetLabel: string
-  nextAction: string
-  notices: AlignmentTutorialNotice[]
+  status: string
+  supportingNotice: AlignmentTutorialNotice | null
+  primaryStep: AlignmentTutorialPrimaryStep
   selectedTarget: AlignmentTargetPreference
   availability: {
     sun: boolean
@@ -4343,6 +7405,15 @@ type AlignmentInstructionsProps = {
   canStartAlignment?: boolean
   showStartAlignmentAction?: boolean
   compact?: boolean
+  closeButtonRef?: RefObject<HTMLButtonElement | null>
+}
+
+function getActiveFocusableElement() {
+  if (!(document.activeElement instanceof HTMLElement)) {
+    return null
+  }
+
+  return canRestoreFocusTarget(document.activeElement) ? document.activeElement : null
 }
 
 function AlignmentInstructionsPanel({
@@ -4366,8 +7437,9 @@ function AlignmentInstructionsPanel({
 
 function AlignmentInstructionsContent({
   targetLabel,
-  nextAction,
-  notices,
+  status,
+  supportingNotice,
+  primaryStep,
   selectedTarget,
   availability,
   onSelectTarget,
@@ -4379,6 +7451,7 @@ function AlignmentInstructionsContent({
   canStartAlignment = false,
   showStartAlignmentAction = false,
   compact = false,
+  closeButtonRef,
 }: AlignmentInstructionsProps) {
   return (
     <>
@@ -4388,6 +7461,7 @@ function AlignmentInstructionsContent({
           <p className="mt-2 text-sm text-white">Current target {targetLabel}</p>
         </div>
         <button
+          ref={closeButtonRef}
           type="button"
           onClick={onClose}
           className="min-h-11 rounded-full border border-sky-100/15 px-3 py-1 text-xs text-sky-50"
@@ -4411,27 +7485,28 @@ function AlignmentInstructionsContent({
           onSelect={onSelectTarget}
         />
       </div>
-      <div className="mt-3 grid gap-2">
-        {notices.map((notice) => (
-          <p
-            key={notice.id}
-            className={`rounded-2xl border px-4 py-3 text-sm leading-6 ${
-              notice.tone === 'warning'
-                ? 'border-amber-200/15 bg-amber-300/10 text-amber-50/85'
-                : 'border-sky-100/10 bg-white/5 text-sky-100/80'
-            }`}
-          >
-            {notice.text}
-          </p>
-        ))}
+      <div className="mt-3 rounded-2xl border border-sky-100/10 bg-white/5 px-4 py-3 text-sm leading-6 text-sky-100/80">
+        {status}
       </div>
+      {supportingNotice ? (
+        <p
+          className={`mt-3 rounded-2xl border px-4 py-3 text-sm leading-6 ${
+            supportingNotice.tone === 'warning'
+              ? 'border-amber-200/15 bg-amber-300/10 text-amber-50/85'
+              : 'border-sky-100/10 bg-white/5 text-sky-100/80'
+          }`}
+        >
+          {supportingNotice.text}
+        </p>
+      ) : null}
       <div
         className="mt-3 rounded-2xl border border-emerald-300/15 bg-emerald-300/10 px-4 py-3 text-sm leading-6 text-emerald-50/90"
         data-testid="alignment-next-action"
       >
-        {nextAction}
+        <p className="font-semibold text-white">{primaryStep.title}</p>
+        <p className="mt-1">{primaryStep.body}</p>
       </div>
-      {showStartAlignmentAction ? (
+      {showStartAlignmentAction && primaryStep.ctaLabel ? (
         <div className={`mt-3 ${compact ? '' : 'sm:max-w-xs'}`}>
           <button
             type="button"
@@ -4440,37 +7515,40 @@ function AlignmentInstructionsContent({
             data-testid="alignment-start-action"
             className="min-h-11 rounded-2xl bg-emerald-300 px-4 py-3 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:bg-emerald-100"
           >
-            Start alignment
+            {primaryStep.ctaLabel}
           </button>
         </div>
       ) : null}
-      <div className={`mt-3 ${compact ? '' : 'sm:max-w-xs'}`}>
-        <button
-          type="button"
-          onClick={onResetCalibration}
-          disabled={!canResetCalibration}
-          className="min-h-11 rounded-2xl border border-sky-100/10 bg-slate-950/35 px-4 py-3 text-sm text-sky-50 disabled:cursor-not-allowed disabled:text-sky-100/45"
-        >
-          Reset calibration
-        </button>
-      </div>
-      <div className="mt-2 grid grid-cols-2 gap-2">
-        {ALIGNMENT_FINE_ADJUST_CONTROLS.map((control) => (
+      <section className="mt-4 rounded-2xl border border-sky-100/10 bg-slate-950/30 px-4 py-3">
+        <p className="text-xs uppercase tracking-[0.18em] text-sky-200/55">Calibration tools</p>
+        <div className={`mt-3 ${compact ? '' : 'sm:max-w-xs'}`}>
           <button
-            key={control.label}
             type="button"
-            onClick={() =>
-              onFineAdjustCalibration({
-                axis: control.axis,
-                deltaDeg: control.deltaDeg,
-              })
-            }
-            className="min-h-11 rounded-2xl border border-sky-100/10 bg-white/5 px-4 py-3 text-sm text-sky-50"
+            onClick={onResetCalibration}
+            disabled={!canResetCalibration}
+            className="min-h-11 w-full rounded-2xl border border-sky-100/10 bg-slate-950/35 px-4 py-3 text-sm text-sky-50 disabled:cursor-not-allowed disabled:text-sky-100/45"
           >
-            {control.label}
+            Reset calibration
           </button>
-        ))}
-      </div>
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          {ALIGNMENT_FINE_ADJUST_CONTROLS.map((control) => (
+            <button
+              key={control.label}
+              type="button"
+              onClick={() =>
+                onFineAdjustCalibration({
+                  axis: control.axis,
+                  deltaDeg: control.deltaDeg,
+                })
+              }
+              className="min-h-11 rounded-2xl border border-sky-100/10 bg-white/5 px-4 py-3 text-sm text-sky-50"
+            >
+              {control.label}
+            </button>
+          ))}
+        </div>
+      </section>
     </>
   )
 }
@@ -4479,6 +7557,7 @@ function AlignmentTargetButton({
   label,
   target,
   selected,
+  available,
   onSelect,
 }: {
   label: 'Sun' | 'Moon'
@@ -4491,16 +7570,19 @@ function AlignmentTargetButton({
     <button
       type="button"
       onClick={() => onSelect(target)}
+      disabled={!available}
       aria-pressed={selected}
-      aria-label={`Use ${label} for alignment`}
+      aria-label={available ? `Use ${label} for alignment` : `${label} is unavailable for alignment`}
       className={`flex min-h-11 items-center justify-center gap-2 rounded-2xl border px-3 py-3 text-sm ${
-        selected
+        !available
+          ? 'cursor-not-allowed border-sky-100/5 bg-slate-950/25 text-sky-100/35'
+          : selected
           ? 'border-amber-200/45 bg-amber-200/12 text-amber-50'
           : 'border-sky-100/10 bg-white/5 text-sky-50'
       }`}
     >
       <AlignmentTargetIcon target={target} />
-      <span>{label}</span>
+      <span>{available ? label : `${label} unavailable`}</span>
     </button>
   )
 }
@@ -4527,8 +7609,7 @@ function buildSceneSnapshot({
   timeMs,
   enabledLayers,
   likelyVisibleOnly,
-  scopeModeEnabled,
-  scopeOptics,
+  activeOptics,
   focusedObjectId,
   aircraftTracker,
   aircraftRevision: _aircraftRevision,
@@ -4538,8 +7619,7 @@ function buildSceneSnapshot({
   timeMs: number
   enabledLayers: Record<EnabledLayer, boolean>
   likelyVisibleOnly: boolean
-  scopeModeEnabled: boolean
-  scopeOptics: ScopeOpticsSettings
+  activeOptics: ActiveOptics
   focusedObjectId: string | null
   aircraftTracker: AircraftTracker | null
   aircraftRevision: number
@@ -4561,20 +7641,9 @@ function buildSceneSnapshot({
       enabledLayers,
       likelyVisibleOnly,
       sunAltitudeDeg: celestial.sunAltitudeDeg,
-      scopeModeEnabled,
-      scopeOptics,
+      activeOptics,
     })
-    const constellationStars = scopeModeEnabled
-      ? normalizeVisibleStars({
-          observer,
-          timeMs,
-          enabledLayers,
-          likelyVisibleOnly,
-          sunAltitudeDeg: celestial.sunAltitudeDeg,
-          scopeModeEnabled: false,
-          scopeOptics,
-        })
-      : stars
+    const constellationStars = stars
     let aircraft: SkyObject[] = []
     let satellites: SkyObject[] = []
 
@@ -4660,7 +7729,7 @@ function getDetailRows(object: SkyObject) {
           value: `${Math.round(aircraftDetail?.altitudeFeet ?? 0).toLocaleString()} ft / ${Math.round(aircraftDetail?.altitudeMeters ?? 0).toLocaleString()} m`,
         },
         ...(aircraftDetail?.trackCardinal
-          ? [{ label: 'Heading', value: aircraftDetail.trackCardinal }]
+          ? [{ label: 'Track', value: aircraftDetail.trackCardinal }]
           : []),
         ...(typeof aircraftDetail?.speedKph === 'number'
           ? [{ label: 'Speed', value: `${Math.round(aircraftDetail.speedKph)} km/h` }]
@@ -4823,22 +7892,6 @@ function getObjectMotionOpacity(object: SkyObject) {
   return clampNumber(motionOpacity, 0, 1)
 }
 
-function getObjectMarkerOpacity(object: SkyObject) {
-  const motionOpacity = getObjectMotionOpacity(object)
-
-  if (object.type !== 'star') {
-    return motionOpacity
-  }
-
-  const magnitude =
-    typeof object.magnitude === 'number' && Number.isFinite(object.magnitude)
-      ? object.magnitude
-      : 6
-  const starOpacity = clampNumber(1 - magnitude / 10, 0.35, 1)
-
-  return Number((motionOpacity * starOpacity).toFixed(3))
-}
-
 function formatDegrees(value: unknown) {
   return `${Number(value ?? 0).toFixed(1)}°`
 }
@@ -4938,11 +7991,18 @@ function blockingEyebrow(state: ViewerRouteState, startupState: StartupState) {
 function getMotionBadgeValue(
   experienceMode: RuntimeExperience['mode'],
   state: ViewerRouteState,
-  cameraPose: CameraPose,
   startupState: StartupState,
   orientationSource: OrientationSource | null,
+  latestOrientationSample: OrientationSample | null,
 ) {
-  if (experienceMode === 'blocked' && startupState === 'requesting') {
+  if (experienceMode === 'free-navigation') {
+    return 'AR off'
+  }
+
+  if (
+    (experienceMode === 'blocked' && startupState === 'requesting') ||
+    startupState === 'awaiting-orientation'
+  ) {
     return 'Pending'
   }
 
@@ -4950,27 +8010,32 @@ function getMotionBadgeValue(
     return badgeValue(state.orientation)
   }
 
-  if (cameraPose.mode === 'manual') {
+  if (experienceMode === 'manual-pan') {
     return 'Manual pan'
   }
 
-  if (startupState === 'sensor-relative-needs-calibration') {
-    return 'Align first'
+  if (state.orientation !== 'granted') {
+    return badgeValue(state.orientation)
   }
 
-  if (orientationSource === 'absolute-sensor') {
-    return 'Absolute sensor'
+  if (!latestOrientationSample) {
+    return experienceMode === 'non-camera' || startupState === 'camera-only'
+      ? 'Settling'
+      : 'Pending'
   }
 
-  if (cameraPose.alignmentHealth === 'good') {
-    return 'Aligned'
+  switch (orientationSource) {
+    case 'absolute-sensor':
+      return 'Absolute sensor'
+    case 'relative-sensor':
+      return 'Relative sensor'
+    case 'deviceorientation-absolute':
+      return 'Absolute event'
+    case 'deviceorientation-relative':
+      return 'Relative event'
+    default:
+      return 'Manual'
   }
-
-  if (cameraPose.alignmentHealth === 'poor') {
-    return 'Noisy'
-  }
-
-  return 'Settling'
 }
 
 function createDefaultSensorCameraPose(): CameraPose {
@@ -5024,7 +8089,7 @@ function alignmentBadgeValue(
   return 'Alignment fair'
 }
 
-function getPermissionRecoveryAction(state: ViewerRouteState) {
+export function getPermissionRecoveryAction(state: ViewerRouteState) {
   if (state.camera !== 'granted' && state.orientation !== 'granted') {
     return {
       kind: 'camera-and-motion' as const,
@@ -5057,10 +8122,12 @@ function getPermissionRecoveryAction(state: ViewerRouteState) {
 }
 
 function describeRuntimeExperience({
+  interactionMode,
   state,
   startupState,
   hasObserver,
 }: {
+  interactionMode: InteractionMode
   state: ViewerRouteState
   startupState: StartupState
   hasObserver: boolean
@@ -5070,6 +8137,22 @@ function describeRuntimeExperience({
       mode: 'demo',
       title: 'Demo viewer',
       body: 'The live overlay shell is running against a non-camera demo backdrop so SkyLens stays presentable after denial or on desktop.',
+    }
+  }
+
+  if (interactionMode === 'free-navigation') {
+    if (!hasObserver) {
+      return {
+        mode: 'free-navigation',
+        title: 'Manual observer needed',
+        body: 'Free navigation is active. Enter a manual observer or enable AR to use live location and motion.',
+      }
+    }
+
+    return {
+      mode: 'free-navigation',
+      title: 'Free navigation',
+      body: 'Drag the sky or use arrow keys, Home, or R to navigate. Enable AR when you want live camera, motion, and location.',
     }
   }
 
@@ -5086,6 +8169,14 @@ function describeRuntimeExperience({
     }
   }
 
+  if (startupState === 'awaiting-orientation') {
+    return {
+      mode: state.camera === 'granted' ? 'live' : 'non-camera',
+      title: 'Waiting for motion',
+      body: 'SkyLens requested motion access and is waiting for the first usable sample before it marks orientation ready.',
+    }
+  }
+
   if (startupState === 'camera-only' || !hasObserver) {
     return {
       mode: state.orientation !== 'granted' ? 'manual-pan' : 'live',
@@ -5097,7 +8188,7 @@ function describeRuntimeExperience({
   if (state.orientation !== 'granted' || startupState === 'manual') {
     return {
       mode: 'manual-pan',
-      title: 'Manual observer needed',
+      title: 'Manual pan fallback',
       body: 'SkyLens is keeping the viewer active with manual panning until motion access becomes available again.',
     }
   }
@@ -5105,7 +8196,7 @@ function describeRuntimeExperience({
   if (state.camera !== 'granted') {
     return {
       mode: 'non-camera',
-      title: 'Manual observer needed',
+      title: 'Non-camera fallback',
       body: 'SkyLens is keeping the viewer active without the live camera feed and will render over a dark gradient background.',
     }
   }
@@ -5132,6 +8223,10 @@ function resolveStartupState({
 }): StartupState {
   void cameraStatus
 
+  if (orientationStatus === 'unknown') {
+    return 'awaiting-orientation'
+  }
+
   if (orientationStatus !== 'granted') {
     return 'manual'
   }
@@ -5145,6 +8240,11 @@ function resolveStartupState({
   }
 
   return 'sensor-absolute'
+}
+
+function resolveInitialInteractionMode(state: ViewerRouteState): InteractionMode {
+  void state
+  return 'free-navigation'
 }
 
 function createManualObserverDraft(

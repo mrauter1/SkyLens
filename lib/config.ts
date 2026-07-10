@@ -2,6 +2,9 @@ import { z } from 'zod'
 
 export const DEFAULT_AIRCRAFT_RADIUS_KM = 180
 export const MIN_AIRCRAFT_ELEVATION_DEG = 2
+export const LOCAL_SCOPE_DATA_BASE_PATH = '/data/scope/v1' as const
+export const DEFAULT_SCOPE_REMOTE_BASE_URL =
+  'https://pub-566fb74233f3432ba4d47900577e552e.r2.dev/scope/v1'
 export const POLL_INTERVAL_MS_BY_QUALITY = {
   low: 30_000,
   balanced: 15_000,
@@ -39,6 +42,11 @@ const ConfigSchema = z.object({
       label: z.literal('100 Brightest'),
     }),
   ]),
+  scopeData: z.object({
+    remoteEnabled: z.boolean(),
+    remoteBaseUrl: z.string().url().nullable(),
+    localBasePath: z.literal(LOCAL_SCOPE_DATA_BASE_PATH),
+  }),
 })
 
 export type PublicConfig = z.infer<typeof ConfigSchema>
@@ -48,14 +56,20 @@ export const LANDING_DESCRIPTION = "Point your phone at the sky and see what's a
 
 export const PRIVACY_REASSURANCE_COPY = [
   'Camera stays on your device.',
-  'Location is used only to calculate what is above you right now.',
-  'Approximate location-based aircraft queries go directly from your browser to OpenSky.',
+  'Location positions the sky on your device. When Planes is on, a bounded area around you is sent directly from your browser to OpenSky.',
+  'Live satellite catalogs are fetched directly from CelesTrak.',
   'No camera frames are uploaded.',
 ] as const
 
 export function getPublicConfig(): PublicConfig {
+  const remoteBaseUrl = getConfiguredScopeRemoteBaseUrl()
+  const remoteEnabled = getConfiguredScopeRemoteEnabled()
+
   return ConfigSchema.parse({
-    buildVersion: process.env.SKYLENS_BUILD_VERSION ?? 'dev',
+    buildVersion:
+      process.env.NEXT_PUBLIC_SKYLENS_BUILD_VERSION ??
+      process.env.SKYLENS_BUILD_VERSION ??
+      'dev',
     defaults: {
       maxLabels: 18,
       radiusKm: DEFAULT_AIRCRAFT_RADIUS_KM,
@@ -74,5 +88,43 @@ export function getPublicConfig(): PublicConfig {
       { id: 'stations', label: 'Space Stations' },
       { id: 'brightest', label: '100 Brightest' },
     ],
+    scopeData: {
+      remoteEnabled: remoteEnabled && remoteBaseUrl !== null,
+      remoteBaseUrl,
+      localBasePath: LOCAL_SCOPE_DATA_BASE_PATH,
+    },
   })
+}
+
+function parsePublicBooleanEnv(value: string | undefined) {
+  if (!value) {
+    return false
+  }
+
+  return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase())
+}
+
+function getConfiguredScopeRemoteBaseUrl() {
+  const configured = process.env.NEXT_PUBLIC_SKYLENS_SCOPE_REMOTE_BASE_URL?.trim()
+
+  if (!configured) {
+    return null
+  }
+
+  try {
+    const url = new URL(configured)
+    url.hash = ''
+    url.search = ''
+    return url.toString().replace(/\/+$/u, '')
+  } catch {
+    return null
+  }
+}
+
+function getConfiguredScopeRemoteEnabled() {
+  if (process.env.NEXT_PUBLIC_SKYLENS_SCOPE_REMOTE_ENABLED === undefined) {
+    return false
+  }
+
+  return parsePublicBooleanEnv(process.env.NEXT_PUBLIC_SKYLENS_SCOPE_REMOTE_ENABLED)
 }

@@ -1,144 +1,119 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  buildBrightStarHipNameMap,
-  buildHygProperNameMap,
-  buildScopeNameTable,
-  parseHygProperNamesCsv,
-  parseScopeNameOverridesCsv,
-  resolveScopeDisplayName,
-} from '../../lib/scope-data/names.mjs'
+// @ts-expect-error Runtime-tested script module has no TypeScript declaration file.
+import { assignDisplayNames, loadBrightStarNameMap } from '../../scripts/scope/build-core.mjs'
+// @ts-expect-error Runtime-tested script module has no TypeScript declaration file.
+import { normalizeName } from '../../scripts/scope/shared.mjs'
 
-describe('scope-data names', () => {
-  it('parses override CSV rows and normalizes display names', () => {
-    const overrides = parseScopeNameOverridesCsv(`matchType,matchKey,displayName
-HIP,32349," Sirius  "
-TYC,1-13-1,"Alpha, Beta"
-`)
-
-    expect(overrides).toEqual([
-      {
-        matchType: 'HIP',
-        matchKey: '32349',
-        targetKey: 'HIP:32349',
-        displayName: 'Sirius',
-        lineNumber: 2,
-      },
-      {
-        matchType: 'TYC',
-        matchKey: '1-13-1',
-        targetKey: 'TYC:1-13-1',
-        displayName: 'Alpha, Beta',
-        lineNumber: 3,
-      },
-    ])
+describe('scope data names', () => {
+  it('normalizes whitespace and NFC for emitted names', () => {
+    expect(normalizeName('  Rigil   Kentaurus  ')).toBe('Rigil Kentaurus')
+    expect(normalizeName('')).toBeNull()
   })
 
-  it('applies override precedence before the bright-star HIP join', () => {
-    const brightStarHipNameMap = buildBrightStarHipNameMap([
-      { id: 'hip-32349', name: 'Sirius' },
-    ])
-    const row = {
-      sourceId: 'TYC:1-13-1',
-      hipId: 32349,
-    }
-
-    expect(
-      resolveScopeDisplayName({
-        row,
-        brightStarHipNameMap,
-        nameOverrides: parseScopeNameOverridesCsv(`matchType,matchKey,displayName
-HIP,32349,Dog Star
-`),
-      })
-    ).toBe('Dog Star')
-  })
-
-  it('applies HYG proper-name precedence before bright-star HIP names', () => {
-    const brightStarHipNameMap = buildBrightStarHipNameMap([
-      { id: 'hip-32349', name: 'Sirius' },
-    ])
-    const hygProperNameMap = buildHygProperNameMap(
-      parseHygProperNamesCsv(`hip,name
-32349,Alpha Canis Majoris
-`)
+  it('uses manual overrides before the bright-star HIP join', async () => {
+    const brightStarNameMap = await loadBrightStarNameMap()
+    const [resolved] = assignDisplayNames(
+      [
+        {
+          hip: 32349,
+          tycKey: '1-13-1',
+          sourceId: 'TYC:1-13-1',
+          raDeg: 0,
+          decDeg: 0,
+          pmRaMasPerYear: 0,
+          pmDecMasPerYear: 0,
+          vMag: 1,
+          bMinusV: 0,
+        },
+      ],
+      {
+        hipOverrides: new Map([[32349, 'Manual Sirius']]),
+        tycOverrides: new Map(),
+        brightStarNameMap,
+      },
     )
 
-    expect(
-      resolveScopeDisplayName({
-        row: {
-          sourceId: 'TYC:1-13-1',
-          hipId: 32349,
-        },
-        brightStarHipNameMap,
-        hygProperNameMap,
-      })
-    ).toBe('Alpha Canis Majoris')
+    expect(resolved.displayName).toBe('Manual Sirius')
   })
 
-  it('lets a blank override suppress a bright-star joined name', () => {
-    const brightStarHipNameMap = buildBrightStarHipNameMap([
-      { id: 'hip-32349', name: 'Sirius' },
-    ])
-
-    expect(
-      resolveScopeDisplayName({
-        row: {
+  it('falls back to the built-in bright-star HIP join when no override matches', async () => {
+    const brightStarNameMap = await loadBrightStarNameMap()
+    const [resolved] = assignDisplayNames(
+      [
+        {
+          hip: 32349,
+          tycKey: '1-13-1',
           sourceId: 'TYC:1-13-1',
-          hipId: 32349,
+          raDeg: 0,
+          decDeg: 0,
+          pmRaMasPerYear: 0,
+          pmDecMasPerYear: 0,
+          vMag: 1,
+          bMinusV: 0,
         },
-        brightStarHipNameMap,
-        nameOverrides: parseScopeNameOverridesCsv(`matchType,matchKey,displayName
-HIP,32349,
-`),
-      })
-    ).toBeUndefined()
+      ],
+      {
+        hipOverrides: new Map(),
+        tycOverrides: new Map(),
+        brightStarNameMap,
+      },
+    )
+
+    expect(resolved.displayName).toBe('Sirius')
   })
 
-  it('fails when multiple override rows target the same source row', () => {
-    const overrides = parseScopeNameOverridesCsv(`matchType,matchKey,displayName
-HIP,32349,Dog Star
-TYC,1-13-1,Sirius
-`)
+  it('fails when both HIP and TYC overrides target the same source row', async () => {
+    const brightStarNameMap = await loadBrightStarNameMap()
 
     expect(() =>
-      resolveScopeDisplayName({
-        row: {
-          sourceId: 'TYC:1-13-1',
-          hipId: 32349,
+      assignDisplayNames(
+        [
+          {
+            hip: 32349,
+            tycKey: '1-13-1',
+            sourceId: 'TYC:1-13-1',
+            raDeg: 0,
+            decDeg: 0,
+            pmRaMasPerYear: 0,
+            pmDecMasPerYear: 0,
+            vMag: 1,
+            bMinusV: 0,
+          },
+        ],
+        {
+          hipOverrides: new Map([[32349, 'Manual Sirius']]),
+          tycOverrides: new Map([['1-13-1', 'Manual TYC Sirius']]),
+          brightStarNameMap,
         },
-        nameOverrides: overrides,
-      })
-    ).toThrow(/Multiple manual override rows target source TYC:1-13-1/)
+      ),
+    ).toThrow('scope-name-override-row-conflict:TYC:1-13-1')
   })
 
-  it('assigns deterministic name ids from emitted rows only', () => {
-    const { uniqueNames, nameTable } = buildScopeNameTable([
-      ' Sirius ',
-      'Canopus',
-      undefined,
-      'Sirius',
-    ])
+  it('still fails when duplicate HIP and TYC matches normalize to the same display name', async () => {
+    const brightStarNameMap = await loadBrightStarNameMap()
 
-    expect(uniqueNames).toEqual(['Canopus', 'Sirius'])
-    expect(nameTable).toEqual({
-      '1': 'Canopus',
-      '2': 'Sirius',
-    })
-  })
-
-  it('parses HYG proper-name CSV deterministically', () => {
-    const rows = parseHygProperNamesCsv(`hip,name
-32349,Sirius
-30438,Canopus
-`)
-    const map = buildHygProperNameMap(rows)
-
-    expect(rows).toEqual([
-      { hipId: 32349, name: 'Sirius', lineNumber: 2 },
-      { hipId: 30438, name: 'Canopus', lineNumber: 3 },
-    ])
-    expect(map.get(32349)).toBe('Sirius')
-    expect(map.get(30438)).toBe('Canopus')
+    expect(() =>
+      assignDisplayNames(
+        [
+          {
+            hip: 32349,
+            tycKey: '1-13-1',
+            sourceId: 'TYC:1-13-1',
+            raDeg: 0,
+            decDeg: 0,
+            pmRaMasPerYear: 0,
+            pmDecMasPerYear: 0,
+            vMag: 1,
+            bMinusV: 0,
+          },
+        ],
+        {
+          hipOverrides: new Map([[32349, '  Sirius  ']]),
+          tycOverrides: new Map([['1-13-1', 'Sirius']]),
+          brightStarNameMap,
+        },
+      ),
+    ).toThrow('scope-name-override-row-conflict:TYC:1-13-1')
   })
 })

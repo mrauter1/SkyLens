@@ -1,12 +1,16 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import {
+  createProjectionProfile,
   createCameraFrameLayout,
   createCameraQuaternion,
   createQuaternionFromBasis,
+  createWideProjectionProfile,
   getCameraBasisVectors,
   getEffectiveVerticalFovDeg,
   getHorizontalFovDeg,
+  getProjectionHorizontalFovDeg,
+  getProjectionVerticalFovDeg,
   getRearCameraConstraintCandidates,
   mapImagePointToViewport,
   multiplyMat3Vec3,
@@ -15,6 +19,9 @@ import {
   pickCenterLockedCandidate,
   projectWorldPointToImagePlane,
   projectWorldPointToScreen,
+  projectWorldPointToImagePlaneWithProfile,
+  projectWorldPointToScreenWithProfile,
+  RearCameraRequestError,
   requestRearCameraStream,
 } from '../../lib/projection/camera'
 
@@ -24,6 +31,69 @@ describe('projection camera foundation', () => {
     expect(getEffectiveVerticalFovDeg(0)).toBe(50)
     expect(getEffectiveVerticalFovDeg(60)).toBe(100)
     expect(getHorizontalFovDeg(50, 16 / 9)).toBeCloseTo(79.32, 2)
+  })
+
+  it('supports independent projection profiles without changing wide-view defaults', () => {
+    const wideProfile = createWideProjectionProfile()
+    const scopeProfile = createProjectionProfile({
+      verticalFovDeg: 10,
+    })
+
+    expect(getProjectionVerticalFovDeg(wideProfile)).toBe(50)
+    expect(getProjectionVerticalFovDeg(scopeProfile)).toBe(10)
+    expect(getProjectionHorizontalFovDeg(scopeProfile, 16 / 9)).toBeCloseTo(17.68, 2)
+    expect(getProjectionHorizontalFovDeg(scopeProfile, 16 / 9)).toBeLessThan(
+      getProjectionHorizontalFovDeg(wideProfile, 16 / 9),
+    )
+  })
+
+  it('clamps explicit projection profiles independently from the wide calibration range', () => {
+    const lowProfile = createProjectionProfile({
+      verticalFovDeg: -5,
+    })
+    const highProfile = createProjectionProfile({
+      verticalFovDeg: 220,
+    })
+    const reversedBoundProfile = createProjectionProfile({
+      verticalFovDeg: 2,
+      minVerticalFovDeg: 15,
+      maxVerticalFovDeg: 5,
+    })
+
+    expect(getProjectionVerticalFovDeg(lowProfile)).toBe(1)
+    expect(getProjectionVerticalFovDeg(highProfile)).toBe(179)
+    expect(reversedBoundProfile).toEqual({
+      verticalFovDeg: 5,
+    })
+  })
+
+  it('reclamps raw profile inputs when projection helpers bypass factory normalization', () => {
+    const rawLowProfile = { verticalFovDeg: -50 }
+    const rawHighProfile = { verticalFovDeg: 500 }
+    const quaternion = createCameraQuaternion(0, 0, 0)
+    const viewport = {
+      width: 400,
+      height: 800,
+    }
+
+    expect(getProjectionVerticalFovDeg(rawLowProfile)).toBe(1)
+    expect(getProjectionVerticalFovDeg(rawHighProfile)).toBe(179)
+    expect(getProjectionHorizontalFovDeg(rawHighProfile, 16 / 9)).toBeCloseTo(
+      getHorizontalFovDeg(179, 16 / 9),
+      6,
+    )
+
+    const projection = projectWorldPointToScreenWithProfile(
+      { quaternion },
+      { azimuthDeg: 0, elevationDeg: 0 },
+      viewport,
+      rawHighProfile,
+    )
+
+    expect(projection.visible).toBe(true)
+    expect(projection.inViewport).toBe(true)
+    expect(projection.x).toBeCloseTo(200, 3)
+    expect(projection.y).toBeCloseTo(400, 3)
   })
 
   it('requests rear camera constraints without microphone access', () => {
@@ -46,7 +116,10 @@ describe('projection camera foundation', () => {
   })
 
   it('retries the environment fallback after an exact-environment rear camera failure', async () => {
-    const firstStream = new Error('exact-environment-unavailable')
+    const firstStream = new DOMException(
+      'exact-environment-unavailable',
+      'OverconstrainedError',
+    )
     const fallbackStream = { id: 'fallback-stream' } as MediaStream
     const getUserMedia = vi
       .fn()
@@ -77,6 +150,40 @@ describe('projection camera foundation', () => {
         }),
       }),
     )
+  })
+
+  it.each([
+    ['NotAllowedError', 'denied'],
+    ['NotReadableError', 'busy'],
+    ['AbortError', 'aborted'],
+    ['InvalidStateError', 'inactive-document'],
+    ['SecurityError', 'security'],
+  ] as const)('does not retry a %s camera failure and preserves it as %s', async (name, kind) => {
+    const getUserMedia = vi.fn().mockRejectedValue(new DOMException('camera failed', name))
+
+    const error = await requestRearCameraStream({ getUserMedia }).catch((caught) => caught)
+
+    expect(error).toBeInstanceOf(RearCameraRequestError)
+    expect(error).toMatchObject({ kind, causeName: name })
+    expect(getUserMedia).toHaveBeenCalledTimes(1)
+  })
+
+  it('preserves all attempted candidates after retryable selection failures', async () => {
+    const getUserMedia = vi
+      .fn()
+      .mockRejectedValueOnce(new DOMException('missing exact rear camera', 'NotFoundError'))
+      .mockRejectedValueOnce(new DOMException('fallback did not match', 'OverconstrainedError'))
+
+    const error = await requestRearCameraStream({ getUserMedia }).catch((caught) => caught)
+
+    expect(error).toBeInstanceOf(RearCameraRequestError)
+    expect(error).toMatchObject({
+      kind: 'overconstrained',
+      attemptedConstraints: expect.arrayContaining([
+        expect.objectContaining({ audio: false }),
+      ]),
+    })
+    expect(error.attemptedConstraints).toHaveLength(2)
   })
 
   it('keeps a normalized quaternion and centers forward objects', () => {
@@ -295,6 +402,72 @@ describe('projection camera foundation', () => {
     expect(implicitProjection).toEqual(explicitProjection)
   })
 
+  it('keeps wide-view wrapper projections identical to the profile-aware path', () => {
+    const quaternion = createCameraQuaternion(18, 6, 0)
+    const viewport = {
+      width: 390,
+      height: 844,
+      sourceWidth: 1170,
+      sourceHeight: 2532,
+    }
+    const worldPoint = {
+      azimuthDeg: 20,
+      elevationDeg: 6,
+    }
+    const wideProfile = createWideProjectionProfile(-12)
+
+    expect(
+      projectWorldPointToImagePlane({ quaternion }, worldPoint, viewport, -12),
+    ).toEqual(
+      projectWorldPointToImagePlaneWithProfile(
+        { quaternion },
+        worldPoint,
+        viewport,
+        wideProfile,
+      ),
+    )
+    expect(
+      projectWorldPointToScreen({ quaternion }, worldPoint, viewport, -12),
+    ).toEqual(
+      projectWorldPointToScreenWithProfile(
+        { quaternion },
+        worldPoint,
+        viewport,
+        wideProfile,
+      ),
+    )
+  })
+
+  it('projects narrower scope profiles farther from center than the wide profile', () => {
+    const quaternion = createCameraQuaternion(0, 0, 0)
+    const viewport = {
+      width: 400,
+      height: 800,
+    }
+    const worldPoint = {
+      azimuthDeg: 10,
+      elevationDeg: 0,
+    }
+    const wideProjection = projectWorldPointToScreenWithProfile(
+      { quaternion },
+      worldPoint,
+      viewport,
+      createWideProjectionProfile(),
+    )
+    const scopeProjection = projectWorldPointToScreenWithProfile(
+      { quaternion },
+      worldPoint,
+      viewport,
+      createProjectionProfile({
+        verticalFovDeg: 10,
+      }),
+    )
+
+    expect(wideProjection.inViewport).toBe(true)
+    expect(scopeProjection.visible).toBe(false)
+    expect(scopeProjection.x).toBeGreaterThan(wideProjection.x)
+  })
+
   it('preserves overscan visibility when cover cropping pushes a point just outside the viewport', () => {
     const layout = createCameraFrameLayout({
       width: 400,
@@ -359,13 +532,107 @@ describe('projection camera foundation', () => {
     expect(eastProjection.y).toBeCloseTo(expectedCoverY, 6)
   })
 
-  it('center-locks by angular distance within the fixed 4-degree radius', () => {
+  it('preserves source-frame crop mapping for profile-aware stage projection', () => {
+    const quaternion = createCameraQuaternion(0, 0, 0)
+    const profile = createProjectionProfile({
+      verticalFovDeg: 25,
+    })
+    const coverViewport = {
+      width: 400,
+      height: 800,
+      sourceWidth: 1600,
+      sourceHeight: 900,
+    }
+    const worldPoint = {
+      azimuthDeg: 5,
+      elevationDeg: 0,
+    }
+
+    const coverProjection = projectWorldPointToScreenWithProfile(
+      { quaternion },
+      worldPoint,
+      coverViewport,
+      profile,
+    )
+    const imageProjection = projectWorldPointToImagePlaneWithProfile(
+      { quaternion },
+      worldPoint,
+      {
+        sourceWidth: 1600,
+        sourceHeight: 900,
+      },
+      profile,
+    )
+    const expectedCoverX = imageProjection.imageX * (8 / 9) - 511.1111111111111
+    const expectedCoverY = imageProjection.imageY * (8 / 9)
+
+    expect(coverProjection.visible).toBe(true)
+    expect(coverProjection.x).toBeCloseTo(expectedCoverX, 6)
+    expect(coverProjection.y).toBeCloseTo(expectedCoverY, 6)
+  })
+
+  it('falls back to viewport dimensions when profile-aware stage source dimensions are omitted', () => {
+    const quaternion = createCameraQuaternion(0, 0, 0)
+    const profile = createProjectionProfile({
+      verticalFovDeg: 25,
+    })
+    const worldPoint = {
+      azimuthDeg: 5,
+      elevationDeg: 0,
+    }
+    const viewportOnlyProjection = projectWorldPointToScreenWithProfile(
+      { quaternion },
+      worldPoint,
+      {
+        width: 400,
+        height: 800,
+      },
+      profile,
+    )
+    const explicitViewportSourceProjection = projectWorldPointToScreenWithProfile(
+      { quaternion },
+      worldPoint,
+      {
+        width: 400,
+        height: 800,
+        sourceWidth: 400,
+        sourceHeight: 800,
+      },
+      profile,
+    )
+
+    expect(viewportOnlyProjection.visible).toBe(true)
+    expect(viewportOnlyProjection.x).toBeCloseTo(explicitViewportSourceProjection.x, 6)
+    expect(viewportOnlyProjection.y).toBeCloseTo(explicitViewportSourceProjection.y, 6)
+    expect(viewportOnlyProjection.normalizedX).toBeCloseTo(
+      explicitViewportSourceProjection.normalizedX,
+      6,
+    )
+    expect(viewportOnlyProjection.normalizedY).toBeCloseTo(
+      explicitViewportSourceProjection.normalizedY,
+      6,
+    )
+  })
+
+  it('center-locks by angular distance, then brightness, then id within the fixed 4-degree radius', () => {
     const centered = pickCenterLockedCandidate([
-      { id: 'closer-lower-rank', rankScore: 60, angularDistanceDeg: 1.2 },
-      { id: 'wider-higher-rank', rankScore: 80, angularDistanceDeg: 3.6 },
-      { id: 'outside-radius', rankScore: 99, angularDistanceDeg: 4.2 },
+      { id: 'beta', brightnessScore: 20, angularDistanceDeg: 1.2 },
+      { id: 'alpha', brightnessScore: 20, angularDistanceDeg: 1.2 },
+      { id: 'brighter', brightnessScore: 30, angularDistanceDeg: 1.2 },
+      { id: 'closer', brightnessScore: 5, angularDistanceDeg: 0.8 },
+      { id: 'outside-radius', brightnessScore: 99, angularDistanceDeg: 4.2 },
+    ])
+    const brightnessTie = pickCenterLockedCandidate([
+      { id: 'dim', brightnessScore: 10, angularDistanceDeg: 1.5 },
+      { id: 'bright', brightnessScore: 15, angularDistanceDeg: 1.5 },
+    ])
+    const stableIdTie = pickCenterLockedCandidate([
+      { id: 'beta', brightnessScore: 20, angularDistanceDeg: 1.2 },
+      { id: 'alpha', brightnessScore: 20, angularDistanceDeg: 1.2 },
     ])
 
-    expect(centered?.id).toBe('wider-higher-rank')
+    expect(centered?.id).toBe('closer')
+    expect(brightnessTie?.id).toBe('bright')
+    expect(stableIdTie?.id).toBe('alpha')
   })
 })

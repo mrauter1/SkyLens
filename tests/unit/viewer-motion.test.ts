@@ -23,6 +23,13 @@ const ENABLED_LAYERS = {
 const stationsFixture = readFixture('stations.txt')
 
 describe('viewer motion', () => {
+  it('keeps the local satellite wrapper pinned to package export entrypoints', () => {
+    const wrapperSource = readFileSync(join(process.cwd(), 'lib/vendor/satellite.ts'), 'utf8')
+
+    expect(wrapperSource).toContain("from 'satellite.js'")
+    expect(wrapperSource).not.toContain('../../node_modules/satellite.js/')
+  })
+
   it('resolves tracker-driven aircraft with estimated motion metadata', () => {
     const tracker = createAircraftTracker()
 

@@ -139,6 +139,7 @@ describe('orientation foundation', () => {
 function createDeviceRawSample(worldFromLocal: RawOrientationSample['worldFromLocal']): RawOrientationSample {
   return {
     source: 'deviceorientation-relative',
+    providerKind: 'event',
     localFrame: 'device',
     absolute: false,
     timestampMs: 1_000,

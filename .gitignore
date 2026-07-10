@@ -1,14 +1,13 @@
 node_modules
 .next
+out
 coverage
 playwright-report
 test-results
-.cache/scope-source/
-.cache/scope-build/
+.cache
+.autoloop
+tsconfig.tsbuildinfo
+*.log
 
 # Generated scope dataset tiles (rebuild via scope:data:build*)
 public/data/scope/v1/**/*.bin
-SkyLensServerless/public/data/scope/v1/**/*.bin
-
-# Generated scope dataset tiles in build output
-SkyLensServerless/out/data/scope/v1/**/*.bin

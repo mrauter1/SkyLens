@@ -1,5 +1,27 @@
 @import "tailwindcss";
 
+.desktop-only-shell {
+  display: none;
+}
+
+.compact-only-shell {
+  display: block;
+}
+
+@media (min-width: 1024px) and (hover: hover) and (pointer: fine) {
+  .desktop-only-shell {
+    display: block;
+  }
+
+  .desktop-only-shell-flex {
+    display: flex;
+  }
+
+  .compact-only-shell {
+    display: none;
+  }
+}
+
 :root {
   --sky-ink: #07131f;
   --sky-deep: #0d2235;

@@ -1,30 +1,33 @@
 {
-  "name": "skylens",
+  "name": "skylens-serverless",
   "version": "0.1.0",
   "private": true,
-  "engines": {
-    "node": ">=20.9.0"
-  },
   "scripts": {
+    "predev": "npm run scope:data:ensure",
     "dev": "next dev",
+    "prebuild": "npm run scope:data:ensure",
     "build": "next build",
-    "start": "next start",
+    "start": "node scripts/serve-export.mjs",
     "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:webkit": "PLAYWRIGHT_WEBKIT=1 playwright test --project=desktop-webkit",
+    "scope:data:ensure": "node scripts/ensure-scope-dataset.mjs",
     "scope:data:download": "node scripts/download-scope-source.mjs",
-    "scope:data:build": "node scripts/build-scope-dataset.mjs --mode prod",
-    "scope:data:build:dev": "node scripts/build-scope-dataset.mjs --mode dev",
-    "scope:data:verify": "node scripts/verify-scope-dataset.mjs --dataset-root public/data/scope/v1",
-    "scope:data:download:hyg-names": "node scripts/download-hyg-proper-names.mjs"
+    "scope:data:build": "node scripts/build-scope-dataset.mjs",
+    "scope:data:build:dev": "node scripts/build-scope-dataset.mjs --dev",
+    "scope:data:verify": "node scripts/verify-scope-dataset.mjs",
+    "render:check-live": "node scripts/check-render-deploy.mjs",
+    "check:live-contract": "node scripts/check-live-contract.mjs"
   },
   "dependencies": {
     "astronomy-engine": "^2.1.19",
     "next": "^16.2.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "satellite.js": "^7.0.0",
+    "satellite.js": "^6.0.1",
     "zod": "^4.1.12"
   },
   "devDependencies": {
@@ -38,7 +41,7 @@
     "eslint-config-next": "^16.2.1",
     "jsdom": "^27.0.0",
     "tailwindcss": "^4.2.2",
-    "typescript": "^6.0.2",
+    "typescript": "^5.9.3",
     "vitest": "^4.1.1"
   }
 }

@@ -78,12 +78,11 @@ export function createDemoViewerRoute(
 }
 
 export function buildViewerHref(state: ViewerRouteState): string {
-  const params = new URLSearchParams({
-    entry: state.entry,
-    location: state.location,
-    camera: state.camera,
-    orientation: state.orientation,
-  })
+  // Permission values describe one live document and can be revoked or
+  // interrupted independently of navigation. Keeping them in a bookmarkable
+  // URL made stale links look authorized, so canonical routes persist only the
+  // requested experience.
+  const params = new URLSearchParams({ entry: state.entry })
 
   if (state.entry === 'demo') {
     params.set('demoScenario', state.demoScenarioId ?? DEFAULT_DEMO_SCENARIO_ID)

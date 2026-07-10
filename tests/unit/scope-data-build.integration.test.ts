@@ -1,90 +1,98 @@
-import { readFile, readdir } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { promises as fs } from 'node:fs'
 import path from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
-import { buildScopeDataset } from '../../lib/scope-data/build.mjs'
-import { ScopeBuildReportSchema } from '../../lib/scope-data/contracts.mjs'
-import {
-  getScopeBuildReportPath,
-  getScopeDatasetRoot,
-  REPO_ROOT,
-} from '../../lib/scope-data/paths.mjs'
-import { verifyScopeDataset } from '../../lib/scope-data/verify.mjs'
+// @ts-expect-error Runtime-tested script module has no TypeScript declaration file.
+import { buildScopeDataset } from '../../scripts/scope/build-core.mjs'
+// @ts-expect-error Runtime-tested script module has no TypeScript declaration file.
+import { DEV_FALLBACK_SEED_COUNT, DEV_FALLBACK_TILE_FILE_CAP } from '../../scripts/scope/constants.mjs'
 
-async function readTree(root: string, relativeDir = '.') {
-  const entries = await readdir(path.join(root, relativeDir), { withFileTypes: true })
-  const files = new Map<string, Buffer>()
+async function hashTree(root: string) {
+  const hash = createHash('sha256')
 
-  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
-    const relativePath = path.join(relativeDir, entry.name)
-
-    if (entry.isDirectory()) {
-      for (const [childPath, contents] of await readTree(root, relativePath)) {
-        files.set(childPath, contents)
+  async function walk(currentPath: string) {
+    const entries = (await fs.readdir(currentPath, { withFileTypes: true })).sort((left, right) =>
+      left.name.localeCompare(right.name),
+    )
+    for (const entry of entries) {
+      const entryPath = path.join(currentPath, entry.name)
+      hash.update(entry.name)
+      if (entry.isDirectory()) {
+        await walk(entryPath)
+        continue
       }
-      continue
+      hash.update(await fs.readFile(entryPath))
     }
-
-    files.set(relativePath, await readFile(path.join(root, relativePath)))
   }
 
-  return files
+  await walk(root)
+  return hash.digest('hex')
 }
 
-describe('scope-data build integration', () => {
-  it('builds the dev dataset offline and reproduces identical bytes on repeat builds', async () => {
-    const firstBuild = await buildScopeDataset({ mode: 'dev' })
-    const datasetRoot = getScopeDatasetRoot(REPO_ROOT)
-    const reportPath = getScopeBuildReportPath(REPO_ROOT)
-    const firstFiles = await readTree(datasetRoot)
-    const firstReportBytes = await readFile(reportPath)
-    const firstReport = ScopeBuildReportSchema.parse(
-      JSON.parse(firstReportBytes.toString('utf8'))
-    )
-    const verified = await verifyScopeDataset({
+describe('scope data build integration', () => {
+  it('builds the committed dev dataset deterministically', async () => {
+    const datasetRoot = path.join(process.cwd(), 'public', 'data', 'scope', 'v1')
+    const cacheRoot = path.join(process.cwd(), '.cache', 'scope-test-build')
+    const stagingRoot = path.join(cacheRoot, 'staging')
+    const reportPath = path.join(cacheRoot, 'report.json')
+
+    await fs.rm(cacheRoot, { recursive: true, force: true })
+
+    await buildScopeDataset({
+      mode: 'dev',
       datasetRoot,
-      kind: 'dev',
+      stagingRoot,
+      reportPath,
     })
+    const firstHash = await hashTree(datasetRoot)
 
-    const secondBuild = await buildScopeDataset({ mode: 'dev' })
-    const secondFiles = await readTree(datasetRoot)
-    const secondReportBytes = await readFile(reportPath)
-    const secondReport = ScopeBuildReportSchema.parse(
-      JSON.parse(secondReportBytes.toString('utf8'))
-    )
-
-    expect(firstBuild.kind).toBe('dev')
-    expect(secondBuild.kind).toBe('dev')
-    expect(verified.bands.every((band) => band.totalRows > 0)).toBe(true)
-    expect(verified.referencedNameCount).toBeGreaterThan(0)
-    expect(firstReport.mode).toBe('dev')
-    expect(firstReport.sourceCatalog).toBe('dev-synthetic-from-stars-200')
-    expect(firstReport.bands.every((band) => band.totalRows > 0)).toBe(true)
-    expect([...firstFiles.keys()]).toEqual([...secondFiles.keys()])
-    expect(secondReportBytes.equals(firstReportBytes)).toBe(true)
-    expect(secondReport).toEqual(firstReport)
-
-    for (const [relativePath, firstContents] of firstFiles) {
-      expect(secondFiles.get(relativePath)?.equals(firstContents)).toBe(true)
-    }
-  })
-
-  it('falls back to the deterministic dev dataset when prod mode has no expanded Tycho-2 cache', async () => {
-    const result = await buildScopeDataset({ mode: 'prod' })
-    const datasetRoot = getScopeDatasetRoot(REPO_ROOT)
-    const verified = await verifyScopeDataset({
+    await buildScopeDataset({
+      mode: 'dev',
       datasetRoot,
-      kind: 'dev',
+      stagingRoot,
+      reportPath,
     })
+    const secondHash = await hashTree(datasetRoot)
 
-    expect(result.kind).toBe('dev')
-    expect(result.usedFallbackBecauseSourceMissing).toBe(true)
-    expect(result.manifest.kind).toBe('dev')
-    expect(result.manifest.sourceCatalog).toBe('dev-synthetic-from-stars-200')
-    expect(verified.referencedNameCount).toBeGreaterThan(0)
-    expect(verified.bands.find((band) => band.bandDir === 'mag10p5')?.totalRows).toBeGreaterThan(
-      verified.bands.find((band) => band.bandDir === 'mag6p5')?.totalRows ?? 0
-    )
+    expect(firstHash).toBe(secondHash)
+
+    const manifest = JSON.parse(await fs.readFile(path.join(datasetRoot, 'manifest.json'), 'utf8'))
+    const binFileCount = await countBinFiles(datasetRoot)
+    expect(manifest.kind).toBe('dev')
+    expect(manifest.bands.map((band: { totalRows: number }) => band.totalRows)).toEqual([
+      DEV_FALLBACK_SEED_COUNT,
+      DEV_FALLBACK_SEED_COUNT * 2,
+      DEV_FALLBACK_SEED_COUNT * 4,
+      DEV_FALLBACK_SEED_COUNT * 6,
+    ])
+    expect(binFileCount).toBeLessThanOrEqual(DEV_FALLBACK_TILE_FILE_CAP)
+
+    await fs.rm(cacheRoot, { recursive: true, force: true })
   })
 })
+
+async function countBinFiles(root: string) {
+  let total = 0
+
+  async function walk(currentPath: string) {
+    const entries = await fs.readdir(currentPath, { withFileTypes: true })
+
+    for (const entry of entries) {
+      const entryPath = path.join(currentPath, entry.name)
+
+      if (entry.isDirectory()) {
+        await walk(entryPath)
+        continue
+      }
+
+      if (entry.name.endsWith('.bin')) {
+        total += 1
+      }
+    }
+  }
+
+  await walk(root)
+  return total
+}

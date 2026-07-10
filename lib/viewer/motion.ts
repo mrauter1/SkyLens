@@ -229,7 +229,7 @@ function resolveSatelliteMotionObject(
   const satrec = getSatrec(satellite)
   const propagation = propagate(satrec, date)
 
-  if (!propagation.position) {
+  if (!propagation || !propagation.position) {
     return null
   }
 

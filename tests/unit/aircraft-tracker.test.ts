@@ -281,15 +281,17 @@ function createSnapshot(
 function createAircraft(
   overrides: Partial<AircraftApiResponse['aircraft'][number]> & { id: string; lat: number; lon: number },
 ): AircraftApiResponse['aircraft'][number] {
+  const { id, lat, lon, ...rest } = overrides
+
   return {
-    id: overrides.id,
-    lat: overrides.lat,
-    lon: overrides.lon,
-    geoAltitudeM: overrides.geoAltitudeM ?? 1000,
-    azimuthDeg: overrides.azimuthDeg ?? 0,
-    elevationDeg: overrides.elevationDeg ?? 15,
-    rangeKm: overrides.rangeKm ?? 10,
-    ...overrides,
+    ...rest,
+    id,
+    lat,
+    lon,
+    geoAltitudeM: rest.geoAltitudeM ?? 1000,
+    azimuthDeg: rest.azimuthDeg ?? 0,
+    elevationDeg: rest.elevationDeg ?? 15,
+    rangeKm: rest.rangeKm ?? 10,
   }
 }
 

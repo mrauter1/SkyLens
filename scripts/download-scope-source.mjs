@@ -1,27 +1,43 @@
-import {
-  downloadScopeSource,
-  formatDownloadUsage,
-  parseDownloadCommandArgs,
-  formatScopeSourceDownloadSummary,
-} from '../lib/scope-data/index.mjs'
+import { downloadScopeSource } from './scope/download-core.mjs'
 
-async function main() {
-  const options = parseDownloadCommandArgs(process.argv.slice(2))
+function parseArgs(argv) {
+  const baseUrls = []
+  let force = false
 
-  if (options.help) {
-    process.stdout.write(`${formatDownloadUsage()}\n`)
-    return
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index]
+    if (argument === '--force') {
+      force = true
+      continue
+    }
+    if (argument === '--base-url') {
+      const value = argv[index + 1]
+      if (!value) {
+        throw new Error('scope-download-base-url-missing')
+      }
+      baseUrls.push(value)
+      index += 1
+      continue
+    }
+    throw new Error(`scope-download-arg-unknown:${argument}`)
   }
 
+  return { baseUrls, force }
+}
+
+async function main() {
+  const options = parseArgs(process.argv.slice(2))
   const result = await downloadScopeSource(options)
-  process.stdout.write(`${formatScopeSourceDownloadSummary(result)}\n`)
+
+  for (const entry of result.summary) {
+    const source = entry.sourceUrl ? ` ${entry.sourceUrl}` : ''
+    console.log(`${entry.file}: ${entry.status}${source}`)
+  }
+
+  console.log(`selectedBaseUrl: ${result.selectedBaseUrl ?? 'cache-only'}`)
 }
 
 main().catch((error) => {
-  if (typeof error.summaryText === 'string' && error.summaryText.length > 0) {
-    process.stderr.write(`${error.summaryText}\n`)
-  }
-
-  console.error(error.message)
+  console.error(error instanceof Error ? error.message : String(error))
   process.exitCode = 1
 })

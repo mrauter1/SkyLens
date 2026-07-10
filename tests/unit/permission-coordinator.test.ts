@@ -119,6 +119,17 @@ describe('permission coordinator', () => {
     })
   })
 
+  it('keeps the bare route permission-only so viewer-shell can own interaction mode locally', () => {
+    const routeState = parseViewerRouteState(new URLSearchParams())
+
+    expect(Object.keys(routeState).sort()).toEqual([
+      'camera',
+      'entry',
+      'location',
+      'orientation',
+    ])
+  })
+
   it('blocks partial live state until camera and motion status are explicit', () => {
     const routeState = parseViewerRouteState(
       new URLSearchParams({

@@ -1,2 +1,0 @@
-/*
-  Permissions-Policy: camera=(self), geolocation=(self), accelerometer=(self), gyroscope=(self), magnetometer=(self)

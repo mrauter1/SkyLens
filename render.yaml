@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: skylens-serverless-static
+    runtime: static
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./out
+    headers:
+      - path: /*
+        name: Permissions-Policy
+        value: camera=(self), geolocation=(self), accelerometer=(self), gyroscope=(self), magnetometer=(self)
+    envVars:
+      - key: NEXT_PUBLIC_SKYLENS_SCOPE_REMOTE_ENABLED
+        value: "true"
+      - key: NEXT_PUBLIC_SKYLENS_SCOPE_REMOTE_BASE_URL
+        value: https://pub-566fb74233f3432ba4d47900577e552e.r2.dev/scope/v1

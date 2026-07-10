@@ -7,8 +7,27 @@ import {
   createPoseCalibration,
   type PoseCalibration,
 } from '../sensors/orientation'
+import {
+  SCOPE_VERTICAL_FOV_RANGE,
+  getDefaultMainViewOptics,
+  magnificationToScopeVerticalFovDeg,
+  normalizeMainViewOptics,
+  normalizeScopeOptics,
+  scopeVerticalFovDegToMagnificationX,
+  type MainViewOptics,
+  type ScopeOptics,
+} from './scope-optics'
 
-export const VIEWER_SETTINGS_STORAGE_KEY = 'skylens.viewer-settings.v1'
+export const VIEWER_SETTINGS_STORAGE_KEY = 'skylens-serverless.viewer-settings.v1'
+export const SCOPE_VERTICAL_FOV_MIN_DEG = SCOPE_VERTICAL_FOV_RANGE.min
+export const SCOPE_VERTICAL_FOV_MAX_DEG = SCOPE_VERTICAL_FOV_RANGE.max
+export const SCOPE_VERTICAL_FOV_DEFAULT_DEG = SCOPE_VERTICAL_FOV_RANGE.defaultValue
+export const SCOPE_LENS_DIAMETER_PCT_RANGE = {
+  min: 50,
+  max: 90,
+  step: 1,
+  defaultValue: 75,
+} as const
 
 export type LabelDisplayMode = 'center_only' | 'on_objects' | 'top_list'
 export type MotionQuality = 'low' | 'balanced' | 'high'
@@ -19,54 +38,25 @@ export interface ManualObserverSettings {
   altMeters: number
 }
 
-export interface ScopeOpticsSettings {
-  apertureMm: number
-  magnificationX: number
-  transparencyPct: number
-}
-
-export const SCOPE_OPTICS_RANGES = {
-  apertureMm: {
-    min: 20,
-    max: 400,
-    step: 1,
-  },
-  magnificationX: {
-    min: 10,
-    max: 400,
-    step: 1,
-  },
-  transparencyPct: {
-    min: 40,
-    max: 100,
-    step: 1,
-  },
-} as const satisfies Record<
-  keyof ScopeOpticsSettings,
-  {
-    min: number
-    max: number
-    step: number
-  }
->
-
-export const DEFAULT_SCOPE_OPTICS_SETTINGS: ScopeOpticsSettings = {
-  apertureMm: 100,
-  magnificationX: 40,
-  transparencyPct: 80,
+export interface ScopeSettings {
+  verticalFovDeg: number
 }
 
 export interface ViewerSettings {
   enabledLayers: Record<EnabledLayer, boolean>
+  mainViewDeepStarsEnabled: boolean
   likelyVisibleOnly: boolean
-  scopeModeEnabled: boolean
-  scopeOptics: ScopeOpticsSettings
   labelDisplayMode: LabelDisplayMode
   motionQuality: MotionQuality
   markerScale: number
+  scopeLensDiameterPct: number
   poseCalibration: PoseCalibration
   alignmentTargetPreference: AlignmentTargetPreference | null
   verticalFovAdjustmentDeg: number
+  scopeModeEnabled: boolean
+  mainViewOptics: MainViewOptics
+  scope: ScopeSettings
+  scopeOptics: ScopeOptics
   selectedCameraDeviceId: string | null
   manualObserver: ManualObserverSettings | null
   onboardingCompleted: boolean
@@ -77,12 +67,6 @@ interface StorageLike {
   setItem(key: string, value: string): void
 }
 
-const ScopeOpticsSettingsSchema = z.object({
-  apertureMm: z.number(),
-  magnificationX: z.number(),
-  transparencyPct: z.number(),
-})
-
 const SettingsSchema = z.object({
   enabledLayers: z.object({
     aircraft: z.boolean(),
@@ -91,12 +75,12 @@ const SettingsSchema = z.object({
     stars: z.boolean(),
     constellations: z.boolean(),
   }),
+  mainViewDeepStarsEnabled: z.boolean().optional(),
   likelyVisibleOnly: z.boolean(),
-  scopeModeEnabled: z.boolean().optional(),
-  scopeOptics: z.unknown().optional(),
   labelDisplayMode: z.enum(['center_only', 'on_objects', 'top_list']),
   motionQuality: z.enum(['low', 'balanced', 'high']).optional(),
   markerScale: z.number().optional(),
+  scopeLensDiameterPct: z.unknown().optional(),
   headingOffsetDeg: z.number().optional(),
   pitchOffsetDeg: z.number().optional(),
   alignmentTargetPreference: z.enum(['sun', 'moon']).nullable().optional(),
@@ -107,6 +91,7 @@ const SettingsSchema = z.object({
       sourceAtCalibration: z
         .enum([
           'absolute-sensor',
+          'relative-sensor',
           'deviceorientation-absolute',
           'deviceorientation-relative',
           'manual',
@@ -116,6 +101,10 @@ const SettingsSchema = z.object({
     })
     .optional(),
   verticalFovAdjustmentDeg: z.number(),
+  scopeModeEnabled: z.unknown().optional(),
+  mainViewOptics: z.unknown().optional(),
+  scope: z.unknown().optional(),
+  scopeOptics: z.unknown().optional(),
   selectedCameraDeviceId: z.string().nullable(),
   manualObserver: z
     .object({
@@ -129,6 +118,8 @@ const SettingsSchema = z.object({
 
 export function getDefaultViewerSettings(): ViewerSettings {
   const config = getPublicConfig()
+  const defaultMainViewOptics = getDefaultMainViewOptics()
+  const defaultScopeOptics = normalizeScopeOptics(undefined)
 
   return {
     enabledLayers: {
@@ -138,17 +129,21 @@ export function getDefaultViewerSettings(): ViewerSettings {
       stars: config.defaults.enabledLayers.includes('stars'),
       constellations: config.defaults.enabledLayers.includes('constellations'),
     },
+    mainViewDeepStarsEnabled: true,
     likelyVisibleOnly: config.defaults.likelyVisibleOnly,
-    scopeModeEnabled: false,
-    scopeOptics: {
-      ...DEFAULT_SCOPE_OPTICS_SETTINGS,
-    },
     labelDisplayMode: 'center_only',
     motionQuality: 'balanced',
     markerScale: 1,
+    scopeLensDiameterPct: SCOPE_LENS_DIAMETER_PCT_RANGE.defaultValue,
     poseCalibration: createIdentityPoseCalibration(),
     alignmentTargetPreference: null,
     verticalFovAdjustmentDeg: 0,
+    scopeModeEnabled: false,
+    mainViewOptics: defaultMainViewOptics,
+    scope: {
+      verticalFovDeg: magnificationToScopeVerticalFovDeg(defaultScopeOptics.magnificationX),
+    },
+    scopeOptics: defaultScopeOptics,
     selectedCameraDeviceId: null,
     manualObserver: null,
     onboardingCompleted: false,
@@ -170,19 +165,54 @@ export function readViewerSettings(storage = getBrowserStorage()): ViewerSetting
     }
 
     const parsed = SettingsSchema.partial().parse(JSON.parse(rawValue))
-    const scopeOptics = normalizeScopeOpticsStorageInput(parsed.scopeOptics)
+    const {
+      scopeLensDiameterPct: rawScopeLensDiameterPct,
+      mainViewOptics: rawMainViewOpticsInput,
+      scope: rawScopeInput,
+      scopeOptics: rawScopeOpticsInput,
+      scopeModeEnabled: rawScopeModeEnabled,
+      ...parsedSettings
+    } = parsed
+    const mainViewOpticsInput = getSettingsObject(rawMainViewOpticsInput)
+    const scopeInput = getSettingsObject(rawScopeInput)
+    const scopeOpticsInput = getSettingsObject(rawScopeOpticsInput)
+    const legacyScopeVerticalFovDeg = readNumberSetting(scopeInput.verticalFovDeg)
+    const storedScopeMagnificationX = readNumberSetting(scopeOpticsInput.magnificationX)
+    const scopeModeEnabled =
+      readBooleanSetting(rawScopeModeEnabled) ??
+      readBooleanSetting(scopeInput.enabled) ??
+      defaults.scopeModeEnabled
 
     return normalizeViewerSettings({
       ...defaults,
-      ...parsed,
+      ...parsedSettings,
+      scopeLensDiameterPct: normalizeScopeLensDiameterPct(rawScopeLensDiameterPct),
+      scopeModeEnabled,
       enabledLayers: {
         ...defaults.enabledLayers,
         ...parsed.enabledLayers,
       },
-      scopeOptics: {
-        ...defaults.scopeOptics,
-        ...scopeOptics,
+      mainViewDeepStarsEnabled:
+        readBooleanSetting(parsed.mainViewDeepStarsEnabled) ?? defaults.mainViewDeepStarsEnabled,
+      mainViewOptics: normalizeMainViewOptics({
+        ...defaults.mainViewOptics,
+        apertureMm: readNumberSetting(mainViewOpticsInput.apertureMm),
+        magnificationX: readNumberSetting(mainViewOpticsInput.magnificationX),
+      }),
+      scope: {
+        ...defaults.scope,
+        verticalFovDeg: legacyScopeVerticalFovDeg ?? defaults.scope.verticalFovDeg,
       },
+      scopeOptics: normalizeScopeOptics({
+        ...defaults.scopeOptics,
+        apertureMm: readNumberSetting(scopeOpticsInput.apertureMm),
+        magnificationX:
+          storedScopeMagnificationX ??
+          (legacyScopeVerticalFovDeg === undefined
+            ? undefined
+            : scopeVerticalFovDegToMagnificationX(legacyScopeVerticalFovDeg)),
+        transparencyPct: readNumberSetting(scopeOpticsInput.transparencyPct),
+      }),
     })
   } catch {
     return defaults
@@ -220,10 +250,8 @@ export function markViewerOnboardingCompleted(storage = getBrowserStorage()) {
 }
 
 export function normalizeViewerSettings(settings: ViewerSettings): ViewerSettings {
-  const scopeOptics = normalizeScopeOpticsForMode(
-    settings.scopeOptics,
-    settings.scopeModeEnabled === true,
-  )
+  const mainViewOptics = normalizeMainViewOptics(settings.mainViewOptics)
+  const scopeOptics = normalizeScopeOptics(settings.scopeOptics)
 
   return {
     enabledLayers: {
@@ -233,17 +261,21 @@ export function normalizeViewerSettings(settings: ViewerSettings): ViewerSetting
       stars: settings.enabledLayers.stars,
       constellations: settings.enabledLayers.constellations,
     },
+    mainViewDeepStarsEnabled: settings.mainViewDeepStarsEnabled !== false,
     likelyVisibleOnly: settings.likelyVisibleOnly,
-    scopeModeEnabled: settings.scopeModeEnabled === true,
-    scopeOptics,
     labelDisplayMode: settings.labelDisplayMode,
     motionQuality: normalizeMotionQuality(settings.motionQuality),
     markerScale: normalizeMarkerScale(settings.markerScale),
+    scopeLensDiameterPct: normalizeScopeLensDiameterPct(settings.scopeLensDiameterPct),
     poseCalibration: createPoseCalibration(settings.poseCalibration),
     alignmentTargetPreference: normalizeAlignmentTargetPreference(
       settings.alignmentTargetPreference,
     ),
     verticalFovAdjustmentDeg: clamp(settings.verticalFovAdjustmentDeg, -30, 30),
+    scopeModeEnabled: settings.scopeModeEnabled === true,
+    mainViewOptics,
+    scope: normalizeScopeSettings(settings.scope, scopeOptics),
+    scopeOptics,
     selectedCameraDeviceId:
       typeof settings.selectedCameraDeviceId === 'string' &&
       settings.selectedCameraDeviceId.length > 0
@@ -251,36 +283,6 @@ export function normalizeViewerSettings(settings: ViewerSettings): ViewerSetting
         : null,
     manualObserver: normalizeManualObserver(settings.manualObserver),
     onboardingCompleted: settings.onboardingCompleted,
-  }
-}
-
-function normalizeScopeOpticsForMode(
-  scopeOptics: ScopeOpticsSettings | null | undefined,
-  scopeModeEnabled: boolean,
-): ScopeOpticsSettings {
-  const apertureRange = scopeModeEnabled
-    ? SCOPE_OPTICS_RANGES.apertureMm
-    : { min: 20, max: 100 }
-
-  return {
-    apertureMm: normalizeFiniteNumber(
-      scopeOptics?.apertureMm,
-      DEFAULT_SCOPE_OPTICS_SETTINGS.apertureMm,
-      apertureRange.min,
-      apertureRange.max,
-    ),
-    magnificationX: normalizeFiniteNumber(
-      scopeOptics?.magnificationX,
-      DEFAULT_SCOPE_OPTICS_SETTINGS.magnificationX,
-      SCOPE_OPTICS_RANGES.magnificationX.min,
-      SCOPE_OPTICS_RANGES.magnificationX.max,
-    ),
-    transparencyPct: normalizeFiniteNumber(
-      scopeOptics?.transparencyPct,
-      DEFAULT_SCOPE_OPTICS_SETTINGS.transparencyPct,
-      SCOPE_OPTICS_RANGES.transparencyPct.min,
-      SCOPE_OPTICS_RANGES.transparencyPct.max,
-    ),
   }
 }
 
@@ -298,32 +300,36 @@ function normalizeManualObserver(
   }
 }
 
-function normalizeScopeOpticsStorageInput(
-  value: unknown,
-): Partial<ScopeOpticsSettings> {
+function normalizeScopeSettings(
+  _scopeSettings: ScopeSettings | null | undefined,
+  scopeOptics: ScopeOptics,
+): ScopeSettings {
+  return {
+    verticalFovDeg: magnificationToScopeVerticalFovDeg(scopeOptics.magnificationX),
+  }
+}
+
+function getSettingsObject(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return {}
   }
 
-  const candidate = value as Record<string, unknown>
-  const normalized: Partial<ScopeOpticsSettings> = {}
+  return value as Record<string, unknown>
+}
 
-  const apertureMmResult = z.number().safeParse(candidate.apertureMm)
-  if (apertureMmResult.success) {
-    normalized.apertureMm = apertureMmResult.data
-  }
+function readBooleanSetting(value: unknown) {
+  return typeof value === 'boolean' ? value : undefined
+}
 
-  const magnificationXResult = z.number().safeParse(candidate.magnificationX)
-  if (magnificationXResult.success) {
-    normalized.magnificationX = magnificationXResult.data
-  }
+function readNumberSetting(value: unknown) {
+  const parsedValue =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string' && value.trim().length > 0
+        ? Number(value)
+        : Number.NaN
 
-  const transparencyPctResult = z.number().safeParse(candidate.transparencyPct)
-  if (transparencyPctResult.success) {
-    normalized.transparencyPct = transparencyPctResult.data
-  }
-
-  return ScopeOpticsSettingsSchema.partial().parse(normalized)
+  return Number.isFinite(parsedValue) ? parsedValue : undefined
 }
 
 function normalizeMotionQuality(
@@ -338,37 +344,26 @@ function normalizeMotionQuality(
   }
 }
 
-export function normalizeScopeOpticsSettings(
-  scopeOptics: ScopeOpticsSettings | null | undefined,
-): ScopeOpticsSettings {
-  return {
-    apertureMm: normalizeFiniteNumber(
-      scopeOptics?.apertureMm,
-      DEFAULT_SCOPE_OPTICS_SETTINGS.apertureMm,
-      SCOPE_OPTICS_RANGES.apertureMm.min,
-      SCOPE_OPTICS_RANGES.apertureMm.max,
-    ),
-    magnificationX: normalizeFiniteNumber(
-      scopeOptics?.magnificationX,
-      DEFAULT_SCOPE_OPTICS_SETTINGS.magnificationX,
-      SCOPE_OPTICS_RANGES.magnificationX.min,
-      SCOPE_OPTICS_RANGES.magnificationX.max,
-    ),
-    transparencyPct: normalizeFiniteNumber(
-      scopeOptics?.transparencyPct,
-      DEFAULT_SCOPE_OPTICS_SETTINGS.transparencyPct,
-      SCOPE_OPTICS_RANGES.transparencyPct.min,
-      SCOPE_OPTICS_RANGES.transparencyPct.max,
-    ),
-  }
-}
-
 function normalizeMarkerScale(markerScale: number | null | undefined) {
   if (typeof markerScale !== 'number' || !Number.isFinite(markerScale)) {
     return 1
   }
 
   return clamp(markerScale, 1, 4)
+}
+
+export function normalizeScopeLensDiameterPct(value: unknown) {
+  const parsedValue = readNumberSetting(value)
+
+  if (parsedValue === undefined) {
+    return SCOPE_LENS_DIAMETER_PCT_RANGE.defaultValue
+  }
+
+  return clamp(
+    parsedValue,
+    SCOPE_LENS_DIAMETER_PCT_RANGE.min,
+    SCOPE_LENS_DIAMETER_PCT_RANGE.max,
+  )
 }
 
 function normalizeAlignmentTargetPreference(
@@ -389,19 +384,6 @@ function getBrowserStorage(): StorageLike | null {
   }
 
   return window.localStorage
-}
-
-function normalizeFiniteNumber(
-  value: number | null | undefined,
-  fallback: number,
-  min: number,
-  max: number,
-) {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    return fallback
-  }
-
-  return clamp(value, min, max)
 }
 
 function clamp(value: number, min: number, max: number) {

@@ -22,6 +22,43 @@ export interface RearCameraRequestOptions {
   preferredDeviceId?: string | null
 }
 
+export type RearCameraFailureKind =
+  | 'denied'
+  | 'not-found'
+  | 'overconstrained'
+  | 'busy'
+  | 'aborted'
+  | 'inactive-document'
+  | 'security'
+  | 'unavailable'
+  | 'unknown'
+
+export class RearCameraRequestError extends Error {
+  readonly kind: RearCameraFailureKind
+  readonly causeName: string
+  readonly constraint?: string
+  readonly attemptedConstraints: MediaStreamConstraints[]
+
+  constructor({
+    kind,
+    cause,
+    attemptedConstraints,
+  }: {
+    kind: RearCameraFailureKind
+    cause: unknown
+    attemptedConstraints: MediaStreamConstraints[]
+  }) {
+    const causeName = getCameraErrorName(cause)
+
+    super(`rear-camera-${kind}`, { cause })
+    this.name = 'RearCameraRequestError'
+    this.kind = kind
+    this.causeName = causeName
+    this.constraint = getCameraErrorConstraint(cause)
+    this.attemptedConstraints = attemptedConstraints
+  }
+}
+
 export interface CameraDeviceOption {
   deviceId: string
   label: string
@@ -84,14 +121,26 @@ export interface ProjectedWorldPoint {
 
 export interface CenterLockCandidate {
   id: string
-  rankScore: number
   angularDistanceDeg: number
+  brightnessScore: number
+}
+
+export interface ProjectionProfile {
+  verticalFovDeg: number
+}
+
+export interface ProjectionProfileOptions {
+  verticalFovDeg: number
+  minVerticalFovDeg?: number
+  maxVerticalFovDeg?: number
 }
 
 const DEFAULT_VERTICAL_FOV_DEG = 50
 const MIN_VERTICAL_FOV_DEG = 20
 const MAX_VERTICAL_FOV_DEG = 100
 const DEFAULT_OVERSCAN_RATIO = 0.1
+const MIN_PROFILE_VERTICAL_FOV_DEG = 1
+const MAX_PROFILE_VERTICAL_FOV_DEG = 179
 
 export function getRearCameraConstraintCandidates(
   preferredDeviceId?: string | null,
@@ -135,15 +184,33 @@ export async function requestRearCameraStream(
   runtime: RearCameraStreamRuntime = navigator.mediaDevices,
   options: RearCameraRequestOptions = {},
 ): Promise<MediaStream> {
-  for (const constraints of getRearCameraConstraintCandidates(options.preferredDeviceId)) {
+  const candidates = getRearCameraConstraintCandidates(options.preferredDeviceId)
+  const attemptedConstraints: MediaStreamConstraints[] = []
+  let lastError: unknown = new DOMException('No camera candidates were available.', 'NotFoundError')
+
+  for (const constraints of candidates) {
+    attemptedConstraints.push(constraints)
+
     try {
       return await runtime.getUserMedia(constraints)
-    } catch {
-      continue
+    } catch (error) {
+      lastError = error
+
+      if (!shouldRetryRearCameraCandidate(error)) {
+        throw new RearCameraRequestError({
+          kind: classifyRearCameraFailure(error),
+          cause: error,
+          attemptedConstraints,
+        })
+      }
     }
   }
 
-  throw new Error('rear-camera-unavailable')
+  throw new RearCameraRequestError({
+    kind: classifyRearCameraFailure(lastError),
+    cause: lastError,
+    attemptedConstraints,
+  })
 }
 
 export async function probeRearCameraPermission(
@@ -165,9 +232,64 @@ export async function probeRearCameraPermission(
     const stream = await requestRearCameraStream(mediaRuntime)
     stopMediaStream(stream)
     return 'granted'
-  } catch {
-    return 'denied'
+  } catch (error) {
+    return error instanceof RearCameraRequestError && error.kind === 'denied'
+      ? 'denied'
+      : 'unavailable'
   }
+}
+
+export function classifyRearCameraFailure(error: unknown): RearCameraFailureKind {
+  switch (getCameraErrorName(error)) {
+    case 'NotAllowedError':
+      return 'denied'
+    case 'NotFoundError':
+      return 'not-found'
+    case 'OverconstrainedError':
+      return 'overconstrained'
+    case 'NotReadableError':
+      return 'busy'
+    case 'AbortError':
+      return 'aborted'
+    case 'InvalidStateError':
+      return 'inactive-document'
+    case 'SecurityError':
+      return 'security'
+    case 'TypeError':
+      return 'unavailable'
+    default:
+      return 'unknown'
+  }
+}
+
+function shouldRetryRearCameraCandidate(error: unknown) {
+  const name = getCameraErrorName(error)
+
+  return name === 'OverconstrainedError' || name === 'NotFoundError'
+}
+
+function getCameraErrorName(error: unknown) {
+  if (error && typeof error === 'object' && 'name' in error) {
+    const name = (error as { name?: unknown }).name
+
+    if (typeof name === 'string' && name.length > 0) {
+      return name
+    }
+  }
+
+  return 'Error'
+}
+
+function getCameraErrorConstraint(error: unknown) {
+  if (error && typeof error === 'object' && 'constraint' in error) {
+    const constraint = (error as { constraint?: unknown }).constraint
+
+    return typeof constraint === 'string' && constraint.length > 0
+      ? constraint
+      : undefined
+  }
+
+  return undefined
 }
 
 export async function listAvailableVideoInputDevices(
@@ -216,10 +338,8 @@ export function stopMediaStream(stream: MediaStream | null | undefined) {
 }
 
 export function getEffectiveVerticalFovDeg(verticalFovAdjustmentDeg = 0) {
-  return clamp(
-    DEFAULT_VERTICAL_FOV_DEG + verticalFovAdjustmentDeg,
-    MIN_VERTICAL_FOV_DEG,
-    MAX_VERTICAL_FOV_DEG,
+  return getProjectionVerticalFovDeg(
+    createWideProjectionProfile(verticalFovAdjustmentDeg),
   )
 }
 
@@ -233,6 +353,42 @@ export function getHorizontalFovDeg(
         Math.tan(degreesToRadians(verticalFovDeg) / 2) * Math.max(aspectRatio, 0.0001),
       ),
   )
+}
+
+export function createProjectionProfile({
+  verticalFovDeg,
+  minVerticalFovDeg = MIN_PROFILE_VERTICAL_FOV_DEG,
+  maxVerticalFovDeg = MAX_PROFILE_VERTICAL_FOV_DEG,
+}: ProjectionProfileOptions): ProjectionProfile {
+  const minVerticalFov = Math.min(minVerticalFovDeg, maxVerticalFovDeg)
+  const maxVerticalFov = Math.max(minVerticalFovDeg, maxVerticalFovDeg)
+
+  return {
+    verticalFovDeg: clamp(verticalFovDeg, minVerticalFov, maxVerticalFov),
+  }
+}
+
+export function createWideProjectionProfile(verticalFovAdjustmentDeg = 0) {
+  return createProjectionProfile({
+    verticalFovDeg: DEFAULT_VERTICAL_FOV_DEG + verticalFovAdjustmentDeg,
+    minVerticalFovDeg: MIN_VERTICAL_FOV_DEG,
+    maxVerticalFovDeg: MAX_VERTICAL_FOV_DEG,
+  })
+}
+
+export function getProjectionVerticalFovDeg(profile: ProjectionProfile) {
+  return clamp(
+    profile.verticalFovDeg,
+    MIN_PROFILE_VERTICAL_FOV_DEG,
+    MAX_PROFILE_VERTICAL_FOV_DEG,
+  )
+}
+
+export function getProjectionHorizontalFovDeg(
+  profile: ProjectionProfile,
+  aspectRatio: number,
+) {
+  return getHorizontalFovDeg(getProjectionVerticalFovDeg(profile), aspectRatio)
 }
 
 export function normalizeQuaternion(quaternion: Quaternion): Quaternion {
@@ -440,6 +596,20 @@ export function projectWorldPointToImagePlane(
   frame: Pick<CameraFrameLayout, 'sourceWidth' | 'sourceHeight'>,
   verticalFovAdjustmentDeg = 0,
 ): ProjectedImagePlanePoint {
+  return projectWorldPointToImagePlaneWithProfile(
+    pose,
+    worldPoint,
+    frame,
+    createWideProjectionProfile(verticalFovAdjustmentDeg),
+  )
+}
+
+export function projectWorldPointToImagePlaneWithProfile(
+  pose: Pick<CameraPose, 'quaternion'>,
+  worldPoint: ProjectWorldPointInput,
+  frame: Pick<CameraFrameLayout, 'sourceWidth' | 'sourceHeight'>,
+  profile: ProjectionProfile,
+): ProjectedImagePlanePoint {
   const worldVector = horizontalToWorldVector(
     worldPoint.azimuthDeg,
     worldPoint.elevationDeg,
@@ -463,9 +633,9 @@ export function projectWorldPointToImagePlane(
 
   const sourceWidth = Math.max(frame.sourceWidth, 1)
   const sourceHeight = Math.max(frame.sourceHeight, 1)
-  const verticalFovDeg = getEffectiveVerticalFovDeg(verticalFovAdjustmentDeg)
+  const verticalFovDeg = getProjectionVerticalFovDeg(profile)
   const aspectRatio = sourceWidth / sourceHeight
-  const horizontalFovDeg = getHorizontalFovDeg(verticalFovDeg, aspectRatio)
+  const horizontalFovDeg = getProjectionHorizontalFovDeg(profile, aspectRatio)
   const normalizedX =
     cameraVector[0] /
     (cameraVector[2] * Math.tan(degreesToRadians(horizontalFovDeg) / 2))
@@ -526,12 +696,26 @@ export function projectWorldPointToScreen(
   viewport: ProjectViewport,
   verticalFovAdjustmentDeg = 0,
 ): ProjectedWorldPoint {
+  return projectWorldPointToScreenWithProfile(
+    pose,
+    worldPoint,
+    viewport,
+    createWideProjectionProfile(verticalFovAdjustmentDeg),
+  )
+}
+
+export function projectWorldPointToScreenWithProfile(
+  pose: Pick<CameraPose, 'quaternion'>,
+  worldPoint: ProjectWorldPointInput,
+  viewport: ProjectViewport,
+  profile: ProjectionProfile,
+): ProjectedWorldPoint {
   const layout = createCameraFrameLayout(viewport)
-  const imageProjection = projectWorldPointToImagePlane(
+  const imageProjection = projectWorldPointToImagePlaneWithProfile(
     pose,
     worldPoint,
     layout,
-    verticalFovAdjustmentDeg,
+    profile,
   )
   const viewportProjection = mapImagePointToViewport(
     imageProjection,
@@ -560,11 +744,15 @@ export function pickCenterLockedCandidate<T extends CenterLockCandidate>(
     candidates
       .filter((candidate) => candidate.angularDistanceDeg <= angularRadiusDeg)
       .sort((left, right) => {
-        if (right.rankScore !== left.rankScore) {
-          return right.rankScore - left.rankScore
+        if (left.angularDistanceDeg !== right.angularDistanceDeg) {
+          return left.angularDistanceDeg - right.angularDistanceDeg
         }
 
-        return left.angularDistanceDeg - right.angularDistanceDeg
+        if (right.brightnessScore !== left.brightnessScore) {
+          return right.brightnessScore - left.brightnessScore
+        }
+
+        return left.id.localeCompare(right.id)
       })[0] ?? null
   )
 }

@@ -3,7 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { SettingsSheet } from '../../components/settings/settings-sheet'
-import { SCOPE_OPTICS_RANGES } from '../../lib/viewer/settings'
+import { SCOPE_LENS_DIAMETER_PCT_RANGE } from '../../lib/viewer/settings'
 
 describe('SettingsSheet', () => {
   let container: HTMLDivElement
@@ -39,6 +39,7 @@ describe('SettingsSheet', () => {
     const onFixAlignment = vi.fn()
     const onLabelDisplayModeChange = vi.fn()
     const onMotionQualityChange = vi.fn()
+    const onMainViewDeepStarsEnabledChange = vi.fn()
 
     await act(async () => {
       root.render(
@@ -55,6 +56,7 @@ describe('SettingsSheet', () => {
             stars: true,
             constellations: true,
           },
+          mainViewDeepStarsEnabled: true,
           layerAvailabilityLabels: {
             aircraft: 'Live aircraft temporarily unavailable',
           },
@@ -62,6 +64,7 @@ describe('SettingsSheet', () => {
           labelDisplayMode: 'center_only',
           motionQuality: 'balanced',
           onLayerToggle: vi.fn(),
+          onMainViewDeepStarsEnabledChange,
           onLikelyVisibleOnlyChange: vi.fn(),
           onLabelDisplayModeChange,
           onMotionQualityChange,
@@ -69,7 +72,7 @@ describe('SettingsSheet', () => {
       )
     })
 
-    const settingsButton = Array.from(container.querySelectorAll('button')).find((button) =>
+    const settingsButton = Array.from(document.body.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Settings'),
     )
 
@@ -79,21 +82,28 @@ describe('SettingsSheet', () => {
       settingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(container.textContent).toContain('Planes')
-    expect(container.textContent).toContain('Live aircraft temporarily unavailable')
+    expect(document.body.textContent).toContain('Planes')
+    expect(document.body.textContent).toContain('Live aircraft temporarily unavailable')
+    expect(
+      (
+        document.body.querySelector('input[aria-label="Main-view deep stars"]') as
+          | HTMLInputElement
+          | null
+      )?.checked,
+    ).toBe(true)
 
-    const fixAlignmentButton = Array.from(container.querySelectorAll('button')).find((button) =>
+    const fixAlignmentButton = Array.from(document.body.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Alignment'),
     )
 
     expect(fixAlignmentButton).toBeDefined()
 
     expect(
-      (container.querySelector('input[aria-label="Center only"]') as HTMLInputElement | null)
+      (document.body.querySelector('input[aria-label="Center only"]') as HTMLInputElement | null)
         ?.checked,
     ).toBe(true)
 
-    const topListRadio = container.querySelector(
+    const topListRadio = document.body.querySelector(
       'input[aria-label="Top list"]',
     ) as HTMLInputElement | null
 
@@ -103,7 +113,7 @@ describe('SettingsSheet', () => {
 
     expect(onLabelDisplayModeChange).toHaveBeenCalledWith('top_list')
 
-    const highQualityRadio = container.querySelector(
+    const highQualityRadio = document.body.querySelector(
       'input[aria-label="High"]',
     ) as HTMLInputElement | null
 
@@ -113,12 +123,23 @@ describe('SettingsSheet', () => {
 
     expect(onMotionQualityChange).toHaveBeenCalledWith('high')
 
+    const mainViewDeepStarsToggle = document.body.querySelector(
+      'input[aria-label="Main-view deep stars"]',
+    ) as HTMLInputElement | null
+
+    await act(async () => {
+      mainViewDeepStarsToggle?.click()
+    })
+
+    expect(onMainViewDeepStarsEnabledChange).toHaveBeenCalledWith(false)
+
     await act(async () => {
       fixAlignmentButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
     expect(onFixAlignment).toHaveBeenCalledTimes(1)
-    expect(container.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.activeElement).not.toBe(settingsButton)
   })
 
   it('uses a fixed shell with an internal scroll region when open', async () => {
@@ -151,7 +172,7 @@ describe('SettingsSheet', () => {
       )
     })
 
-    const settingsButton = Array.from(container.querySelectorAll('button')).find((button) =>
+    const settingsButton = Array.from(document.body.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Settings'),
     )
 
@@ -161,13 +182,13 @@ describe('SettingsSheet', () => {
       settingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    const shell = container.querySelector(
+    const shell = document.body.querySelector(
       '[data-testid="settings-sheet-shell"]',
     ) as HTMLElement | null
-    const panel = container.querySelector(
+    const panel = document.body.querySelector(
       '[data-testid="settings-sheet-panel"]',
     ) as HTMLElement | null
-    const scrollRegion = container.querySelector(
+    const scrollRegion = document.body.querySelector(
       '[data-testid="settings-sheet-scroll-region"]',
     ) as HTMLElement | null
 
@@ -188,7 +209,7 @@ describe('SettingsSheet', () => {
     expect(document.documentElement.style.overflow).toBe('')
     expect(document.body.style.overflow).toBe('')
 
-    const closeButton = Array.from(container.querySelectorAll('button')).find((button) =>
+    const closeButton = Array.from(document.body.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Close'),
     )
 
@@ -201,11 +222,72 @@ describe('SettingsSheet', () => {
     expect(onOpenChange).toHaveBeenLastCalledWith(false)
   })
 
-  it('keeps scope controls in Settings and excludes quick-only optics knobs', async () => {
-    const onScopeModeEnabledChange = vi.fn()
-    const onTransparencyPctChange = vi.fn()
-    const onMarkerScaleChange = vi.fn()
+  it('uses a centered desktop dialog with an internal scroll region when requested', async () => {
+    const onOpenChange = vi.fn()
 
+    await act(async () => {
+      root.render(
+        React.createElement(SettingsSheet, {
+          presentation: 'desktop-dialog',
+          onEnterDemoMode: vi.fn(),
+          onOpenChange,
+          onFixAlignment: vi.fn(),
+          onRecenter: vi.fn(),
+          canFixAlignment: true,
+          canRecenter: true,
+          layers: {
+            aircraft: true,
+            satellites: true,
+            planets: true,
+            stars: true,
+            constellations: true,
+          },
+          likelyVisibleOnly: true,
+          labelDisplayMode: 'center_only',
+          motionQuality: 'balanced',
+          onLayerToggle: vi.fn(),
+          onLikelyVisibleOnlyChange: vi.fn(),
+          onLabelDisplayModeChange: vi.fn(),
+          onMotionQualityChange: vi.fn(),
+        }),
+      )
+    })
+
+    const settingsButton = Array.from(document.body.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Settings'),
+    )
+
+    expect(settingsButton).toBeDefined()
+
+    await act(async () => {
+      settingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const shell = document.body.querySelector(
+      '[data-testid="settings-sheet-shell"]',
+    ) as HTMLElement | null
+    const panel = document.body.querySelector(
+      '[data-testid="settings-sheet-panel"]',
+    ) as HTMLElement | null
+    const scrollRegion = document.body.querySelector(
+      '[data-testid="settings-sheet-scroll-region"]',
+    ) as HTMLElement | null
+
+    expect(shell).not.toBeNull()
+    expect(shell?.className).toContain('fixed')
+    expect(shell?.className).toContain('items-center')
+    expect(shell?.className).toContain('justify-center')
+    expect(panel?.className).toContain('max-w-4xl')
+    expect(panel?.className).toContain('overflow-hidden')
+    expect(panel?.style.maxHeight).toBe('calc(100dvh - 3rem)')
+    expect(scrollRegion?.className).toContain('flex-1')
+    expect(scrollRegion?.className).toContain('overflow-y-auto')
+    expect(scrollRegion?.className).toContain('overscroll-contain')
+    expect(document.body.textContent).toContain('Enter demo mode')
+    expect(onOpenChange).toHaveBeenLastCalledWith(true)
+  })
+
+  it('shows scope controls only when the viewer marks them available', async () => {
     await act(async () => {
       root.render(
         React.createElement(SettingsSheet, {
@@ -218,9 +300,54 @@ describe('SettingsSheet', () => {
             constellations: true,
           },
           likelyVisibleOnly: true,
+          labelDisplayMode: 'center_only',
+          motionQuality: 'balanced',
+          onLayerToggle: vi.fn(),
+          onLikelyVisibleOnlyChange: vi.fn(),
+          onLabelDisplayModeChange: vi.fn(),
+          onMotionQualityChange: vi.fn(),
+        }),
+      )
+    })
+
+    const settingsButton = Array.from(document.body.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Settings'),
+    )
+
+    await act(async () => {
+      settingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(document.body.querySelector('input[aria-label="Marker scale"]')).not.toBeNull()
+    expect(document.body.querySelector('input[aria-label="Scope mode"]')).toBeNull()
+    expect(document.body.querySelector('input[aria-label="Scope field of view"]')).toBeNull()
+    expect(document.body.querySelector('input[aria-label="Telescope diameter"]')).toBeNull()
+    expect(document.body.querySelector('input[aria-label="Transparency"]')).toBeNull()
+  })
+
+  it('delegates scope setting changes without owning scope logic', async () => {
+    const onScopeModeEnabledChange = vi.fn()
+    const onScopeLensDiameterPctChange = vi.fn()
+    const onTransparencyChange = vi.fn()
+    const onMarkerScaleChange = vi.fn()
+
+    await act(async () => {
+      root.render(
+        React.createElement(SettingsSheet, {
+          onEnterDemoMode: vi.fn(),
+          showScopeControls: true,
           scopeModeEnabled: true,
-          transparencyPct: 72,
-          markerScale: 2.5,
+          scopeLensDiameterPct: 82,
+          transparencyPct: 78,
+          markerScale: 1.8,
+          layers: {
+            aircraft: true,
+            satellites: true,
+            planets: true,
+            stars: true,
+            constellations: true,
+          },
+          likelyVisibleOnly: true,
           labelDisplayMode: 'center_only',
           motionQuality: 'balanced',
           onLayerToggle: vi.fn(),
@@ -228,50 +355,66 @@ describe('SettingsSheet', () => {
           onLabelDisplayModeChange: vi.fn(),
           onMotionQualityChange: vi.fn(),
           onScopeModeEnabledChange,
-          onTransparencyPctChange,
+          onScopeLensDiameterPctChange,
+          onTransparencyChange,
           onMarkerScaleChange,
         }),
       )
     })
 
-    const settingsButton = Array.from(container.querySelectorAll('button')).find((button) =>
+    const settingsButton = Array.from(document.body.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Settings'),
     )
-
-    expect(settingsButton).toBeDefined()
 
     await act(async () => {
       settingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    const scopeToggle = container.querySelector(
+    const scopeToggle = document.body.querySelector(
       'input[aria-label="Scope mode"]',
     ) as HTMLInputElement | null
-    const transparencySlider = container.querySelector(
+    const telescopeDiameterSlider = document.body.querySelector(
+      'input[aria-label="Telescope diameter"]',
+    ) as HTMLInputElement | null
+    const transparencySlider = document.body.querySelector(
       'input[aria-label="Transparency"]',
     ) as HTMLInputElement | null
-    const markerScaleSlider = container.querySelector(
+    const markerScaleSlider = document.body.querySelector(
       'input[aria-label="Marker scale"]',
     ) as HTMLInputElement | null
 
     expect(scopeToggle?.checked).toBe(true)
-    expect(transparencySlider?.value).toBe('72')
-    expect(transparencySlider?.min).toBe(String(SCOPE_OPTICS_RANGES.transparencyPct.min))
-    expect(transparencySlider?.max).toBe(String(SCOPE_OPTICS_RANGES.transparencyPct.max))
-    expect(transparencySlider?.step).toBe(String(SCOPE_OPTICS_RANGES.transparencyPct.step))
-    expect(markerScaleSlider?.value).toBe('2.5')
-    expect(container.textContent).not.toContain('Aperture')
-    expect(container.textContent).not.toContain('Magnification')
+    expect(telescopeDiameterSlider?.value).toBe('82')
+    expect(telescopeDiameterSlider?.min).toBe(String(SCOPE_LENS_DIAMETER_PCT_RANGE.min))
+    expect(telescopeDiameterSlider?.max).toBe(String(SCOPE_LENS_DIAMETER_PCT_RANGE.max))
+    expect(telescopeDiameterSlider?.step).toBe(String(SCOPE_LENS_DIAMETER_PCT_RANGE.step))
+    expect(document.body.textContent).toContain('% of screen height')
+    expect(transparencySlider?.value).toBe('78')
+    expect(markerScaleSlider?.value).toBe('1.8')
 
     await act(async () => {
       scopeToggle?.click()
-      setInputValue(transparencySlider!, '88')
-      setInputValue(markerScaleSlider!, '3.4')
     })
 
     expect(onScopeModeEnabledChange).toHaveBeenCalledWith(false)
-    expect(onTransparencyPctChange).toHaveBeenCalledWith(88)
-    expect(onMarkerScaleChange).toHaveBeenCalledWith(3.4)
+
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        'value',
+      )?.set
+
+      valueSetter?.call(telescopeDiameterSlider, '88')
+      telescopeDiameterSlider?.dispatchEvent(new Event('change', { bubbles: true }))
+      valueSetter?.call(transparencySlider, '82')
+      transparencySlider?.dispatchEvent(new Event('change', { bubbles: true }))
+      valueSetter?.call(markerScaleSlider, '2.4')
+      markerScaleSlider?.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    expect(onScopeLensDiameterPctChange).toHaveBeenCalledWith(88)
+    expect(onTransparencyChange).toHaveBeenCalledWith(82)
+    expect(onMarkerScaleChange).toHaveBeenCalledWith(2.4)
   })
 
   it('clears the reported open state when the sheet unmounts while open', async () => {
@@ -304,7 +447,7 @@ describe('SettingsSheet', () => {
       )
     })
 
-    const settingsButton = Array.from(container.querySelectorAll('button')).find((button) =>
+    const settingsButton = Array.from(document.body.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Settings'),
     )
 
@@ -342,14 +485,16 @@ describe('SettingsSheet', () => {
           },
           likelyVisibleOnly: true,
           labelDisplayMode: 'center_only',
+          motionQuality: 'balanced',
           onLayerToggle: vi.fn(),
           onLikelyVisibleOnlyChange: vi.fn(),
           onLabelDisplayModeChange: vi.fn(),
+          onMotionQualityChange: vi.fn(),
         }),
       )
     })
 
-    const settingsButton = Array.from(container.querySelectorAll('button')).find((button) =>
+    const settingsButton = Array.from(document.body.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Settings'),
     )
 
@@ -359,7 +504,7 @@ describe('SettingsSheet', () => {
       settingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    const alignmentButton = Array.from(container.querySelectorAll('button')).find((button) =>
+    const alignmentButton = Array.from(document.body.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Alignment'),
     )
 
@@ -370,7 +515,7 @@ describe('SettingsSheet', () => {
     })
 
     expect(onFixAlignment).toHaveBeenCalledTimes(1)
-    expect(container.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull()
   })
 
   it('disables the alignment launcher when live alignment is unavailable in the current mode', async () => {
@@ -400,7 +545,7 @@ describe('SettingsSheet', () => {
       )
     })
 
-    const settingsButton = Array.from(container.querySelectorAll('button')).find((button) =>
+    const settingsButton = Array.from(document.body.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Settings'),
     )
 
@@ -410,7 +555,7 @@ describe('SettingsSheet', () => {
       settingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    const alignmentButton = Array.from(container.querySelectorAll('button')).find((button) =>
+    const alignmentButton = Array.from(document.body.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Alignment'),
     )
 
@@ -421,7 +566,7 @@ describe('SettingsSheet', () => {
     })
 
     expect((alignmentButton as HTMLButtonElement | undefined)?.disabled).toBe(true)
-    expect(container.querySelector('[role="dialog"]')).not.toBeNull()
+    expect(document.body.querySelector('[role="dialog"]')).not.toBeNull()
   })
 
   it('traps focus and exposes demo scenario switching controls when open', async () => {
@@ -460,7 +605,7 @@ describe('SettingsSheet', () => {
       )
     })
 
-    const buttons = Array.from(container.querySelectorAll('button'))
+    const buttons = Array.from(document.body.querySelectorAll('button'))
     const settingsButton = buttons.find((button) => button.textContent?.includes('Settings'))
 
     expect(settingsButton).toBeDefined()
@@ -469,13 +614,16 @@ describe('SettingsSheet', () => {
       settingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    const closeButton = Array.from(container.querySelectorAll('button')).find((button) =>
+    const closeButton = Array.from(document.body.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Close'),
     )
-    const enterDemoButton = Array.from(container.querySelectorAll('button')).find((button) =>
+    const enterDemoButton = Array.from(document.body.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Enter demo mode'),
     )
-    const tokyoButton = Array.from(container.querySelectorAll('button')).find((button) =>
+    const replayGuideButton = Array.from(document.body.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Replay viewer guide'),
+    )
+    const tokyoButton = Array.from(document.body.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Tokyo - Night with ISS pass'),
     )
 
@@ -493,7 +641,8 @@ describe('SettingsSheet', () => {
       )
     })
 
-    expect(document.activeElement).toBe(enterDemoButton)
+    expect(enterDemoButton).toBeUndefined()
+    expect(document.activeElement).toBe(replayGuideButton)
 
     await act(async () => {
       tokyoButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
@@ -529,7 +678,7 @@ describe('SettingsSheet', () => {
       )
     })
 
-    const settingsButton = Array.from(container.querySelectorAll('button')).find((button) =>
+    const settingsButton = Array.from(document.body.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Settings'),
     )
 
@@ -542,7 +691,7 @@ describe('SettingsSheet', () => {
       settingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    const panel = container.querySelector('[role="dialog"]') as HTMLElement | null
+    const panel = document.body.querySelector('[role="dialog"]') as HTMLElement | null
 
     expect(panel).not.toBeNull()
     expect(document.activeElement?.textContent).toContain('Close')
@@ -557,19 +706,205 @@ describe('SettingsSheet', () => {
       )
     })
 
-    expect(container.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull()
     expect(document.activeElement).toBe(settingsButton)
     expect(settingsButton?.getAttribute('aria-expanded')).toBe('false')
   })
+
+  it('closes the desktop dialog on Escape and restores focus to the trigger', async () => {
+    await act(async () => {
+      root.render(
+        React.createElement(SettingsSheet, {
+          presentation: 'desktop-dialog',
+          onEnterDemoMode: vi.fn(),
+          onFixAlignment: vi.fn(),
+          onRecenter: vi.fn(),
+          canFixAlignment: true,
+          canRecenter: true,
+          layers: {
+            aircraft: true,
+            satellites: true,
+            planets: true,
+            stars: true,
+            constellations: true,
+          },
+          likelyVisibleOnly: true,
+          labelDisplayMode: 'center_only',
+          motionQuality: 'balanced',
+          onLayerToggle: vi.fn(),
+          onLikelyVisibleOnlyChange: vi.fn(),
+          onLabelDisplayModeChange: vi.fn(),
+          onMotionQualityChange: vi.fn(),
+        }),
+      )
+    })
+
+    const settingsButton = Array.from(document.body.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Settings'),
+    )
+
+    expect(settingsButton).toBeDefined()
+
+    settingsButton!.focus()
+    expect(document.activeElement).toBe(settingsButton)
+
+    await act(async () => {
+      settingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const panel = document.body.querySelector('[role="dialog"]') as HTMLElement | null
+
+    expect(panel).not.toBeNull()
+    expect(document.activeElement?.textContent).toContain('Close')
+
+    await act(async () => {
+      panel!.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'Escape',
+          bubbles: true,
+          cancelable: true,
+        }),
+      )
+    })
+
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.activeElement).toBe(settingsButton)
+    expect(settingsButton?.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('closes the desktop dialog on backdrop click, ignores inner clicks, and restores focus', async () => {
+    const onLayerToggle = vi.fn()
+
+    await act(async () => {
+      root.render(
+        React.createElement(SettingsSheet, {
+          presentation: 'desktop-dialog',
+          onEnterDemoMode: vi.fn(),
+          onFixAlignment: vi.fn(),
+          onRecenter: vi.fn(),
+          canFixAlignment: true,
+          canRecenter: true,
+          layers: {
+            aircraft: true,
+            satellites: true,
+            planets: true,
+            stars: true,
+            constellations: true,
+          },
+          likelyVisibleOnly: true,
+          labelDisplayMode: 'center_only',
+          motionQuality: 'balanced',
+          onLayerToggle,
+          onLikelyVisibleOnlyChange: vi.fn(),
+          onLabelDisplayModeChange: vi.fn(),
+          onMotionQualityChange: vi.fn(),
+        }),
+      )
+    })
+
+    const settingsButton = Array.from(document.body.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Settings'),
+    ) as HTMLButtonElement | undefined
+
+    expect(settingsButton).toBeDefined()
+
+    settingsButton!.focus()
+
+    await act(async () => {
+      settingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const planesToggle = document.body.querySelector(
+      'input[aria-label="Planes"]',
+    ) as HTMLInputElement | null
+
+    expect(planesToggle?.checked).toBe(true)
+
+    await act(async () => {
+      planesToggle?.click()
+    })
+
+    expect(onLayerToggle).toHaveBeenCalledWith('aircraft', false)
+    expect(document.body.querySelector('[role="dialog"]')).not.toBeNull()
+
+    const backdrop = document.body.querySelector(
+      '[data-testid="settings-sheet-backdrop"]',
+    ) as HTMLButtonElement | null
+
+    expect(backdrop).not.toBeNull()
+
+    await act(async () => {
+      backdrop!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.activeElement).toBe(settingsButton)
+  })
+
+  it('closes on backdrop click, ignores inner clicks, and restores focus to the trigger', async () => {
+    await act(async () => {
+      root.render(
+        React.createElement(SettingsSheet, {
+          onEnterDemoMode: vi.fn(),
+          onFixAlignment: vi.fn(),
+          onRecenter: vi.fn(),
+          canFixAlignment: true,
+          canRecenter: true,
+          layers: {
+            aircraft: true,
+            satellites: true,
+            planets: true,
+            stars: true,
+            constellations: true,
+          },
+          likelyVisibleOnly: true,
+          labelDisplayMode: 'center_only',
+          motionQuality: 'balanced',
+          onLayerToggle: vi.fn(),
+          onLikelyVisibleOnlyChange: vi.fn(),
+          onLabelDisplayModeChange: vi.fn(),
+          onMotionQualityChange: vi.fn(),
+        }),
+      )
+    })
+
+    const settingsButton = Array.from(document.body.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Settings'),
+    ) as HTMLButtonElement | undefined
+
+    expect(settingsButton).toBeDefined()
+
+    settingsButton!.focus()
+
+    await act(async () => {
+      settingsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const panel = document.body.querySelector('[data-testid="settings-sheet-panel"]') as HTMLElement | null
+    const planesToggle = document.body.querySelector(
+      'input[aria-label="Planes"]',
+    ) as HTMLInputElement | null
+
+    expect(panel).not.toBeNull()
+    expect(planesToggle?.checked).toBe(true)
+
+    await act(async () => {
+      planesToggle?.click()
+    })
+
+    expect(document.body.querySelector('[role="dialog"]')).not.toBeNull()
+
+    const backdrop = document.body.querySelector(
+      '[data-testid="settings-sheet-backdrop"]',
+    ) as HTMLButtonElement | null
+
+    expect(backdrop).not.toBeNull()
+
+    await act(async () => {
+      backdrop!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.activeElement).toBe(settingsButton)
+  })
 })
-
-function setInputValue(input: HTMLInputElement, value: string) {
-  const valueSetter = Object.getOwnPropertyDescriptor(
-    HTMLInputElement.prototype,
-    'value',
-  )?.set
-
-  valueSetter?.call(input, value)
-  input.dispatchEvent(new Event('input', { bubbles: true }))
-  input.dispatchEvent(new Event('change', { bubbles: true }))
-}

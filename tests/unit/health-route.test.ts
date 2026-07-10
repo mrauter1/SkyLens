@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { GET } from '../../app/api/health/route'
+import { fetchHealthStatus } from '../../lib/health/client'
 import { getTleApiResponse, resetTleCacheForTests } from '../../lib/satellites/tle'
 
-describe('/api/health', () => {
+describe('fetchHealthStatus', () => {
   afterEach(() => {
     vi.useRealTimers()
   })
@@ -11,11 +11,7 @@ describe('/api/health', () => {
   it('reports empty caches before any live fetches occur', async () => {
     resetTleCacheForTests()
 
-    const response = await GET()
-    const payload = await response.json()
-
-    expect(response.status).toBe(200)
-    expect(payload).toEqual({
+    await expect(fetchHealthStatus()).resolves.toEqual({
       app: {
         status: 'ok',
       },
@@ -34,8 +30,7 @@ describe('/api/health', () => {
 
     await getTleApiResponse(createTleFetch(), now)
 
-    const response = await GET()
-    const payload = await response.json()
+    const payload = await fetchHealthStatus()
 
     expect(payload.app.status).toBe('ok')
     expect(payload).not.toHaveProperty('aircraftCache')
@@ -55,8 +50,7 @@ describe('/api/health', () => {
     vi.useFakeTimers()
     vi.setSystemTime(staleNow)
 
-    const response = await GET()
-    const payload = await response.json()
+    const payload = await fetchHealthStatus()
 
     expect(payload).not.toHaveProperty('aircraftCache')
     expect(payload.tleCache.status).toBe('stale')

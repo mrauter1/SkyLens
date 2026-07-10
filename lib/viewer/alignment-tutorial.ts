@@ -11,6 +11,13 @@ export type AlignmentTutorialNotice = {
   text: string
 }
 
+export type AlignmentTutorialPrimaryStep = {
+  id: 'align-now' | 'return-to-live-sensors' | 'waiting-for-motion' | 'alignment-unavailable'
+  title: string
+  body: string
+  ctaLabel: string | null
+}
+
 export const ALIGNMENT_FINE_ADJUST_CONTROLS: Array<{
   axis: 'yaw' | 'pitch'
   deltaDeg: number
@@ -44,7 +51,6 @@ export function buildAlignmentTutorialModel({
   calibrationStatus,
   canFixAlignment,
   canAlignCalibration,
-  canResetCalibration,
   manualMode,
   preferredTargetUnavailable,
 }: {
@@ -53,56 +59,50 @@ export function buildAlignmentTutorialModel({
   calibrationStatus: string
   canFixAlignment: boolean
   canAlignCalibration: boolean
-  canResetCalibration: boolean
   manualMode: boolean
   preferredTargetUnavailable: boolean
 }) {
   const selectedTargetLabel = selectedTarget === 'sun' ? 'Sun' : 'Moon'
 
-  const notices: AlignmentTutorialNotice[] = [
-    {
-      id: 'status',
-      tone: 'status',
-      text: calibrationStatus,
-    },
-  ]
+  const supportingNotice: AlignmentTutorialNotice | null = preferredTargetUnavailable
+    ? {
+        id: 'fallback',
+        tone: 'warning',
+        text: `${selectedTargetLabel} is unavailable. SkyLens will use ${resolvedTargetLabel} for the next alignment pass.`,
+      }
+    : null
 
-  if (preferredTargetUnavailable) {
-    notices.push({
-      id: 'fallback',
-      tone: 'warning',
-      text: `${selectedTargetLabel} is unavailable. SkyLens will use ${resolvedTargetLabel} if you align now.`,
-    })
-  }
-
-  if (!canFixAlignment) {
-    notices.push({
-      id: 'mode-blocker',
-      tone: 'warning',
-      text: 'Live sensor alignment is unavailable in the current mode. Manual nudges and field-of-view calibration are still available.',
-    })
-  } else if (!canAlignCalibration) {
-    notices.push({
-      id: 'align-blocker',
-      tone: 'warning',
-      text: manualMode
-        ? 'Align is unavailable while manual panning is active. Return to live sensors to run alignment again.'
-        : `Align stays disabled until live motion data is ready. SkyLens will keep ${resolvedTargetLabel} as the next target.`,
-    })
-  }
-
-  const nextAction = canAlignCalibration
-    ? `Center ${resolvedTargetLabel} in the crosshair, then press the middle of the screen to align.`
+  const primaryStep: AlignmentTutorialPrimaryStep = canAlignCalibration
+    ? {
+        id: 'align-now',
+        title: `Align to ${resolvedTargetLabel}`,
+        body: `Center ${resolvedTargetLabel} in the crosshair, then start alignment from the live camera view.`,
+        ctaLabel: `Start alignment`,
+      }
     : manualMode
-      ? 'Return to live sensors to align from the center crosshair.'
-      : `Wait for live motion data, then press the middle of the screen to align to ${resolvedTargetLabel}.`
+      ? {
+          id: 'return-to-live-sensors',
+          title: 'Return to live sensors',
+          body: 'Alignment works only with live sensor motion. Exit manual pan or demo mode, then reopen Alignment.',
+          ctaLabel: null,
+        }
+      : !canFixAlignment
+        ? {
+            id: 'alignment-unavailable',
+            title: 'Alignment is unavailable',
+            body: 'Live sensor alignment is unavailable in the current mode. Manual nudges and field-of-view calibration remain available.',
+            ctaLabel: null,
+          }
+        : {
+            id: 'waiting-for-motion',
+            title: 'Waiting for motion data',
+            body: `SkyLens will enable alignment after the next usable live motion sample arrives for ${resolvedTargetLabel}.`,
+            ctaLabel: 'Start alignment',
+          }
 
   return {
-    alignActionLabel: canAlignCalibration
-      ? `Align to ${resolvedTargetLabel}`
-      : 'Waiting for motion sample',
-    focusPrompt: `Press the middle of the screen to align to ${resolvedTargetLabel}.`,
-    nextAction,
-    notices,
+    status: calibrationStatus,
+    primaryStep,
+    supportingNotice,
   }
 }

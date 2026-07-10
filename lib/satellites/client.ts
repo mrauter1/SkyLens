@@ -6,21 +6,14 @@ import {
 } from '../viewer/motion'
 import type { TleApiResponse } from './contracts'
 import { TleApiResponseSchema } from './contracts'
+import { getTleApiResponse } from './tle'
 
 export type { SatelliteDetailMetadata }
 
 export async function fetchSatelliteCatalog(
   fetchImpl: typeof fetch = fetch,
 ): Promise<TleApiResponse> {
-  const response = await fetchImpl('/api/tle', {
-    cache: 'no-store',
-  })
-
-  if (!response.ok) {
-    throw new Error('Satellite catalog unavailable.')
-  }
-
-  return TleApiResponseSchema.parse(await response.json())
+  return TleApiResponseSchema.parse(await getTleApiResponse(fetchImpl))
 }
 
 export function normalizeSatelliteObjects({

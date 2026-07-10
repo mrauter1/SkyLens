@@ -1,33 +1,47 @@
-import {
-  formatVerifyUsage,
-  parseVerifyCommandArgs,
-  verifyScopeDataset,
-} from '../lib/scope-data/index.mjs'
+import path from 'node:path'
 
-async function main() {
-  const options = parseVerifyCommandArgs(process.argv.slice(2))
+import { verifyScopeDataset } from './scope/verify-core.mjs'
 
-  if (options.help) {
-    process.stdout.write(`${formatVerifyUsage()}\n`)
-    return
+function parseArgs(argv) {
+  let datasetRoot = path.join(process.cwd(), 'public', 'data', 'scope', 'v1')
+  let kind = 'auto'
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index]
+    if (argument === '--dataset-root') {
+      const value = argv[index + 1]
+      if (!value) {
+        throw new Error('scope-verify-dataset-root-missing')
+      }
+      datasetRoot = path.resolve(process.cwd(), value)
+      index += 1
+      continue
+    }
+    if (argument === '--kind') {
+      const value = argv[index + 1]
+      if (value !== 'auto' && value !== 'dev' && value !== 'prod') {
+        throw new Error('scope-verify-kind-invalid')
+      }
+      kind = value
+      index += 1
+      continue
+    }
+    throw new Error(`scope-verify-arg-unknown:${argument}`)
   }
 
-  const result = await verifyScopeDataset({
-    datasetRoot: options.datasetRoot,
-    kind: options.kind,
-  })
+  return { datasetRoot, kind }
+}
 
-  process.stdout.write(
-    [
-      `Verified scope dataset at ${result.datasetRoot}`,
-      `kind=${result.kind}`,
-      `names=${result.namesCount}`,
-      `bands=${result.bands.map((band) => `${band.bandDir}:${band.totalRows}`).join(', ')}`,
-    ].join('\n') + '\n'
-  )
+async function main() {
+  const options = parseArgs(process.argv.slice(2))
+  const result = await verifyScopeDataset(options)
+
+  console.log(`datasetRoot: ${options.datasetRoot}`)
+  console.log(`kind: ${result.manifest.kind}`)
+  console.log(`bands: ${result.manifest.bands.length}`)
 }
 
 main().catch((error) => {
-  console.error(error.message)
+  console.error(error instanceof Error ? error.message : String(error))
   process.exitCode = 1
 })

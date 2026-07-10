@@ -12,9 +12,17 @@ test('landing page shows shell copy and demo entry', async ({ page }) => {
   await expect(page.getByText('Camera stays on your device.')).toBeVisible()
   await expect(
     page.getByText(
-      'Location is used only to calculate what is above you right now.',
+      'Location positions the sky on your device. When Planes is on, a bounded area around you is sent directly from your browser to OpenSky.',
     ),
   ).toBeVisible()
+  await expect(
+    page.getByText(
+      'Live satellite catalogs are fetched directly from CelesTrak.',
+    ),
+  ).toBeVisible()
+  await expect(page.getByText('Use the live viewer on your phone.')).toBeVisible()
+  await expect(page.getByText('Privacy and fallback notes')).toBeVisible()
+  await expect(page.getByText('Permission order')).toBeVisible()
   await expect(page.getByRole('link', { name: 'Open live viewer' })).toBeVisible()
 
   const demoLink = page.getByRole('link', { name: 'Try demo mode' })
@@ -26,5 +34,5 @@ test('landing page shows shell copy and demo entry', async ({ page }) => {
   const mobileOverlay = page.getByTestId('mobile-viewer-overlay')
 
   await expect(page).toHaveURL(/\/view\?entry=demo/)
-  await expect(page.getByTestId('viewer-warning-rail-item-demo')).toBeVisible()
+  await expect(mobileOverlay.getByText('Demo mode is active.')).toBeVisible()
 })

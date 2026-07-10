@@ -24,10 +24,12 @@ export interface DeviceOrientationReading {
   gamma: number | null
   absolute?: boolean
   webkitCompassHeading?: number
+  webkitCompassAccuracy?: number
 }
 
 export type OrientationSource =
   | 'absolute-sensor'
+  | 'relative-sensor'
   | 'deviceorientation-absolute'
   | 'deviceorientation-relative'
   | 'manual'
@@ -36,10 +38,14 @@ export type LocalFrame = 'device' | 'screen'
 
 export interface RawOrientationSample {
   source: OrientationSource
+  providerKind: 'sensor' | 'event'
   localFrame: LocalFrame
   absolute: boolean
   timestampMs: number
-  worldFromLocal: Mat3
+  worldFromLocal?: Mat3
+  rawQuaternion?: Quaternion
+  compassBacked?: boolean
+  compassHeadingDeg?: number
   compassAccuracyDeg?: number
 }
 
@@ -61,7 +67,9 @@ export interface OrientationSample {
   quaternion: Quaternion
   rawQuaternion: Quaternion
   rawSample: RawOrientationSample
+  reportedCompassHeadingDeg?: number
   compassAccuracyDeg?: number
+  compassBacked?: boolean
 }
 
 export interface OrientationOffsets {
@@ -75,7 +83,36 @@ interface OrientationPermissionRequester {
   ) => Promise<'granted' | 'denied'>
 }
 
+export type OrientationPermissionDecision =
+  | 'granted'
+  | 'denied'
+  | 'unavailable'
+  | 'error'
+
+export type OrientationPermissionFailureReason =
+  | 'none'
+  | 'unsupported'
+  | 'user-denied'
+  | 'activation-required'
+  | 'policy-or-security'
+  | 'request-failed'
+
+export interface OrientationPermissionResult {
+  status: OrientationPermissionDecision
+  reason: OrientationPermissionFailureReason
+  orientation: Exclude<OrientationPermissionDecision, 'error'> | 'error'
+  motion: Exclude<OrientationPermissionDecision, 'error'> | 'error'
+  errorName?: string
+}
+
+type EventPermissionResult = {
+  status: 'granted' | 'denied' | 'unavailable' | 'error'
+  reason: OrientationPermissionFailureReason
+  errorName?: string
+}
+
 interface AbsoluteOrientationSensorLike {
+  quaternion?: ArrayLike<number>
   start: () => void
   stop?: () => void
   addEventListener: (
@@ -96,13 +133,34 @@ interface AbsoluteOrientationSensorConstructor {
   }): AbsoluteOrientationSensorLike
 }
 
+type RelativeOrientationSensorLike = AbsoluteOrientationSensorLike
+
+interface RelativeOrientationSensorConstructor {
+  new (options?: {
+    frequency?: number
+    referenceFrame?: 'device' | 'screen'
+  }): RelativeOrientationSensorLike
+}
+
+interface OrientationRuntimeDocument {
+  visibilityState?: DocumentVisibilityState
+  addEventListener?: (
+    type: 'visibilitychange',
+    listener: EventListenerOrEventListenerObject,
+  ) => void
+  removeEventListener?: (
+    type: 'visibilitychange',
+    listener: EventListenerOrEventListenerObject,
+  ) => void
+}
+
 export interface OrientationRuntime {
   addEventListener: (
-    type: 'deviceorientationabsolute' | 'deviceorientation',
+    type: string,
     listener: EventListenerOrEventListenerObject,
   ) => void
   removeEventListener: (
-    type: 'deviceorientationabsolute' | 'deviceorientation',
+    type: string,
     listener: EventListenerOrEventListenerObject,
   ) => void
   ondeviceorientation?: unknown
@@ -113,9 +171,12 @@ export interface OrientationRuntime {
     }
   }
   orientation?: number
+  document?: OrientationRuntimeDocument
   DeviceOrientationEvent?: OrientationPermissionRequester
   DeviceMotionEvent?: OrientationPermissionRequester
   AbsoluteOrientationSensor?: AbsoluteOrientationSensorConstructor
+  RelativeOrientationSensor?: RelativeOrientationSensorConstructor
+  permissions?: Pick<Permissions, 'query'>
 }
 
 export interface ManualPoseState {
@@ -129,15 +190,76 @@ export interface ManualPoseDragOptions {
   pitchDegPerPixel?: number
 }
 
+interface OrientationCapabilities {
+  hasEvents: boolean
+  hasAbsoluteEvent: boolean
+  hasAbsoluteSensor: boolean
+  hasRelativeSensor: boolean
+  canRequestPermission: boolean
+}
+
+interface PermissionHints {
+  accelerometer?: PermissionState | 'unsupported'
+  gyroscope?: PermissionState | 'unsupported'
+  magnetometer?: PermissionState | 'unsupported'
+}
+
+interface OrientationProviderController {
+  id: Exclude<OrientationSource, 'manual'>
+  absolute: boolean
+  priority: number
+  stop(): void
+}
+
+type AutomaticOrientationSource = Exclude<OrientationSource, 'manual'>
+type DeviceOrientationProviderId =
+  | 'deviceorientationabsolute-event'
+  | 'deviceorientation-absolute-event'
+  | 'deviceorientation-relative-event'
+  | 'deviceorientation-safari-validated-event'
+type InternalProviderId =
+  | 'absolute-sensor'
+  | 'relative-sensor'
+  | DeviceOrientationProviderId
+
+interface InternalProviderSample {
+  providerId: InternalProviderId
+  rawSample: RawOrientationSample
+}
+
 const DEFAULT_SMOOTHING = 0.2
 const DEFAULT_MANUAL_YAW_PER_PIXEL = 0.12
 const DEFAULT_MANUAL_PITCH_PER_PIXEL = 0.12
-const ORIENTATION_PERMISSION_PROBE_TIMEOUT_MS = 250
-const ORIENTATION_STREAM_SELECTION_TIMEOUT_MS = 150
+
+const ORIENTATION_PERMISSION_HINT_STARTUP_TIMEOUT_MS = 50
+const ORIENTATION_PROVIDER_SELECTION_TIMEOUT_MS = 500
+const ORIENTATION_ABSOLUTE_UPGRADE_WINDOW_MS = 5_000
+const ORIENTATION_PROVIDER_STALL_TIMEOUT_MS = 1_500
+const ORIENTATION_MIN_CONSECUTIVE_SAMPLES_FOR_UPGRADE = 2
+
+const SAFARI_COMPASS_VALIDATION_SAMPLES = 3
+const SAFARI_COMPASS_MAX_ACCURACY_DEG = 20
+const SAFARI_COMPASS_MAX_HEADING_DELTA_DEG = 20
+
 const BASIS_EPSILON = 1e-6
 const WORLD_UP: Vec3 = [0, 0, 1]
 const IDENTITY_QUATERNION: Quaternion = [0, 0, 0, 1]
 const DEFAULT_NEUTRAL_SENSOR_QUATERNION = createCameraQuaternion(0, 0, 0)
+
+const PROVIDER_PRIORITY: Record<AutomaticOrientationSource, number> = {
+  'absolute-sensor': 100,
+  'deviceorientation-absolute': 90,
+  'relative-sensor': 70,
+  'deviceorientation-relative': 60,
+}
+const INTERNAL_PROVIDER_PRIORITY: Record<InternalProviderId, number> = {
+  'absolute-sensor': 100,
+  'deviceorientationabsolute-event': 95,
+  'deviceorientation-absolute-event': 90,
+  'deviceorientation-safari-validated-event': 80,
+  'relative-sensor': 70,
+  'deviceorientation-relative-event': 60,
+}
 
 export function supportsOrientationEvents(currentWindow: {
   ondeviceorientation?: unknown
@@ -161,54 +283,135 @@ function supportsAbsoluteOrientationSensor(
   return typeof currentWindow.AbsoluteOrientationSensor === 'function'
 }
 
-export async function requestOrientationPermission(
+export function supportsRelativeOrientationSensor(
+  currentWindow: Pick<OrientationRuntime, 'RelativeOrientationSensor'>,
+) {
+  return typeof currentWindow.RelativeOrientationSensor === 'function'
+}
+
+export function getOrientationCapabilities(
   runtime?: OrientationRuntime,
-): Promise<'granted' | 'denied' | 'unavailable'> {
+): OrientationCapabilities {
   const currentWindow = runtime ?? getOrientationWindow()
 
   if (!currentWindow) {
-    return 'unavailable'
-  }
-
-  const orientationSupported =
-    supportsOrientationEvents(currentWindow) ||
-    supportsAbsoluteOrientationSensor(currentWindow)
-
-  if (!orientationSupported) {
-    return 'unavailable'
-  }
-
-  const orientationPermission = await requestEventPermission(
-    currentWindow.DeviceOrientationEvent,
-    { allowAbsoluteFallback: true },
-  )
-  const motionPermission = await requestEventPermission(
-    currentWindow.DeviceMotionEvent,
-  )
-
-  if (orientationPermission === 'denied' || motionPermission === 'denied') {
-    return 'denied'
-  }
-
-  if (orientationPermission === 'granted' || motionPermission === 'granted') {
-    return 'granted'
-  }
-
-  if (supportsOrientationEvents(currentWindow)) {
-    const orientationEventsAvailable = await probeOrientationAvailability(currentWindow)
-
-    if (orientationEventsAvailable) {
-      return 'granted'
+    return {
+      hasEvents: false,
+      hasAbsoluteEvent: false,
+      hasAbsoluteSensor: false,
+      hasRelativeSensor: false,
+      canRequestPermission: false,
     }
   }
 
-  if (supportsAbsoluteOrientationSensor(currentWindow)) {
-    return (await probeAbsoluteOrientationSensorAvailability(currentWindow))
-      ? 'granted'
-      : 'unavailable'
+  return {
+    hasEvents: supportsOrientationEvents(currentWindow),
+    hasAbsoluteEvent: supportsAbsoluteOrientationEvents(currentWindow),
+    hasAbsoluteSensor: supportsAbsoluteOrientationSensor(currentWindow),
+    hasRelativeSensor: supportsRelativeOrientationSensor(currentWindow),
+    canRequestPermission:
+      typeof currentWindow.DeviceOrientationEvent?.requestPermission === 'function' ||
+      typeof currentWindow.DeviceMotionEvent?.requestPermission === 'function',
+  }
+}
+
+export async function requestOrientationPermission(
+  runtime?: OrientationRuntime,
+): Promise<'granted' | 'denied' | 'unavailable'> {
+  const result = await requestOrientationPermissionDetailed(runtime)
+
+  if (result.status === 'granted' || result.status === 'denied') {
+    return result.status
   }
 
   return 'unavailable'
+}
+
+export async function requestOrientationPermissionDetailed(
+  runtime?: OrientationRuntime,
+): Promise<OrientationPermissionResult> {
+  const currentWindow = runtime ?? getOrientationWindow()
+
+  if (!currentWindow) {
+    return createOrientationPermissionResult('unavailable', 'unsupported')
+  }
+
+  const capabilities = getOrientationCapabilities(currentWindow)
+
+  if (
+    !capabilities.hasEvents &&
+    !capabilities.hasAbsoluteSensor &&
+    !capabilities.hasRelativeSensor
+  ) {
+    return createOrientationPermissionResult('unavailable', 'unsupported')
+  }
+
+  // Start both requests before awaiting either result. iOS permission methods
+  // inspect transient activation when invoked, and the user agent can bundle
+  // concurrent accelerometer/gyroscope/magnetometer requests into one prompt.
+  const orientationPermissionPromise = requestEventPermissionDetailed(
+    currentWindow.DeviceOrientationEvent,
+    { allowAbsoluteFallback: true },
+  )
+  const motionPermissionPromise = requestEventPermissionDetailed(
+    currentWindow.DeviceMotionEvent,
+  )
+  const [orientationPermission, motionPermission] = await Promise.all([
+    orientationPermissionPromise,
+    motionPermissionPromise,
+  ])
+
+  if (orientationPermission.status === 'denied' || motionPermission.status === 'denied') {
+    const deniedResult =
+      orientationPermission.status === 'denied' ? orientationPermission : motionPermission
+
+    return {
+      status: 'denied',
+      reason: deniedResult.reason,
+      orientation: orientationPermission.status,
+      motion: motionPermission.status,
+      errorName: deniedResult.errorName,
+    }
+  }
+
+  if (orientationPermission.status === 'error' || motionPermission.status === 'error') {
+    const errorResult =
+      orientationPermission.status === 'error' ? orientationPermission : motionPermission
+
+    return {
+      status: 'error',
+      reason: errorResult.reason,
+      orientation: orientationPermission.status,
+      motion: motionPermission.status,
+      errorName: errorResult.errorName,
+    }
+  }
+
+  if (orientationPermission.status === 'granted' || motionPermission.status === 'granted') {
+    return {
+      status: 'granted',
+      reason: 'none',
+      orientation: orientationPermission.status,
+      motion: motionPermission.status,
+    }
+  }
+
+  return {
+    status: 'unavailable',
+    reason: 'unsupported',
+    orientation: orientationPermission.status,
+    motion: motionPermission.status,
+  }
+}
+
+export async function querySensorPermissionHints(
+  runtime: OrientationRuntime,
+): Promise<PermissionHints> {
+  return {
+    accelerometer: await querySensorPermissionState(runtime, 'accelerometer'),
+    gyroscope: await querySensorPermissionState(runtime, 'gyroscope'),
+    magnetometer: await querySensorPermissionState(runtime, 'magnetometer'),
+  }
 }
 
 export function getScreenOrientationCorrectionDeg(
@@ -281,10 +484,51 @@ export function screenBasisInDeviceCoords(screenAngleDeg: number) {
   }
 }
 
+export function applyScreenCorrectionToQuaternion(
+  quaternion: Quaternion,
+  screenAngleDeg: number,
+): Quaternion {
+  const basis = getCameraBasisVectors(quaternion)
+  const deviceRight = basis.right
+  const deviceUp = negateVec3(basis.down)
+  const { screenRightDevice, screenUpDevice } = screenBasisInDeviceCoords(
+    screenAngleDeg,
+  )
+
+  const correctedRight = combineBasisVectors(
+    deviceRight,
+    deviceUp,
+    screenRightDevice[0],
+    screenRightDevice[1],
+  )
+  const correctedUp = combineBasisVectors(
+    deviceRight,
+    deviceUp,
+    screenUpDevice[0],
+    screenUpDevice[1],
+  )
+
+  return createQuaternionFromBasis(
+    correctedRight,
+    negateVec3(correctedUp),
+    basis.forward,
+  )
+}
+
 export function rawPoseQuaternionFromSample(
   sample: RawOrientationSample,
   screenAngleDeg = 0,
 ): Quaternion {
+  if (sample.rawQuaternion) {
+    return sample.localFrame === 'screen'
+      ? normalizeQuaternion(sample.rawQuaternion)
+      : applyScreenCorrectionToQuaternion(sample.rawQuaternion, screenAngleDeg)
+  }
+
+  if (!sample.worldFromLocal) {
+    throw new Error('orientation-sample-missing-pose-data')
+  }
+
   if (sample.localFrame === 'screen') {
     const rightWorld = getMat3Column(sample.worldFromLocal, 0)
     const upWorld = getMat3Column(sample.worldFromLocal, 1)
@@ -431,13 +675,13 @@ export function smoothOrientationSample(
 
 export function computeAlignmentHealth(samples: readonly OrientationSample[]) {
   if (samples.length < 2) {
-    return 'fair' as const
+    return capAlignmentHealthForCompass(samples.at(-1), 'fair')
   }
 
   const durationMs = samples.at(-1)!.timestampMs - samples[0].timestampMs
 
   if (durationMs <= 0) {
-    return 'fair' as const
+    return capAlignmentHealthForCompass(samples.at(-1), 'fair')
   }
 
   const totalAngularDistance = samples.slice(1).reduce((total, sample, index) => {
@@ -445,27 +689,27 @@ export function computeAlignmentHealth(samples: readonly OrientationSample[]) {
   }, 0)
   const averageAngularSpeedDegPerSec = totalAngularDistance / (durationMs / 1000)
 
+  let result: CameraPose['alignmentHealth'] = 'poor'
+
   if (averageAngularSpeedDegPerSec > 5) {
-    return 'fair' as const
+    result = 'fair'
+  } else {
+    const meanHeadingDeg = getCircularMeanDeg(samples.map((sample) => sample.headingDeg))
+    const headingVarianceDeg = Math.sqrt(
+      samples.reduce((total, sample) => {
+        const delta = shortestAngleDeltaDeg(meanHeadingDeg, sample.headingDeg)
+        return total + delta * delta
+      }, 0) / samples.length,
+    )
+
+    if (headingVarianceDeg <= 5) {
+      result = 'good'
+    } else if (headingVarianceDeg <= 12) {
+      result = 'fair'
+    }
   }
 
-  const meanHeadingDeg = getCircularMeanDeg(samples.map((sample) => sample.headingDeg))
-  const headingVarianceDeg = Math.sqrt(
-    samples.reduce((total, sample) => {
-      const delta = shortestAngleDeltaDeg(meanHeadingDeg, sample.headingDeg)
-      return total + delta * delta
-    }, 0) / samples.length,
-  )
-
-  if (headingVarianceDeg <= 5) {
-    return 'good' as const
-  }
-
-  if (headingVarianceDeg <= 12) {
-    return 'fair' as const
-  }
-
-  return 'poor' as const
+  return capAlignmentHealthForCompass(samples.at(-1), result)
 }
 
 export function trimOrientationHistory(
@@ -536,79 +780,57 @@ export function startAbsoluteOrientationSensorProvider(
     onUnavailable?: () => void
   } = {},
 ) {
-  const currentWindow = runtime ?? getOrientationWindow()
-
-  if (!currentWindow?.AbsoluteOrientationSensor) {
-    return null
-  }
-
-  let sensor: AbsoluteOrientationSensorLike
-
-  try {
-    sensor = new currentWindow.AbsoluteOrientationSensor({
-      frequency: 60,
-      referenceFrame: 'screen',
-    })
-  } catch {
-    onUnavailable?.()
-    return null
-  }
-
-  const handleReading = () => {
-    const worldFromLocal = readOrientationSensorMatrix(sensor)
-
-    if (!worldFromLocal) {
-      return
-    }
-
-    onSample({
-      source: 'absolute-sensor',
-      localFrame: 'screen',
-      absolute: true,
-      timestampMs: Date.now(),
-      worldFromLocal,
-    })
-  }
-
-  const handleError = () => {
-    cleanup()
-    onUnavailable?.()
-  }
-
-  const cleanup = () => {
-    sensor.removeEventListener('reading', handleReading)
-    sensor.removeEventListener('error', handleError)
-    try {
-      sensor.stop?.()
-    } catch {
-      // Non-fatal: teardown must not block fallback providers.
-    }
-  }
-
-  sensor.addEventListener('reading', handleReading)
-  sensor.addEventListener('error', handleError)
-
-  try {
-    sensor.start()
-  } catch {
-    cleanup()
-    onUnavailable?.()
-    return null
-  }
-
-  return {
-    stop() {
-      cleanup()
+  return startOrientationSensorProvider(
+    'absolute-sensor',
+    onSample,
+    {
+      runtime,
+      onUnavailable,
+      requiredPermissions: ['accelerometer', 'gyroscope', 'magnetometer'],
+      createSensor: (currentWindow) => new currentWindow.AbsoluteOrientationSensor!({
+        frequency: 60,
+        referenceFrame: 'screen',
+      }),
     },
-  }
+  )
+}
+
+export function startRelativeOrientationSensorProvider(
+  onSample: (sample: RawOrientationSample) => void,
+  {
+    runtime,
+    onUnavailable,
+  }: {
+    runtime?: OrientationRuntime
+    onUnavailable?: () => void
+  } = {},
+) {
+  return startOrientationSensorProvider(
+    'relative-sensor',
+    onSample,
+    {
+      runtime,
+      onUnavailable,
+      requiredPermissions: ['accelerometer', 'gyroscope'],
+      createSensor: (currentWindow) => new currentWindow.RelativeOrientationSensor!({
+        frequency: 60,
+        referenceFrame: 'screen',
+      }),
+    },
+  )
 }
 
 export function startDeviceOrientationProvider(
   onSample: (sample: RawOrientationSample) => void,
   {
     runtime,
+    onClassifiedSample,
   }: {
     runtime?: OrientationRuntime
+    onClassifiedSample?: (
+      sample: RawOrientationSample,
+      providerId: DeviceOrientationProviderId,
+    ) => void
   } = {},
 ) {
   const currentWindow = runtime ?? getOrientationWindow()
@@ -618,10 +840,14 @@ export function startDeviceOrientationProvider(
   }
 
   const handleEvent = (event: Event) => {
-    const rawSample = getRawOrientationSample(event)
+    const classifiedSample = getRawOrientationSample(event)
 
-    if (rawSample) {
-      onSample(rawSample)
+    if (classifiedSample) {
+      onSample(classifiedSample.rawSample)
+      onClassifiedSample?.(
+        classifiedSample.rawSample,
+        classifiedSample.providerId,
+      )
     }
   }
 
@@ -661,65 +887,285 @@ export function subscribeToOrientationPose(
   if (!currentWindow) {
     return {
       recenter() {},
+      setCalibration() {},
       stop() {},
     }
   }
 
-  let selectedSource: OrientationSource | null = null
-  let smoothedSample: OrientationSample | null = null
-  let history: OrientationSample[] = []
-  let calibration = createPoseCalibration(initialCalibration)
-  let pendingRelativeSample: RawOrientationSample | null = null
-  let pendingAbsoluteDeviceSample: RawOrientationSample | null = null
-  let relativeSelectionTimeoutId: ReturnType<typeof setTimeout> | null = null
-  let sensorSelectionTimeoutId: ReturnType<typeof setTimeout> | null = null
-  let sensorPending = false
-  let sensorProvider: ReturnType<typeof startAbsoluteOrientationSensorProvider> | null = null
+  const runtimeWindow = currentWindow
 
-  const absoluteStreamSupported = supportsAbsoluteOrientationEvents(currentWindow)
   const compatibilityOffsetQuaternion = createCompatibilityOffsetQuaternion(offsets)
 
-  const deviceProvider = startDeviceOrientationProvider(handleDeviceSample, {
-    runtime: currentWindow,
-  })
+  let calibration = createPoseCalibration(initialCalibration)
+  let smoothedSample: OrientationSample | null = null
+  let latestSample: InternalProviderSample | null = null
+  let history: OrientationSample[] = []
+  let selectedSource: AutomaticOrientationSource | null = null
+  let selectedProviderId: InternalProviderId | null = null
+  let selectionCandidates = new Map<InternalProviderId, InternalProviderSample>()
+  let upgradeCounts = new Map<InternalProviderId, number>()
+  let providerControllers: OrientationProviderController[] = []
+  let selectionTimeoutId: ReturnType<typeof setTimeout> | null = null
+  let stallTimeoutId: ReturnType<typeof setTimeout> | null = null
+  let selectionActive = false
+  let selectionWindowExpired = false
+  let stopped = false
+  let suspended = false
+  let upgradeDeadlineMs: number | null = null
+  let compassValidation = {
+    consecutiveValidSamples: 0,
+    consecutiveInvalidSamples: 0,
+    validated: false,
+  }
 
-  if (!deviceProvider && !supportsAbsoluteOrientationSensor(currentWindow)) {
-    return {
-      recenter() {},
-      stop() {},
+  const handleProviderSample = (incomingSample: InternalProviderSample) => {
+    if (stopped || suspended) {
+      return
+    }
+
+    const providerSample = reconcileCompassValidation(incomingSample)
+
+    if (selectionActive) {
+      selectionCandidates.set(providerSample.providerId, providerSample)
+
+      if (selectionWindowExpired) {
+        const winner = chooseProviderCandidate(selectionCandidates)
+
+        if (!winner) {
+          return
+        }
+
+        selectionActive = false
+        selectionWindowExpired = false
+        emitRawSample(winner)
+
+        if (!winner.rawSample.absolute) {
+          upgradeDeadlineMs = Date.now() + ORIENTATION_ABSOLUTE_UPGRADE_WINDOW_MS
+        }
+      }
+
+      return
+    }
+
+    if (!selectedSource || !selectedProviderId) {
+      return
+    }
+
+    if (providerSample.providerId === selectedProviderId) {
+      emitRawSample(providerSample)
+      return
+    }
+
+    if (
+      selectedProviderId === 'deviceorientation-safari-validated-event' &&
+      providerSample.providerId === 'deviceorientation-relative-event'
+    ) {
+      emitRawSample(providerSample)
+      return
+    }
+
+    if (
+      providerSample.providerId === 'deviceorientation-safari-validated-event' &&
+      providerSample.rawSample.absolute &&
+      selectedSource !== null &&
+      !isSourceAbsolute(selectedSource) &&
+      canAttemptAbsoluteUpgrade()
+    ) {
+      emitRawSample(providerSample)
+      return
+    }
+
+    if (canUpgradeToAbsolute(providerSample)) {
+      const nextCount = (upgradeCounts.get(providerSample.providerId) ?? 0) + 1
+      upgradeCounts.set(providerSample.providerId, nextCount)
+
+      if (nextCount >= ORIENTATION_MIN_CONSECUTIVE_SAMPLES_FOR_UPGRADE) {
+        emitRawSample(providerSample)
+      }
     }
   }
 
-  function resetSmoothingIfSourceChanged(rawSample: RawOrientationSample) {
-    if (smoothedSample && smoothedSample.source !== rawSample.source) {
+  const restartArbitration = () => {
+    if (stopped || suspended || isRuntimeHidden(currentWindow)) {
+      return
+    }
+
+    stopProviders()
+    clearTrackingState()
+    startArbitration()
+  }
+
+  const handleSelectedProviderUnavailable = (source: AutomaticOrientationSource) => {
+    if (!selectionActive && selectedSource === source) {
+      restartArbitration()
+    }
+  }
+
+  const lifecycleListeners = attachLifecycleListeners(
+    runtimeWindow,
+    () => {
+      if (stopped) {
+        return
+      }
+
+      suspended = true
+      stopProviders()
+      clearTrackingState()
+    },
+    () => {
+      if (stopped || isRuntimeHidden(runtimeWindow)) {
+        return
+      }
+
+      suspended = false
+      restartArbitration()
+    },
+    () => {
+      if (
+        stopped ||
+        !latestSample ||
+        latestSample.rawSample.providerKind !== 'event' ||
+        !selectedSource
+      ) {
+        return
+      }
+
       smoothedSample = null
       history = []
-    }
+      emitRawSample(latestSample)
+    },
+  )
+
+  if (!isRuntimeHidden(runtimeWindow)) {
+    startArbitration()
+  } else {
+    suspended = true
   }
 
-  function clearRelativeSelection() {
-    pendingRelativeSample = null
+  function startArbitration() {
+    selectionActive = true
+    selectionWindowExpired = false
+    selectionCandidates = new Map()
+    upgradeCounts = new Map()
 
-    if (relativeSelectionTimeoutId !== null) {
-      clearTimeout(relativeSelectionTimeoutId)
-      relativeSelectionTimeoutId = null
+    const absoluteSensor = startAbsoluteOrientationSensorProvider((rawSample) => {
+      handleProviderSample({
+        providerId: 'absolute-sensor',
+        rawSample,
+      })
+    }, {
+      runtime: runtimeWindow,
+      onUnavailable() {
+        handleSelectedProviderUnavailable('absolute-sensor')
+      },
+    })
+
+    if (absoluteSensor) {
+      providerControllers.push({
+        id: 'absolute-sensor',
+        absolute: true,
+        priority: PROVIDER_PRIORITY['absolute-sensor'],
+        stop: absoluteSensor.stop,
+      })
     }
+
+    const relativeSensor = startRelativeOrientationSensorProvider((rawSample) => {
+      handleProviderSample({
+        providerId: 'relative-sensor',
+        rawSample,
+      })
+    }, {
+      runtime: runtimeWindow,
+      onUnavailable() {
+        handleSelectedProviderUnavailable('relative-sensor')
+      },
+    })
+
+    if (relativeSensor) {
+      providerControllers.push({
+        id: 'relative-sensor',
+        absolute: false,
+        priority: PROVIDER_PRIORITY['relative-sensor'],
+        stop: relativeSensor.stop,
+      })
+    }
+
+    const eventProvider = startDeviceOrientationProvider(() => {}, {
+      runtime: runtimeWindow,
+      onClassifiedSample(rawSample, providerId) {
+        handleProviderSample({
+          providerId,
+          rawSample,
+        })
+      },
+    })
+
+    if (eventProvider) {
+      providerControllers.push({
+        id: 'deviceorientation-relative',
+        absolute: false,
+        priority: PROVIDER_PRIORITY['deviceorientation-relative'],
+        stop: eventProvider.stop,
+      })
+    }
+
+    if (providerControllers.length === 0) {
+      selectionActive = false
+      return
+    }
+
+    selectionTimeoutId = setTimeout(() => {
+      selectionTimeoutId = null
+
+      const winner = chooseProviderCandidate(selectionCandidates)
+
+      if (!winner) {
+        selectionWindowExpired = true
+        return
+      }
+
+      selectionActive = false
+      emitRawSample(winner)
+
+      if (!winner.rawSample.absolute) {
+        upgradeDeadlineMs = Date.now() + ORIENTATION_ABSOLUTE_UPGRADE_WINDOW_MS
+      }
+    }, ORIENTATION_PROVIDER_SELECTION_TIMEOUT_MS)
   }
 
-  function clearSensorSelection() {
-    if (sensorSelectionTimeoutId !== null) {
-      clearTimeout(sensorSelectionTimeoutId)
-      sensorSelectionTimeoutId = null
-    }
-  }
+  function emitRawSample(providerSample: InternalProviderSample) {
+    const { providerId, rawSample } = providerSample
+    const previousSource = selectedSource
+    const nextSource = rawSample.source as AutomaticOrientationSource
 
-  function emitRawSample(rawSample: RawOrientationSample) {
-    resetSmoothingIfSourceChanged(rawSample)
+    if (previousSource !== nextSource || selectedProviderId !== providerId) {
+      smoothedSample = null
+      history = []
+      upgradeCounts = new Map()
+    }
+
+    const preserveCompassValidation =
+      rawSample.providerKind === 'event' &&
+      rawSample.compassBacked === true &&
+      (providerId === 'deviceorientation-relative-event' ||
+        providerId === 'deviceorientation-safari-validated-event')
+
+    if (!preserveCompassValidation) {
+      compassValidation = {
+        consecutiveValidSamples: 0,
+        consecutiveInvalidSamples: 0,
+        validated: false,
+      }
+    }
+
+    selectedSource = nextSource
+    selectedProviderId = providerId
+    latestSample = providerSample
 
     const sample = createOrientationSample(
       rawSample,
       calibration,
-      getScreenOrientationCorrectionDeg(currentWindow ?? undefined),
+      getScreenOrientationCorrectionDeg(runtimeWindow),
       compatibilityOffsetQuaternion,
     )
 
@@ -728,6 +1174,8 @@ export function subscribeToOrientationPose(
     const alignmentHealth = smoothedSample.needsCalibration
       ? 'poor'
       : computeAlignmentHealth(history)
+
+    resetStallTimeout()
 
     onPose({
       sample: smoothedSample,
@@ -740,112 +1188,145 @@ export function subscribeToOrientationPose(
     })
   }
 
-  function commitBufferedDeviceFallback() {
-    sensorPending = false
-    clearSensorSelection()
-    sensorProvider?.stop()
-    sensorProvider = null
+  function reconcileCompassValidation(
+    providerSample: InternalProviderSample,
+  ): InternalProviderSample {
+    const { rawSample } = providerSample
+    const isSelectedEventStream =
+      selectedProviderId === 'deviceorientation-relative-event' ||
+      selectedProviderId === 'deviceorientation-safari-validated-event'
 
-    if (selectedSource === 'absolute-sensor') {
-      return
+    if (
+      selectionActive ||
+      !isSelectedEventStream ||
+      rawSample.providerKind !== 'event' ||
+      providerSample.providerId !== 'deviceorientation-relative-event'
+    ) {
+      return providerSample
     }
 
-    if (pendingAbsoluteDeviceSample) {
-      const rawSample = pendingAbsoluteDeviceSample
-      pendingAbsoluteDeviceSample = null
-      clearRelativeSelection()
-      selectedSource = rawSample.source
-      emitRawSample(rawSample)
-      return
-    }
+    const validationPassed = isCompassValidationSample(rawSample, runtimeWindow)
 
-    if (pendingRelativeSample) {
-      const rawSample = pendingRelativeSample
-      pendingRelativeSample = null
-      selectedSource = rawSample.source
-      emitRawSample(rawSample)
-    }
-  }
-
-  function handleSensorSample(rawSample: RawOrientationSample) {
-    selectedSource = rawSample.source
-    sensorPending = false
-    clearSensorSelection()
-    clearRelativeSelection()
-    pendingAbsoluteDeviceSample = null
-    emitRawSample(rawSample)
-  }
-
-  function handleDeviceSample(rawSample: RawOrientationSample) {
-    if (selectedSource === 'absolute-sensor') {
-      return
-    }
-
-    if (sensorPending) {
-      if (rawSample.absolute) {
-        pendingAbsoluteDeviceSample = rawSample
-      } else {
-        pendingRelativeSample = rawSample
+    if (compassValidation.validated) {
+      if (validationPassed) {
+        compassValidation.consecutiveInvalidSamples = 0
+        return promoteCompassBackedSample(providerSample)
       }
 
-      return
-    }
+      compassValidation.consecutiveInvalidSamples += 1
 
-    if (rawSample.absolute) {
-      selectedSource = rawSample.source
-      pendingAbsoluteDeviceSample = null
-      clearRelativeSelection()
-      emitRawSample(rawSample)
-      return
-    }
-
-    if (selectedSource === 'deviceorientation-absolute') {
-      return
-    }
-
-    if (selectedSource === 'deviceorientation-relative') {
-      emitRawSample(rawSample)
-      return
-    }
-
-    if (!absoluteStreamSupported) {
-      selectedSource = rawSample.source
-      emitRawSample(rawSample)
-      return
-    }
-
-    pendingRelativeSample = rawSample
-
-    if (relativeSelectionTimeoutId === null) {
-      relativeSelectionTimeoutId = setTimeout(() => {
-        relativeSelectionTimeoutId = null
-
-        if (!pendingRelativeSample || selectedSource === 'absolute-sensor') {
-          return
+      if (
+        compassValidation.consecutiveInvalidSamples >=
+        SAFARI_COMPASS_VALIDATION_SAMPLES
+      ) {
+        compassValidation = {
+          consecutiveValidSamples: 0,
+          consecutiveInvalidSamples: 0,
+          validated: false,
         }
+        return providerSample
+      }
 
-        selectedSource = pendingRelativeSample.source
-        const nextSample = pendingRelativeSample
-        pendingRelativeSample = null
-        emitRawSample(nextSample)
-      }, ORIENTATION_STREAM_SELECTION_TIMEOUT_MS)
+      return providerSample
+    }
+
+    if (!validationPassed || !canAttemptAbsoluteUpgrade()) {
+      compassValidation.consecutiveValidSamples = 0
+      return providerSample
+    }
+
+    compassValidation.consecutiveValidSamples += 1
+
+    if (
+      compassValidation.consecutiveValidSamples <
+      SAFARI_COMPASS_VALIDATION_SAMPLES
+    ) {
+      return providerSample
+    }
+
+    compassValidation = {
+      consecutiveValidSamples: 0,
+      consecutiveInvalidSamples: 0,
+      validated: true,
+    }
+    upgradeCounts.set(
+      'deviceorientation-safari-validated-event',
+      ORIENTATION_MIN_CONSECUTIVE_SAMPLES_FOR_UPGRADE - 1,
+    )
+
+    return promoteCompassBackedSample(providerSample)
+  }
+
+  function canUpgradeToAbsolute(providerSample: InternalProviderSample) {
+    return (
+      selectedSource !== null &&
+      selectedProviderId !== null &&
+      !isSourceAbsolute(selectedSource) &&
+      providerSample.rawSample.absolute &&
+      canAttemptAbsoluteUpgrade() &&
+      INTERNAL_PROVIDER_PRIORITY[providerSample.providerId] >
+        INTERNAL_PROVIDER_PRIORITY[selectedProviderId]
+    )
+  }
+
+  function canAttemptAbsoluteUpgrade() {
+    return upgradeDeadlineMs !== null && Date.now() <= upgradeDeadlineMs
+  }
+
+  function resetStallTimeout() {
+    if (stallTimeoutId !== null) {
+      clearTimeout(stallTimeoutId)
+    }
+
+    stallTimeoutId = setTimeout(() => {
+      stallTimeoutId = null
+      restartArbitration()
+    }, ORIENTATION_PROVIDER_STALL_TIMEOUT_MS)
+  }
+
+  function clearTrackingState() {
+    clearSelectionTimeout()
+    clearStallTimeout()
+    selectionActive = false
+    selectionWindowExpired = false
+    selectedSource = null
+    selectedProviderId = null
+    latestSample = null
+    smoothedSample = null
+    history = []
+    selectionCandidates = new Map()
+    upgradeCounts = new Map()
+    upgradeDeadlineMs = null
+    compassValidation = {
+      consecutiveValidSamples: 0,
+      consecutiveInvalidSamples: 0,
+      validated: false,
     }
   }
 
-  sensorProvider = startAbsoluteOrientationSensorProvider(handleSensorSample, {
-    runtime: currentWindow,
-    onUnavailable() {
-      if (sensorPending) {
-        commitBufferedDeviceFallback()
-      }
-    },
-  })
+  function stopProviders() {
+    clearSelectionTimeout()
+    clearStallTimeout()
 
-  if (sensorProvider) {
-    sensorPending = true
-    sensorSelectionTimeoutId = setTimeout(() => {
-      commitBufferedDeviceFallback()
-    }, ORIENTATION_STREAM_SELECTION_TIMEOUT_MS)
+    for (const controller of providerControllers) {
+      controller.stop()
+    }
+
+    providerControllers = []
+  }
+
+  function clearSelectionTimeout() {
+    if (selectionTimeoutId !== null) {
+      clearTimeout(selectionTimeoutId)
+      selectionTimeoutId = null
+    }
+  }
+
+  function clearStallTimeout() {
+    if (stallTimeoutId !== null) {
+      clearTimeout(stallTimeoutId)
+      stallTimeoutId = null
+    }
   }
 
   return {
@@ -858,124 +1339,123 @@ export function subscribeToOrientationPose(
       const rawSample = smoothedSample.rawSample
       smoothedSample = null
       history = []
-      emitRawSample(rawSample)
+      emitRawSample({
+        providerId: latestSample?.providerId ?? selectedProviderId ?? 'deviceorientation-relative-event',
+        rawSample,
+      })
     },
     setCalibration(nextCalibration: PoseCalibration) {
       calibration = createPoseCalibration(nextCalibration)
 
-      if (!smoothedSample) {
+      if (!latestSample) {
         return
       }
 
-      const rawSample = smoothedSample.rawSample
       smoothedSample = null
       history = []
-      emitRawSample(rawSample)
+      emitRawSample(latestSample)
     },
     stop() {
-      clearSensorSelection()
-      clearRelativeSelection()
-      sensorProvider?.stop()
-      deviceProvider?.stop()
+      stopped = true
+      stopProviders()
+      clearTrackingState()
+      lifecycleListeners.stop()
     },
   }
 }
 
-function requestEventPermission(
+function requestEventPermissionDetailed(
   eventType: OrientationPermissionRequester | undefined,
   options: {
     allowAbsoluteFallback?: boolean
   } = {},
-) {
+) : Promise<EventPermissionResult> {
   const requestPermission = eventType?.requestPermission
 
   if (!requestPermission) {
-    return Promise.resolve<'granted' | 'unavailable'>('unavailable')
+    return Promise.resolve({
+      status: 'unavailable',
+      reason: 'unsupported',
+    })
   }
 
-  return requestPermission()
-    .catch(async (error: unknown) => {
+  const primaryRequest = options.allowAbsoluteFallback
+    ? requestPermission(true)
+    : requestPermission()
+
+  return primaryRequest
+    .then((status): EventPermissionResult => ({
+      status,
+      reason: status === 'denied' ? 'user-denied' : 'none',
+    }))
+    .catch(async (error: unknown): Promise<EventPermissionResult> => {
       if (
-        !options.allowAbsoluteFallback ||
-        !(error instanceof TypeError)
+       !options.allowAbsoluteFallback ||
+       !(error instanceof TypeError)
       ) {
-        return 'denied' as const
+        return classifyOrientationPermissionError(error)
       }
 
-      return requestPermission(true).catch(() => 'denied' as const)
+      return requestPermission()
+        .then((status): EventPermissionResult => ({
+          status,
+          reason: status === 'denied' ? 'user-denied' : 'none',
+        }))
+        .catch(classifyOrientationPermissionError)
     })
 }
 
-async function probeOrientationAvailability(runtime: OrientationRuntime) {
-  return new Promise<boolean>((resolve) => {
-    const handleEvent = (event: Event) => {
-      if (!getRawOrientationSample(event)) {
-        return
-      }
-
-      cleanup()
-      resolve(true)
-    }
-
-    const timeoutId = setTimeout(() => {
-      cleanup()
-      resolve(false)
-    }, ORIENTATION_PERMISSION_PROBE_TIMEOUT_MS)
-
-    const cleanup = () => {
-      clearTimeout(timeoutId)
-      runtime.removeEventListener('deviceorientationabsolute', handleEvent)
-      runtime.removeEventListener('deviceorientation', handleEvent)
-    }
-
-    runtime.addEventListener('deviceorientationabsolute', handleEvent)
-    runtime.addEventListener('deviceorientation', handleEvent)
-  })
+function createOrientationPermissionResult(
+  status: OrientationPermissionDecision,
+  reason: OrientationPermissionFailureReason,
+): OrientationPermissionResult {
+  return {
+    status,
+    reason,
+    orientation: status,
+    motion: status,
+  }
 }
 
-async function probeAbsoluteOrientationSensorAvailability(
-  runtime: OrientationRuntime,
-) {
-  return new Promise<boolean>((resolve) => {
-    let settled = false
-    let controller: ReturnType<typeof startAbsoluteOrientationSensorProvider> | null = null
+function classifyOrientationPermissionError(error: unknown): EventPermissionResult {
+  const errorName = getPermissionErrorName(error)
 
-    const settle = (result: boolean) => {
-      if (settled) {
-        return
-      }
-
-      settled = true
-      clearTimeout(timeoutId)
-      controller?.stop()
-      controller = null
-      resolve(result)
+  if (errorName === 'NotAllowedError') {
+    return {
+      status: 'error',
+      reason: 'activation-required',
+      errorName,
     }
+  }
 
-    const timeoutId = setTimeout(() => {
-      settle(false)
-    }, ORIENTATION_PERMISSION_PROBE_TIMEOUT_MS)
-
-    controller = startAbsoluteOrientationSensorProvider(
-      () => {
-        settle(true)
-      },
-      {
-        runtime,
-        onUnavailable() {
-          settle(false)
-        },
-      },
-    )
-
-    if (!controller) {
-      settle(false)
+  if (errorName === 'SecurityError') {
+    return {
+      status: 'error',
+      reason: 'policy-or-security',
+      errorName,
     }
-  })
+  }
+
+  return {
+    status: 'error',
+    reason: 'request-failed',
+    errorName,
+  }
+}
+
+function getPermissionErrorName(error: unknown) {
+  if (error && typeof error === 'object' && 'name' in error) {
+    const name = (error as { name?: unknown }).name
+
+    return typeof name === 'string' && name.length > 0 ? name : 'Error'
+  }
+
+  return 'Error'
 }
 
 function createRawDeviceOrientationSample(
   reading: DeviceOrientationReading,
+  eventType: string = 'deviceorientation',
 ): RawOrientationSample | null {
   if (
     typeof reading.alpha !== 'number' ||
@@ -985,12 +1465,20 @@ function createRawDeviceOrientationSample(
     return null
   }
 
-  const absolute = reading.absolute === true
+  const compassHeadingDeg = isFiniteNumber(reading.webkitCompassHeading)
+    ? normalizeDegrees(reading.webkitCompassHeading)
+    : undefined
+  const compassAccuracyDeg = isFiniteNumber(reading.webkitCompassAccuracy)
+    ? reading.webkitCompassAccuracy
+    : undefined
+  const absolute =
+    eventType === 'deviceorientationabsolute' || reading.absolute === true
 
   return {
     source: absolute
       ? 'deviceorientation-absolute'
       : 'deviceorientation-relative',
+    providerKind: 'event',
     localFrame: 'device',
     absolute,
     timestampMs: Date.now(),
@@ -999,21 +1487,65 @@ function createRawDeviceOrientationSample(
       reading.beta,
       reading.gamma,
     ),
+    compassBacked: !absolute && compassHeadingDeg !== undefined,
+    compassHeadingDeg,
+    compassAccuracyDeg,
   }
 }
 
-function getRawOrientationSample(event: Event) {
-  const orientationEvent = event as DeviceOrientationEvent
+function classifyDeviceOrientationProviderId(
+  event: Event,
+  orientationEvent: DeviceOrientationEvent,
+): DeviceOrientationProviderId | null {
+  if (
+    typeof orientationEvent.alpha !== 'number' ||
+    typeof orientationEvent.beta !== 'number' ||
+    typeof orientationEvent.gamma !== 'number'
+  ) {
+    return null
+  }
 
-  return createRawDeviceOrientationSample({
-    alpha: orientationEvent.alpha,
-    beta: orientationEvent.beta,
-    gamma: orientationEvent.gamma,
-    absolute: orientationEvent.absolute,
-    webkitCompassHeading: (orientationEvent as DeviceOrientationEvent & {
-      webkitCompassHeading?: number
-    }).webkitCompassHeading,
-  })
+  if (event.type === 'deviceorientationabsolute') {
+    return 'deviceorientationabsolute-event'
+  }
+
+  if (orientationEvent.absolute === true) {
+    return 'deviceorientation-absolute-event'
+  }
+
+  return 'deviceorientation-relative-event'
+}
+
+function getRawOrientationSample(event: Event): {
+  providerId: DeviceOrientationProviderId
+  rawSample: RawOrientationSample
+} | null {
+  const orientationEvent = event as DeviceOrientationEvent
+  const providerId = classifyDeviceOrientationProviderId(event, orientationEvent)
+  const rawSample = createRawDeviceOrientationSample(
+    {
+      alpha: orientationEvent.alpha,
+      beta: orientationEvent.beta,
+      gamma: orientationEvent.gamma,
+      absolute: orientationEvent.absolute,
+      webkitCompassHeading: (orientationEvent as DeviceOrientationEvent & {
+        webkitCompassHeading?: number
+      }).webkitCompassHeading,
+      webkitCompassAccuracy: (orientationEvent as DeviceOrientationEvent & {
+        webkitCompassAccuracy?: number
+      }).webkitCompassAccuracy,
+    },
+    event.type,
+  )
+
+  if (!providerId || !rawSample) {
+    return null
+  }
+
+  return {
+    providerId,
+    rawSample,
+  }
 }
 
 function createOrientationSample(
@@ -1037,7 +1569,9 @@ function createOrientationSample(
     rawSample,
     rawQuaternion,
     quaternion: calibratedQuaternion,
+    reportedCompassHeadingDeg: rawSample.compassHeadingDeg,
     compassAccuracyDeg: rawSample.compassAccuracyDeg,
+    compassBacked: rawSample.compassBacked,
     ...debugAngles,
   }
 }
@@ -1118,12 +1652,180 @@ function getQuaternionHeadingDeg(
   )
 }
 
-function getMat3Column(matrix: Mat3, columnIndex: 0 | 1 | 2): [number, number, number] {
-  return [
-    matrix[0][columnIndex],
-    matrix[1][columnIndex],
-    matrix[2][columnIndex],
-  ]
+function startOrientationSensorProvider(
+  source: 'absolute-sensor' | 'relative-sensor',
+  onSample: (sample: RawOrientationSample) => void,
+  {
+    runtime,
+    onUnavailable,
+    requiredPermissions,
+    createSensor,
+  }: {
+    runtime?: OrientationRuntime
+    onUnavailable?: () => void
+    requiredPermissions: Array<keyof PermissionHints>
+    createSensor: (runtime: OrientationRuntime) => AbsoluteOrientationSensorLike
+  },
+) {
+  const currentWindow = runtime ?? getOrientationWindow()
+
+  if (!currentWindow) {
+    return null
+  }
+
+  if (
+    (source === 'absolute-sensor' &&
+      !supportsAbsoluteOrientationSensor(currentWindow)) ||
+    (source === 'relative-sensor' &&
+      !supportsRelativeOrientationSensor(currentWindow))
+  ) {
+    return null
+  }
+
+  let sensor: AbsoluteOrientationSensorLike | null = null
+  let stopped = false
+  let started = false
+  let readingListener: (() => void) | null = null
+  let errorListener: (() => void) | null = null
+
+  const notifyUnavailable = () => {
+    if (!stopped) {
+      onUnavailable?.()
+    }
+  }
+
+  const cleanup = () => {
+    if (sensor && readingListener && errorListener) {
+      sensor.removeEventListener('reading', readingListener)
+      sensor.removeEventListener('error', errorListener)
+    }
+
+    if (sensor && started) {
+      try {
+        sensor.stop?.()
+      } catch {
+        // Teardown failures must not block fallback providers.
+      }
+    }
+
+    sensor = null
+    readingListener = null
+    errorListener = null
+    started = false
+  }
+
+  void (async () => {
+    const permissionHints = await querySensorPermissionHintsForStartup(currentWindow)
+
+    const hasDeniedPermission =
+      permissionHints !== null &&
+      permissionHints.available &&
+      requiredPermissions.some(
+        (permissionName) => permissionHints[permissionName] === 'denied',
+      )
+
+    if (stopped || hasDeniedPermission) {
+      notifyUnavailable()
+      return
+    }
+
+    try {
+      sensor = createSensor(currentWindow)
+    } catch {
+      notifyUnavailable()
+      return
+    }
+
+    const handleReading = () => {
+      if (!sensor) {
+        return
+      }
+
+      const sensorSample = readOrientationSensorSample(sensor)
+
+      if (!sensorSample) {
+        return
+      }
+
+      onSample({
+        source,
+        providerKind: 'sensor',
+        localFrame: 'screen',
+        absolute: source === 'absolute-sensor',
+        timestampMs: Date.now(),
+        ...sensorSample,
+      })
+    }
+
+    const handleError = () => {
+      cleanup()
+      notifyUnavailable()
+    }
+
+    readingListener = handleReading
+    errorListener = handleError
+
+    sensor.addEventListener('reading', handleReading)
+    sensor.addEventListener('error', handleError)
+
+    try {
+      sensor.start()
+      started = true
+    } catch {
+      cleanup()
+      notifyUnavailable()
+    }
+  })()
+
+  return {
+    stop() {
+      stopped = true
+      cleanup()
+    },
+  }
+}
+
+function chooseProviderCandidate(
+  candidates: Map<InternalProviderId, InternalProviderSample>,
+) {
+  const samples = [...candidates.values()]
+
+  if (samples.length === 0) {
+    return null
+  }
+
+  const sortByPriority = (
+    left: InternalProviderSample,
+    right: InternalProviderSample,
+  ) =>
+    INTERNAL_PROVIDER_PRIORITY[right.providerId] -
+    INTERNAL_PROVIDER_PRIORITY[left.providerId]
+
+  const absoluteWinner = samples
+    .filter((sample) => sample.rawSample.absolute)
+    .sort(sortByPriority)[0]
+
+  if (absoluteWinner) {
+    return absoluteWinner
+  }
+
+  return samples.sort(sortByPriority)[0] ?? null
+}
+
+function readOrientationSensorSample(sensor: AbsoluteOrientationSensorLike) {
+  const worldFromLocal = readOrientationSensorMatrix(sensor)
+
+  if (worldFromLocal) {
+    return { worldFromLocal }
+  }
+
+  const rawQuaternion = readOrientationSensorQuaternion(sensor)
+
+  if (rawQuaternion) {
+    return { rawQuaternion }
+  }
+
+  return null
 }
 
 function readOrientationSensorMatrix(sensor: AbsoluteOrientationSensorLike): Mat3 | null {
@@ -1151,6 +1853,221 @@ function readOrientationSensorMatrix(sensor: AbsoluteOrientationSensorLike): Mat
   }
 
   return null
+}
+
+function readOrientationSensorQuaternion(
+  sensor: AbsoluteOrientationSensorLike,
+): Quaternion | null {
+  if (!sensor.quaternion || sensor.quaternion.length < 4) {
+    return null
+  }
+
+  const quaternion: Quaternion = [
+    sensor.quaternion[0],
+    sensor.quaternion[1],
+    sensor.quaternion[2],
+    sensor.quaternion[3],
+  ]
+
+  return quaternion.every((value) => Number.isFinite(value))
+    ? normalizeQuaternion(quaternion)
+    : null
+}
+
+async function querySensorPermissionState(
+  runtime: OrientationRuntime,
+  permissionName: 'accelerometer' | 'gyroscope' | 'magnetometer',
+): Promise<PermissionState | 'unsupported'> {
+  if (!runtime.permissions?.query) {
+    return 'unsupported'
+  }
+
+  try {
+    const status = await runtime.permissions.query({
+      name: permissionName,
+    } as unknown as PermissionDescriptor)
+    return status.state
+  } catch {
+    return 'unsupported'
+  }
+}
+
+async function querySensorPermissionHintsForStartup(
+  runtime: OrientationRuntime,
+): Promise<(PermissionHints & { available: boolean }) | null> {
+  if (!runtime.permissions?.query) {
+    return null
+  }
+
+  try {
+    const permissionHints = await Promise.race<
+      PermissionHints | null
+    >([
+      querySensorPermissionHints(runtime),
+      new Promise<null>((resolve) => {
+        setTimeout(() => resolve(null), ORIENTATION_PERMISSION_HINT_STARTUP_TIMEOUT_MS)
+      }),
+    ])
+
+    if (!permissionHints) {
+      return null
+    }
+
+    return {
+      ...permissionHints,
+      available: true,
+    }
+  } catch {
+    return null
+  }
+}
+
+function isCompassValidationSample(
+  rawSample: RawOrientationSample,
+  runtime: OrientationRuntime,
+) {
+  if (
+    !rawSample.compassBacked ||
+    !isFiniteNumber(rawSample.compassHeadingDeg) ||
+    !isFiniteNumber(rawSample.compassAccuracyDeg) ||
+    rawSample.compassAccuracyDeg > SAFARI_COMPASS_MAX_ACCURACY_DEG
+  ) {
+    return false
+  }
+
+  const rawQuaternion = rawPoseQuaternionFromSample(
+    rawSample,
+    getScreenOrientationCorrectionDeg(runtime),
+  )
+  const quaternionDerivedHeadingDeg = getDebugEulerFromQuaternion(rawQuaternion).headingDeg
+  const delta = Math.abs(
+    shortestAngleDeltaDeg(quaternionDerivedHeadingDeg, rawSample.compassHeadingDeg),
+  )
+
+  return delta <= SAFARI_COMPASS_MAX_HEADING_DELTA_DEG
+}
+
+function promoteCompassBackedSample(
+  providerSample: InternalProviderSample,
+): InternalProviderSample {
+  return {
+    providerId: 'deviceorientation-safari-validated-event',
+    rawSample: {
+      ...providerSample.rawSample,
+      source: 'deviceorientation-absolute',
+      absolute: true,
+    },
+  }
+}
+
+function capAlignmentHealthForCompass(
+  sample: OrientationSample | undefined,
+  alignmentHealth: CameraPose['alignmentHealth'],
+) {
+  if (
+    !sample ||
+    (!sample.absolute && !sample.compassBacked) ||
+    !isFiniteNumber(sample.compassAccuracyDeg)
+  ) {
+    return alignmentHealth
+  }
+
+  if (sample.compassAccuracyDeg > 45) {
+    return 'poor'
+  }
+
+  if (sample.compassAccuracyDeg > 20 && alignmentHealth === 'good') {
+    return 'fair'
+  }
+
+  return alignmentHealth
+}
+
+function combineBasisVectors(
+  xAxis: Vec3,
+  yAxis: Vec3,
+  xScale: number,
+  yScale: number,
+): Vec3 {
+  return normalizeVec3([
+    xAxis[0] * xScale + yAxis[0] * yScale,
+    xAxis[1] * xScale + yAxis[1] * yScale,
+    xAxis[2] * xScale + yAxis[2] * yScale,
+  ])
+}
+
+function attachLifecycleListeners(
+  runtime: OrientationRuntime,
+  onSuspend: () => void,
+  onResume: () => void,
+  onOrientationChange: () => void,
+) {
+  const runtimeDocument =
+    runtime.document ??
+    (typeof document !== 'undefined'
+      ? (document as OrientationRuntimeDocument)
+      : undefined)
+
+  const handleVisibilityChange = () => {
+    if (runtimeDocument?.visibilityState === 'hidden') {
+      onSuspend()
+      return
+    }
+
+    onResume()
+  }
+
+  const handlePageHide = () => {
+    onSuspend()
+  }
+
+  const handlePageShow = () => {
+    onResume()
+  }
+
+  const handleOrientationChange = () => {
+    onOrientationChange()
+  }
+
+  runtimeDocument?.addEventListener?.('visibilitychange', handleVisibilityChange)
+  runtime.addEventListener('pagehide', handlePageHide)
+  runtime.addEventListener('pageshow', handlePageShow)
+  runtime.addEventListener('orientationchange', handleOrientationChange)
+
+  return {
+    stop() {
+      runtimeDocument?.removeEventListener?.('visibilitychange', handleVisibilityChange)
+      runtime.removeEventListener('pagehide', handlePageHide)
+      runtime.removeEventListener('pageshow', handlePageShow)
+      runtime.removeEventListener('orientationchange', handleOrientationChange)
+    },
+  }
+}
+
+function isRuntimeHidden(runtime: OrientationRuntime) {
+  const runtimeDocument =
+    runtime.document ??
+    (typeof document !== 'undefined'
+      ? (document as OrientationRuntimeDocument)
+      : undefined)
+
+  return runtimeDocument?.visibilityState === 'hidden'
+}
+
+function isSourceAbsolute(source: AutomaticOrientationSource) {
+  return source === 'absolute-sensor' || source === 'deviceorientation-absolute'
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
+}
+
+function getMat3Column(matrix: Mat3, columnIndex: 0 | 1 | 2): [number, number, number] {
+  return [
+    matrix[0][columnIndex],
+    matrix[1][columnIndex],
+    matrix[2][columnIndex],
+  ]
 }
 
 function invertQuaternion(quaternion: Quaternion): Quaternion {

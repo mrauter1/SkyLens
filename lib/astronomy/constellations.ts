@@ -1,7 +1,12 @@
 import { z } from 'zod'
 
 import constellationsCatalogJson from '../../public/data/constellations.json'
-import { projectWorldPointToScreen, type ProjectedWorldPoint } from '../projection/camera'
+import {
+  projectWorldPointToScreen,
+  type ProjectViewport,
+  type ProjectedWorldPoint,
+  type ProjectWorldPointInput,
+} from '../projection/camera'
 import type { EnabledLayer } from '../config'
 import type {
   CameraPose,
@@ -9,7 +14,7 @@ import type {
   SkyObject,
   StarCatalogEntry,
 } from '../viewer/contracts'
-import type { VisibleStarEntry } from './stars'
+import { loadStarCatalog, type VisibleStarEntry } from './stars'
 
 export interface ConstellationDetailMetadata {
   typeLabel: 'Constellation'
@@ -24,11 +29,9 @@ export interface ProjectedConstellationSegment {
 
 export interface ConstellationPipelineInput {
   cameraPose: CameraPose
-  viewport: {
-    width: number
-    height: number
-  }
+  viewport: ProjectViewport
   verticalFovAdjustmentDeg?: number
+  projectLinePoint?: (worldPoint: ProjectWorldPointInput) => ProjectedWorldPoint
   enabledLayers: Readonly<Record<EnabledLayer, boolean>>
   likelyVisibleOnly: boolean
   sunAltitudeDeg: number
@@ -52,6 +55,9 @@ const ConstellationCatalogSchema = z.array(
 const CONSTELLATION_CATALOG = ConstellationCatalogSchema.parse(
   constellationsCatalogJson,
 ) as ConstellationCatalogEntry[]
+const BUNDLED_STAR_CATALOG = loadStarCatalog()
+
+validateConstellationCatalog(CONSTELLATION_CATALOG, BUNDLED_STAR_CATALOG)
 
 export function loadConstellationCatalog() {
   return CONSTELLATION_CATALOG
@@ -78,11 +84,11 @@ export function buildVisibleConstellations({
   cameraPose,
   viewport,
   verticalFovAdjustmentDeg = 0,
+  projectLinePoint,
   enabledLayers,
   likelyVisibleOnly,
   sunAltitudeDeg,
   visibleStars,
-  starCatalog,
 }: ConstellationPipelineInput): ConstellationPipelineResult {
   if (!enabledLayers.constellations) {
     return {
@@ -90,8 +96,6 @@ export function buildVisibleConstellations({
       lineSegments: [],
     }
   }
-
-  validateConstellationCatalog(CONSTELLATION_CATALOG, starCatalog)
 
   if (likelyVisibleOnly && sunAltitudeDeg > -6) {
     return {
@@ -103,6 +107,15 @@ export function buildVisibleConstellations({
   const visibleStarMap = new Map(visibleStars.map((entry) => [entry.id, entry]))
   const objects: SkyObject[] = []
   const lineSegments: ProjectedConstellationSegment[] = []
+  const projectConstellationPoint =
+    projectLinePoint ??
+    ((worldPoint: ProjectWorldPointInput) =>
+      projectWorldPointToScreen(
+        cameraPose,
+        worldPoint,
+        viewport,
+        verticalFovAdjustmentDeg,
+      ))
 
   for (const constellation of CONSTELLATION_CATALOG) {
     const projectedSegments: ProjectedConstellationSegment[] = []
@@ -115,24 +128,14 @@ export function buildVisibleConstellations({
         continue
       }
 
-      const startProjection = projectWorldPointToScreen(
-        cameraPose,
-        {
-          azimuthDeg: startStar.azimuthDeg,
-          elevationDeg: startStar.elevationDeg,
-        },
-        viewport,
-        verticalFovAdjustmentDeg,
-      )
-      const endProjection = projectWorldPointToScreen(
-        cameraPose,
-        {
-          azimuthDeg: endStar.azimuthDeg,
-          elevationDeg: endStar.elevationDeg,
-        },
-        viewport,
-        verticalFovAdjustmentDeg,
-      )
+      const startProjection = projectConstellationPoint({
+        azimuthDeg: startStar.azimuthDeg,
+        elevationDeg: startStar.elevationDeg,
+      })
+      const endProjection = projectConstellationPoint({
+        azimuthDeg: endStar.azimuthDeg,
+        elevationDeg: endStar.elevationDeg,
+      })
 
       if (
         !isConstellationSegmentPartiallyInView(startProjection, endProjection, viewport)

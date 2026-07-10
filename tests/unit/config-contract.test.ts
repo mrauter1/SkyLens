@@ -1,14 +1,19 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
-import { GET } from '../../app/api/config/route'
+import { getPublicConfig } from '../../lib/config'
 
-describe('GET /api/config', () => {
-  it('returns the locked bootstrap contract', async () => {
+describe('getPublicConfig', () => {
+  afterEach(() => {
+    delete process.env.SKYLENS_BUILD_VERSION
+    delete process.env.NEXT_PUBLIC_SKYLENS_BUILD_VERSION
+    delete process.env.NEXT_PUBLIC_SKYLENS_SCOPE_REMOTE_ENABLED
+    delete process.env.NEXT_PUBLIC_SKYLENS_SCOPE_REMOTE_BASE_URL
+  })
+
+  it('returns the locked bootstrap contract in-process', () => {
     process.env.SKYLENS_BUILD_VERSION = 'test-build'
 
-    const response = await GET()
-
-    await expect(response.json()).resolves.toEqual({
+    expect(getPublicConfig()).toEqual({
       buildVersion: 'test-build',
       defaults: {
         maxLabels: 18,
@@ -28,6 +33,61 @@ describe('GET /api/config', () => {
         { id: 'stations', label: 'Space Stations' },
         { id: 'brightest', label: '100 Brightest' },
       ],
+      scopeData: {
+        remoteEnabled: false,
+        remoteBaseUrl: null,
+        localBasePath: '/data/scope/v1',
+      },
     })
+  })
+
+  it('prefers the browser-safe public build version when both env paths are set', () => {
+    process.env.SKYLENS_BUILD_VERSION = 'server-build'
+    process.env.NEXT_PUBLIC_SKYLENS_BUILD_VERSION = 'public-build'
+
+    expect(getPublicConfig().buildVersion).toBe('public-build')
+  })
+
+  it('accepts explicit remote scope env overrides when both values are valid', () => {
+    process.env.NEXT_PUBLIC_SKYLENS_SCOPE_REMOTE_ENABLED = 'true'
+    process.env.NEXT_PUBLIC_SKYLENS_SCOPE_REMOTE_BASE_URL =
+      'https://pub-566fb74233f3432ba4d47900577e552e.r2.dev/scope/v1/'
+
+    expect(getPublicConfig().scopeData).toEqual({
+      remoteEnabled: true,
+      remoteBaseUrl: 'https://pub-566fb74233f3432ba4d47900577e552e.r2.dev/scope/v1',
+      localBasePath: '/data/scope/v1',
+    })
+  })
+
+  it('allows explicitly disabling remote scope data', () => {
+    process.env.NEXT_PUBLIC_SKYLENS_SCOPE_REMOTE_ENABLED = ' , '
+
+    expect(getPublicConfig().scopeData).toEqual({
+      remoteEnabled: false,
+      remoteBaseUrl: null,
+      localBasePath: '/data/scope/v1',
+    })
+  })
+
+  it('falls back to local data when the configured remote URL is invalid', () => {
+    process.env.NEXT_PUBLIC_SKYLENS_SCOPE_REMOTE_BASE_URL = 'not-a-url'
+
+    expect(getPublicConfig().scopeData).toEqual({
+      remoteEnabled: false,
+      remoteBaseUrl: null,
+      localBasePath: '/data/scope/v1',
+    })
+  })
+
+  it('keeps the privacy reassurance copy aligned with the serverless data path', async () => {
+    const { PRIVACY_REASSURANCE_COPY } = await import('../../lib/config')
+
+    expect(PRIVACY_REASSURANCE_COPY).toEqual([
+      'Camera stays on your device.',
+      'Location positions the sky on your device. When Planes is on, a bounded area around you is sent directly from your browser to OpenSky.',
+      'Live satellite catalogs are fetched directly from CelesTrak.',
+      'No camera frames are uploaded.',
+    ])
   })
 })

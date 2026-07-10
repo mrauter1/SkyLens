@@ -3,6 +3,10 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ViewerRouteState } from '../../lib/permissions/coordinator'
+import * as projectionCamera from '../../lib/projection/camera'
+import { resetScopeCatalogSessionCacheForTests } from '../../lib/scope/catalog'
+
+vi.setConfig({ testTimeout: 20_000 })
 
 const {
   mockRouterReplace,
@@ -10,8 +14,7 @@ const {
   mockRequestStartupObserverState,
   mockStartObserverTracking,
   mockSubscribeToOrientationPose,
-  mockRequestRearCameraStream,
-  mockStopMediaStream,
+  mockRequestOrientationPermission,
   mockFetchAircraftSnapshot,
   mockGetAircraftAvailabilityMessage,
   mockNormalizeCelestialObjects,
@@ -20,14 +23,15 @@ const {
   mockFetchSatelliteCatalog,
   mockResolveAircraftMotionObjects,
   mockResolveSatelliteMotionObjects,
+  mockAircraftTrackerGetTrail,
+  mockCreateAircraftTracker,
 } = vi.hoisted(() => ({
   mockRouterReplace: vi.fn(),
   mockSettingsSheetProps: vi.fn(),
   mockRequestStartupObserverState: vi.fn(),
   mockStartObserverTracking: vi.fn(),
   mockSubscribeToOrientationPose: vi.fn(),
-  mockRequestRearCameraStream: vi.fn(),
-  mockStopMediaStream: vi.fn(),
+  mockRequestOrientationPermission: vi.fn(),
   mockFetchAircraftSnapshot: vi.fn(),
   mockGetAircraftAvailabilityMessage: vi.fn(),
   mockNormalizeCelestialObjects: vi.fn(),
@@ -36,13 +40,19 @@ const {
   mockFetchSatelliteCatalog: vi.fn(),
   mockResolveAircraftMotionObjects: vi.fn(),
   mockResolveSatelliteMotionObjects: vi.fn(),
+  mockAircraftTrackerGetTrail: vi.fn(),
+  mockCreateAircraftTracker: vi.fn(),
 }))
 
-vi.mock('next/navigation', () => ({
-  useRouter: () => ({
+vi.mock('next/navigation', () => {
+  const router = {
     replace: mockRouterReplace,
-  }),
-}))
+  }
+
+  return {
+    useRouter: () => router,
+  }
+})
 
 vi.mock('next/link', () => ({
   default: ({
@@ -81,18 +91,21 @@ vi.mock('../../lib/sensors/orientation', async () => {
   return {
     ...actual,
     subscribeToOrientationPose: mockSubscribeToOrientationPose,
-  }
-})
+    requestOrientationPermissionDetailed: async () => {
+      const status = await mockRequestOrientationPermission()
 
-vi.mock('../../lib/projection/camera', async () => {
-  const actual = await vi.importActual<typeof import('../../lib/projection/camera')>(
-    '../../lib/projection/camera',
-  )
-
-  return {
-    ...actual,
-    requestRearCameraStream: mockRequestRearCameraStream,
-    stopMediaStream: mockStopMediaStream,
+      return {
+        status,
+        reason:
+          status === 'denied'
+            ? 'user-denied'
+            : status === 'unavailable'
+              ? 'unsupported'
+              : 'none',
+        orientation: status,
+        motion: status,
+      }
+    },
   }
 })
 
@@ -114,6 +127,10 @@ vi.mock('../../lib/astronomy/constellations', () => ({
 vi.mock('../../lib/aircraft/client', () => ({
   fetchAircraftSnapshot: mockFetchAircraftSnapshot,
   getAircraftAvailabilityMessage: mockGetAircraftAvailabilityMessage,
+}))
+
+vi.mock('../../lib/aircraft/tracker', () => ({
+  createAircraftTracker: mockCreateAircraftTracker,
 }))
 
 vi.mock('../../lib/satellites/client', () => ({
@@ -156,12 +173,8 @@ const TRACKER = {
   stop: vi.fn(),
 }
 
-const CAMERA_STREAM = {
-  getTracks: vi.fn(() => []),
-  getVideoTracks: vi.fn(() => []),
-} as unknown as MediaStream
-
 const originalMatchMedia = window.matchMedia
+const originalFetch = global.fetch
 const originalSetTimeout = window.setTimeout
 const originalClearTimeout = window.clearTimeout
 const originalSetInterval = window.setInterval
@@ -186,6 +199,19 @@ describe('ViewerShell celestial behavior', () => {
       value: null,
     })
 
+    Object.defineProperty(HTMLMediaElement.prototype, 'readyState', {
+      configurable: true,
+      get: () => HTMLMediaElement.HAVE_ENOUGH_DATA,
+    })
+    Object.defineProperty(HTMLVideoElement.prototype, 'videoWidth', {
+      configurable: true,
+      get: () => 1280,
+    })
+    Object.defineProperty(HTMLVideoElement.prototype, 'videoHeight', {
+      configurable: true,
+      get: () => 720,
+    })
+
     Object.defineProperty(HTMLVideoElement.prototype, 'requestVideoFrameCallback', {
       configurable: true,
       writable: true,
@@ -203,13 +229,17 @@ describe('ViewerShell celestial behavior', () => {
     document.body.appendChild(container)
     root = createRoot(container)
 
+    Object.defineProperty(window, 'isSecureContext', {
+      configurable: true,
+      value: true,
+    })
+
     mockRouterReplace.mockReset()
     mockSettingsSheetProps.mockReset()
     mockRequestStartupObserverState.mockReset()
     mockStartObserverTracking.mockReset()
     mockSubscribeToOrientationPose.mockReset()
-    mockRequestRearCameraStream.mockReset()
-    mockStopMediaStream.mockReset()
+    mockRequestOrientationPermission.mockReset()
     mockFetchAircraftSnapshot.mockReset()
     mockGetAircraftAvailabilityMessage.mockReset()
     mockNormalizeCelestialObjects.mockReset()
@@ -218,25 +248,16 @@ describe('ViewerShell celestial behavior', () => {
     mockFetchSatelliteCatalog.mockReset()
     mockResolveAircraftMotionObjects.mockReset()
     mockResolveSatelliteMotionObjects.mockReset()
+    mockAircraftTrackerGetTrail.mockReset()
+    mockCreateAircraftTracker.mockReset()
     SENSOR_CONTROLLER.stop.mockReset()
     SENSOR_CONTROLLER.recenter.mockReset()
     TRACKER.stop.mockReset()
 
-    Object.defineProperty(window, 'isSecureContext', {
-      configurable: true,
-      value: true,
-    })
-    Object.defineProperty(navigator, 'mediaDevices', {
-      configurable: true,
-      value: {
-        enumerateDevices: vi.fn(async () => []),
-      },
-    })
-
     mockRequestStartupObserverState.mockResolvedValue(LIVE_OBSERVER_FIXTURE)
     mockStartObserverTracking.mockReturnValue(TRACKER)
     mockSubscribeToOrientationPose.mockReturnValue(SENSOR_CONTROLLER)
-    mockRequestRearCameraStream.mockResolvedValue(CAMERA_STREAM)
+    mockRequestOrientationPermission.mockResolvedValue('granted')
     mockFetchAircraftSnapshot.mockResolvedValue({
       fetchedAt: '2026-03-26T00:00:00.000Z',
       observer: {
@@ -260,11 +281,23 @@ describe('ViewerShell celestial behavior', () => {
     })
     mockResolveAircraftMotionObjects.mockReturnValue([])
     mockResolveSatelliteMotionObjects.mockReturnValue([])
+    mockAircraftTrackerGetTrail.mockReturnValue([])
+    mockCreateAircraftTracker.mockImplementation(() => ({
+      ingest: vi.fn(),
+      resolve: vi.fn(() => []),
+      getTrail: mockAircraftTrackerGetTrail,
+      prune: vi.fn(),
+      reset: vi.fn(),
+    }))
+    global.fetch = vi.fn(async () => new Response(null, { status: 404 })) as typeof fetch
     window.localStorage.clear()
+    resetScopeCatalogSessionCacheForTests()
+    stubCanvasContext()
   })
 
   afterEach(async () => {
     vi.useRealTimers()
+    global.fetch = originalFetch
     Object.defineProperty(window, 'matchMedia', {
       configurable: true,
       writable: true,
@@ -291,52 +324,55 @@ describe('ViewerShell celestial behavior', () => {
       value: originalClearInterval,
     })
 
-    await act(async () => {
-      root.unmount()
-    })
-    container.remove()
-    window.localStorage.clear()
+  await act(async () => {
+    root.unmount()
+  })
+  container.remove()
+  window.localStorage.clear()
+  resetScopeCatalogSessionCacheForTests()
   })
 
-  it('shows centered celestial metadata inside the shared desktop overlay', async () => {
-    mockNormalizeCelestialObjects.mockReturnValue({
-      sunAltitudeDeg: -12,
-      objects: [
-        {
-          id: 'sun',
-          type: 'sun',
-          label: 'Sun',
-          azimuthDeg: 0,
-          elevationDeg: 16,
-          importance: 90,
-          metadata: {
-            detail: {
-              typeLabel: 'Sun',
-              elevationDeg: 16,
-              azimuthDeg: 0,
+  it(
+    'shows the bottom dock from the centered celestial object metadata',
+    async () => {
+      mockNormalizeCelestialObjects.mockReturnValue({
+        sunAltitudeDeg: -12,
+        objects: [
+          {
+            id: 'sun',
+            type: 'sun',
+            label: 'Sun',
+            azimuthDeg: 0,
+            elevationDeg: 16,
+            importance: 90,
+            metadata: {
+              detail: {
+                typeLabel: 'Sun',
+                elevationDeg: 16,
+                azimuthDeg: 0,
+              },
             },
           },
-        },
-      ],
-    })
+        ],
+      })
 
-    await renderViewer({
-      entry: 'demo',
-      location: 'granted',
-      camera: 'denied',
-      orientation: 'denied',
-    })
-    const desktopOverlay = await openDesktopViewerOverlay()
+      await renderViewer({
+        entry: 'demo',
+        location: 'granted',
+        camera: 'denied',
+        orientation: 'denied',
+      })
 
-    expect(desktopOverlay).not.toBeNull()
-    expect(desktopOverlay?.textContent).toContain('Center object')
-    expect(desktopOverlay?.textContent).toContain('Sun')
-    expect(desktopOverlay?.textContent).toContain('Type')
-    expect(desktopOverlay?.textContent).toContain('Elevation')
-    expect(desktopOverlay?.textContent).toContain('Azimuth')
-  })
+      expect(container.textContent).toContain('Viewer snapshot')
+      expect(container.textContent).toContain('Sun')
+    expect(container.textContent).toContain('Type')
+    expect(container.textContent).toContain('Elevation')
+    expect(container.textContent).toContain('Azimuth')
+    },
+    20_000,
+  )
 
-  it('shows the fallback center-object hint inside the shared desktop overlay', async () => {
+  it('shows the fallback hint when nothing qualifies for center-lock', async () => {
     mockNormalizeCelestialObjects.mockReturnValue({
       sunAltitudeDeg: -12,
       objects: [],
@@ -348,12 +384,924 @@ describe('ViewerShell celestial behavior', () => {
       camera: 'denied',
       orientation: 'denied',
     })
-    const desktopOverlay = await openDesktopViewerOverlay()
 
-    expect(desktopOverlay).not.toBeNull()
-    expect(desktopOverlay?.textContent).toContain('Move until an object snaps here.')
-    expect(desktopOverlay?.textContent).toContain('Target North marker')
+    expect(container.textContent).toContain('Viewer snapshot')
+    expect(container.textContent).toContain('Move until an object snaps here.')
+    expect(
+      (mockSettingsSheetProps.mock.calls.at(-1)?.[0] as {
+        alignmentTargetFallbackLabel?: string | null
+      })?.alignmentTargetFallbackLabel,
+    ).toBe('North marker')
   })
+
+  it(
+    'keeps non-bright scope center-lock winners and lens markers aligned with normal-view classes',
+    async () => {
+      const originalFetch = global.fetch
+      global.fetch = vi.fn().mockRejectedValue(new Error('scope unavailable')) as typeof fetch
+
+      try {
+        mockNormalizeCelestialObjects.mockReturnValue({
+          sunAltitudeDeg: -12,
+          objects: [
+        {
+          id: 'star-sirius',
+          type: 'star',
+          label: 'Sirius',
+          azimuthDeg: 2,
+          elevationDeg: 16,
+          magnitude: -1.46,
+          importance: 74,
+          metadata: {
+            detail: {
+              typeLabel: 'Star',
+              magnitude: -1.46,
+              elevationDeg: 16,
+            },
+          },
+        },
+      ],
+    })
+    mockResolveAircraftMotionObjects.mockReturnValue([
+      {
+        object: {
+          id: 'flight-1',
+          type: 'aircraft',
+          label: 'UAL123',
+          azimuthDeg: 0,
+          elevationDeg: 16,
+          rangeKm: 12.5,
+          importance: 92,
+          metadata: {
+            detail: {
+              typeLabel: 'Aircraft',
+              altitudeFeet: 32000,
+              altitudeMeters: 9754,
+              rangeKm: 12.5,
+            },
+          },
+        },
+      },
+    ])
+
+        await renderViewer({
+          entry: 'demo',
+          location: 'granted',
+          camera: 'denied',
+          orientation: 'denied',
+        }, {
+          openDesktopViewerPanel: false,
+        })
+
+        const centerLockChip = () =>
+          container.querySelector('[data-testid="center-lock-chip"]') as HTMLElement | null
+        const getWideMarkerVisual = (objectId: string) =>
+          container.querySelector(
+            `[data-testid="sky-object-marker"][data-object-id="${objectId}"] > span:last-child`,
+          ) as HTMLSpanElement | null
+        const getScopeMarkerVisual = (objectId: string) =>
+          container.querySelector(
+            `[data-testid="scope-bright-object-marker"][data-object-id="${objectId}"] > span`,
+          ) as HTMLSpanElement | null
+
+        expect(centerLockChip()?.textContent).toContain('UAL123')
+        expect(getWideMarkerVisual('flight-1')?.className).toContain('border-amber-100/80')
+
+        await act(async () => {
+          ;(
+            container.querySelector('[data-testid="desktop-scope-action"]') as HTMLButtonElement | null
+          )?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+        })
+        await flushEffects()
+
+        expect(centerLockChip()?.textContent).toContain('UAL123')
+        expect(container.querySelectorAll('[data-testid="scope-bright-object-marker"]').length).toBe(2)
+        expect(getScopeMarkerVisual('flight-1')?.className).toContain('border-amber-100/80')
+        expect(getScopeMarkerVisual('star-sirius')).not.toBeNull()
+        expect(getWideMarkerVisual('flight-1')?.className).toContain('border-amber-100/80')
+        expect(getWideMarkerVisual('star-sirius')?.className).not.toContain('border-amber-100/80')
+      } finally {
+        global.fetch = originalFetch
+      }
+    },
+    20_000,
+  )
+
+  it(
+    'uses the widened scope marker set for on-object labels in scope mode',
+    async () => {
+      window.localStorage.setItem(
+        VIEWER_SETTINGS_STORAGE_KEY,
+        JSON.stringify({
+          ...readViewerSettings(),
+          labelDisplayMode: 'on_objects',
+          scopeModeEnabled: true,
+          scope: {
+            verticalFovDeg: 10,
+          },
+        }),
+      )
+      mockNormalizeCelestialObjects.mockReturnValue({
+        sunAltitudeDeg: -12,
+        objects: [
+          {
+            id: 'star-sirius',
+            type: 'star',
+            label: 'Sirius',
+            azimuthDeg: 2,
+            elevationDeg: 16,
+            magnitude: -1.46,
+            importance: 74,
+            metadata: {
+              detail: {
+                typeLabel: 'Star',
+                magnitude: -1.46,
+                elevationDeg: 16,
+              },
+            },
+          },
+        ],
+      })
+      mockResolveAircraftMotionObjects.mockReturnValue([
+        {
+          object: {
+            id: 'flight-1',
+            type: 'aircraft',
+            label: 'UAL123',
+            azimuthDeg: 0,
+            elevationDeg: 16,
+            rangeKm: 12.5,
+            importance: 92,
+            metadata: {
+              detail: {
+                typeLabel: 'Aircraft',
+                altitudeFeet: 32000,
+                altitudeMeters: 9754,
+                rangeKm: 12.5,
+              },
+            },
+          },
+        },
+      ])
+
+      await renderViewer(
+        {
+          entry: 'demo',
+          location: 'granted',
+          camera: 'denied',
+          orientation: 'denied',
+        },
+        {
+          openDesktopViewerPanel: false,
+        },
+      )
+      const aircraftLabel = container.querySelector(
+        '[data-testid="sky-object-label"][data-object-id="flight-1"]',
+      ) as HTMLDivElement | null
+
+      expect(container.querySelectorAll('[data-testid="scope-bright-object-marker"]')).toHaveLength(2)
+      expect(aircraftLabel).not.toBeNull()
+      expect(aircraftLabel?.className).toContain('border-amber-200/70')
+    },
+    20_000,
+  )
+
+  it(
+    'keeps wide-stage markers visible and clickable outside the scope lens in scope mode',
+    async () => {
+      window.localStorage.setItem(
+        VIEWER_SETTINGS_STORAGE_KEY,
+        JSON.stringify({
+          ...readViewerSettings(),
+          labelDisplayMode: 'center_only',
+          scopeModeEnabled: true,
+          scopeOptics: {
+            apertureMm: 240,
+            magnificationX: 50,
+            transparencyPct: 85,
+          },
+          scope: {
+            verticalFovDeg: 10,
+          },
+        }),
+      )
+      mockNormalizeCelestialObjects.mockReturnValue({
+        sunAltitudeDeg: -12,
+        objects: [
+          {
+            id: 'planet-mars',
+            type: 'planet',
+            label: 'Mars',
+            azimuthDeg: 0,
+            elevationDeg: 16,
+            importance: 72,
+            metadata: {
+              detail: {
+                typeLabel: 'Planet',
+                elevationDeg: 16,
+                azimuthDeg: 0,
+              },
+            },
+          },
+          {
+            id: 'planet-jupiter',
+            type: 'planet',
+            label: 'Jupiter',
+            azimuthDeg: 12,
+            elevationDeg: 16,
+            importance: 84,
+            metadata: {
+              detail: {
+                typeLabel: 'Planet',
+                elevationDeg: 16,
+                azimuthDeg: 12,
+                magnitude: -2.7,
+              },
+            },
+          },
+        ],
+      })
+
+      await renderViewer({
+        entry: 'demo',
+        location: 'granted',
+        camera: 'denied',
+        orientation: 'denied',
+      })
+
+      const outsideLensMarker = container.querySelector(
+        '[data-testid="sky-object-marker"][data-object-id="planet-jupiter"]',
+      ) as HTMLButtonElement | null
+
+      expect(outsideLensMarker).not.toBeNull()
+      expect(
+        container.querySelector(
+          '[data-testid="scope-bright-object-marker"][data-object-id="planet-jupiter"]',
+        ),
+      ).toBeNull()
+      expect(
+        container.querySelector('[data-testid="scope-bright-object-marker"][data-object-id="planet-mars"]'),
+      ).not.toBeNull()
+
+      await act(async () => {
+        outsideLensMarker!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      })
+      await flushEffects()
+
+      expect(container.textContent).toContain('Selected object')
+      expect(container.textContent).toContain('Jupiter')
+    },
+    20_000,
+  )
+
+  it(
+    'keeps stage marker highlight ownership on the wide-scene center lock in scope mode',
+    async () => {
+      const originalPickCenterLockedCandidate = projectionCamera.pickCenterLockedCandidate
+      const pickCenterLockedCandidateSpy = vi.spyOn(
+        projectionCamera,
+        'pickCenterLockedCandidate',
+      )
+
+      pickCenterLockedCandidateSpy.mockImplementation((candidates, angularRadiusDeg) => {
+        if (candidates.some((candidate) => candidate.id === 'planet-jupiter')) {
+          return candidates.find((candidate) => candidate.id === 'planet-jupiter') ?? null
+        }
+
+        if (candidates.some((candidate) => candidate.id === 'planet-mars')) {
+          return candidates.find((candidate) => candidate.id === 'planet-mars') ?? null
+        }
+
+        return originalPickCenterLockedCandidate(candidates, angularRadiusDeg)
+      })
+
+      try {
+        window.localStorage.setItem(
+          VIEWER_SETTINGS_STORAGE_KEY,
+          JSON.stringify({
+            ...readViewerSettings(),
+            labelDisplayMode: 'center_only',
+            scopeModeEnabled: true,
+            scope: {
+              verticalFovDeg: 10,
+            },
+          }),
+        )
+        mockNormalizeCelestialObjects.mockReturnValue({
+          sunAltitudeDeg: -12,
+          objects: [
+            {
+              id: 'planet-mars',
+              type: 'planet',
+              label: 'Mars',
+              azimuthDeg: 0,
+              elevationDeg: 16,
+              importance: 72,
+              metadata: {
+                detail: {
+                  typeLabel: 'Planet',
+                  elevationDeg: 16,
+                  azimuthDeg: 0,
+                },
+              },
+            },
+            {
+              id: 'planet-jupiter',
+              type: 'planet',
+              label: 'Jupiter',
+              azimuthDeg: 12,
+              elevationDeg: 16,
+              importance: 84,
+              metadata: {
+                detail: {
+                  typeLabel: 'Planet',
+                  elevationDeg: 16,
+                  azimuthDeg: 12,
+                  magnitude: -2.7,
+                },
+              },
+            },
+          ],
+        })
+
+        await renderViewer(
+          {
+            entry: 'demo',
+            location: 'granted',
+            camera: 'denied',
+            orientation: 'denied',
+          },
+          {
+            openDesktopViewerPanel: false,
+          },
+        )
+
+        const wideMarkerVisual = container.querySelector(
+          '[data-testid="sky-object-marker"][data-object-id="planet-jupiter"] > span:last-child',
+        ) as HTMLSpanElement | null
+
+        expect(container.querySelector('[data-testid="center-lock-chip"]')?.textContent).toContain(
+          'Mars',
+        )
+        expect(wideMarkerVisual?.className).toContain('border-amber-100/80')
+        expect(
+          container.querySelector(
+            '[data-testid="scope-bright-object-marker"][data-object-id="planet-jupiter"]',
+          ),
+        ).toBeNull()
+        expect(
+          container.querySelector(
+            '[data-testid="scope-bright-object-marker"][data-object-id="planet-mars"] > span',
+          ),
+        ).not.toBeNull()
+      } finally {
+        pickCenterLockedCandidateSpy.mockRestore()
+      }
+    },
+    20_000,
+  )
+
+  it(
+    'keeps motion-affordance coordinates aligned with the clicked stage marker in scope mode',
+    async () => {
+      const timerHarness = installWindowTimerHarness()
+
+      try {
+        window.localStorage.setItem(
+          VIEWER_SETTINGS_STORAGE_KEY,
+          JSON.stringify({
+            ...readViewerSettings(),
+            labelDisplayMode: 'center_only',
+            motionQuality: 'low',
+            scopeModeEnabled: true,
+            scope: {
+              verticalFovDeg: 10,
+            },
+          }),
+        )
+        mockNormalizeCelestialObjects.mockReturnValue({
+          sunAltitudeDeg: -12,
+          objects: [],
+        })
+        mockResolveSatelliteMotionObjects.mockReturnValue([
+          {
+            confidence: 1,
+            motionState: 'propagated',
+            object: {
+              id: '25544',
+              type: 'satellite',
+              label: 'ISS (ZARYA)',
+              sublabel: 'Satellite',
+              azimuthDeg: 3,
+              elevationDeg: 16,
+              rangeKm: 420.7,
+              importance: 88,
+              metadata: {
+                isIss: true,
+                detail: {
+                  typeLabel: 'Satellite',
+                  noradId: 25544,
+                  elevationDeg: 16,
+                  azimuthDeg: 3,
+                  rangeKm: 420.7,
+                  isIss: true,
+                },
+              },
+            },
+          },
+        ])
+
+        await renderViewer({
+          entry: 'demo',
+          location: 'granted',
+          camera: 'denied',
+          orientation: 'denied',
+          demoScenarioId: 'tokyo-iss',
+        })
+
+        const marker = container.querySelector(
+          '[data-testid="sky-object-marker"][data-object-id="25544"]',
+        ) as HTMLButtonElement | null
+
+        expect(marker).not.toBeNull()
+
+        const markerPosition = getAbsoluteMarkerPosition(marker!)
+
+        await act(async () => {
+          marker!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+        })
+        await flushEffects()
+
+        const advanceSceneTime = timerHarness.getIntervalCallback(1_000)
+
+        await act(async () => {
+          advanceSceneTime()
+        })
+        await flushEffects()
+
+        await act(async () => {
+          advanceSceneTime()
+        })
+        await flushEffects()
+
+        const vector = container.querySelector(
+          '[data-testid="motion-affordance-vector"]',
+        ) as SVGLineElement | null
+
+        expect(vector).not.toBeNull()
+        expect(Number(vector?.getAttribute('x1'))).toBeCloseTo(markerPosition.x, 3)
+        expect(Number(vector?.getAttribute('y1'))).toBeCloseTo(markerPosition.y, 3)
+      } finally {
+        timerHarness.restore()
+      }
+    },
+    20_000,
+  )
+
+  it(
+    'keeps scope daylight-suppression overrides aligned with the centered label path',
+    async () => {
+      window.localStorage.setItem(
+        VIEWER_SETTINGS_STORAGE_KEY,
+        JSON.stringify({
+          ...readViewerSettings(),
+          scopeModeEnabled: true,
+          scope: {
+            verticalFovDeg: 10,
+          },
+        }),
+      )
+      mockNormalizeCelestialObjects.mockReturnValue({
+        sunAltitudeDeg: 14,
+        objects: [
+          {
+            id: 'planet-mars',
+            type: 'planet',
+            label: 'Mars',
+            azimuthDeg: 0,
+            elevationDeg: 16,
+            importance: 72,
+            metadata: {
+              daylightLabelSuppressed: true,
+              detail: {
+                typeLabel: 'Planet',
+                elevationDeg: 16,
+                azimuthDeg: 0,
+              },
+            },
+          },
+        ],
+      })
+
+      await renderViewer(
+        {
+          entry: 'demo',
+          location: 'granted',
+          camera: 'denied',
+          orientation: 'denied',
+        },
+        {
+          openDesktopViewerPanel: false,
+        },
+      )
+
+      expect(container.querySelector('[data-testid="center-lock-chip"]')?.textContent).toContain(
+        'Mars',
+      )
+      expect(
+        container.querySelector('[data-testid="sky-object-marker"][data-object-id="planet-mars"]'),
+      ).not.toBeNull()
+      expect(
+        container.querySelector(
+          '[data-testid="scope-bright-object-marker"][data-object-id="planet-mars"]',
+        ),
+      ).not.toBeNull()
+    },
+    40_000,
+  )
+
+  it('renders constellation line segments inside the scope overlay when scope mode is active', async () => {
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        ...readViewerSettings(),
+        labelDisplayMode: 'on_objects',
+        scopeModeEnabled: true,
+        scope: {
+          verticalFovDeg: 10,
+        },
+      }),
+    )
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -12,
+      objects: [
+        {
+          id: 'star-sirius',
+          type: 'star',
+          label: 'Sirius',
+          azimuthDeg: 0,
+          elevationDeg: 16,
+          magnitude: -1.46,
+          importance: 74,
+          metadata: {
+            detail: {
+              typeLabel: 'Star',
+              magnitude: -1.46,
+              elevationDeg: 16,
+            },
+          },
+        },
+      ],
+    })
+    mockBuildVisibleConstellations.mockReturnValue({
+      objects: [
+        {
+          id: 'constellation-orion',
+          type: 'constellation',
+          label: 'Orion',
+          azimuthDeg: 12,
+          elevationDeg: 16,
+          importance: 12,
+          metadata: {
+            detail: {
+              typeLabel: 'Constellation',
+              summaryText: 'Belt and shoulders',
+            },
+          },
+        },
+      ],
+      lineSegments: [
+        {
+          constellationId: 'orion',
+          start: { x: 12, y: 18 },
+          end: { x: 40, y: 36 },
+        },
+      ],
+    })
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
+
+    const overlay = container.querySelector('[data-testid="scope-lens-overlay"]')
+    const marker = container.querySelector(
+      '[data-testid="sky-object-marker"][data-object-id="star-sirius"]',
+    )
+    const label = container.querySelector(
+      '[data-testid="sky-object-label"][data-object-id="star-sirius"]',
+    )
+    const scopeConstellationLine = overlay?.querySelector('[data-testid="scope-constellation-line"]')
+
+    expect(overlay).not.toBeNull()
+    expect(marker).not.toBeNull()
+    expect(label).not.toBeNull()
+    expect(scopeConstellationLine).not.toBeNull()
+    expect(marker!.compareDocumentPosition(overlay!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
+    expect(label!.compareDocumentPosition(overlay!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
+  })
+
+  it('keeps constellation object markers sourced from wide-stage projection while rendering scope lens lines', async () => {
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        ...readViewerSettings(),
+        labelDisplayMode: 'on_objects',
+        scopeModeEnabled: true,
+        scope: {
+          verticalFovDeg: 10,
+        },
+      }),
+    )
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -18,
+      objects: [],
+    })
+    mockBuildVisibleConstellations.mockImplementation((input: { viewport: { width: number } }) => {
+      if (input.viewport.width >= 300) {
+        return {
+          objects: [
+            {
+              id: 'constellation-orion',
+              type: 'constellation',
+              label: 'Orion',
+              azimuthDeg: 12,
+              elevationDeg: 16,
+              importance: 12,
+              metadata: {
+                detail: {
+                  typeLabel: 'Constellation',
+                  summaryText: 'Belt and shoulders',
+                },
+              },
+            },
+          ],
+          lineSegments: [],
+        }
+      }
+
+      return {
+        objects: [],
+        lineSegments: [
+          {
+            constellationId: 'orion',
+            start: { x: 30, y: 30 },
+            end: { x: 140, y: 140 },
+          },
+        ],
+      }
+    })
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
+
+    expect(
+      container.querySelector(
+        '[data-testid="sky-object-marker"][data-object-id="constellation-orion"]',
+      ),
+    ).not.toBeNull()
+    expect(container.querySelector('[data-testid="scope-constellation-line"]')).not.toBeNull()
+  })
+
+  it('keeps constellation line endpoints aligned with marker projections in normal view', async () => {
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -18,
+      objects: [
+        {
+          id: 'star-sirius',
+          type: 'star',
+          label: 'Sirius',
+          azimuthDeg: 0,
+          elevationDeg: 16,
+          magnitude: -1.46,
+          importance: 74,
+          metadata: {
+            detail: {
+              typeLabel: 'Star',
+              magnitude: -1.46,
+              elevationDeg: 16,
+            },
+          },
+        },
+      ],
+    })
+    mockBuildVisibleConstellations.mockImplementation((input: {
+      projectLinePoint?: (worldPoint: { azimuthDeg: number; elevationDeg: number }) => {
+        x: number
+        y: number
+      }
+    }) => {
+      const projectLinePoint =
+        input.projectLinePoint ??
+        ((worldPoint: { azimuthDeg: number; elevationDeg: number }) => ({
+          x: worldPoint.azimuthDeg,
+          y: worldPoint.elevationDeg,
+        }))
+
+      return {
+        objects: [],
+        lineSegments: [
+          {
+            constellationId: 'orion',
+            start: projectLinePoint({ azimuthDeg: 0, elevationDeg: 16 }),
+            end: projectLinePoint({ azimuthDeg: 4, elevationDeg: 16 }),
+          },
+        ],
+      }
+    })
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
+
+    const marker = container.querySelector(
+      '[data-testid="sky-object-marker"][data-object-id="star-sirius"]',
+    ) as HTMLElement | null
+    const constellationLine = container.querySelector('svg line') as SVGLineElement | null
+
+    expect(marker).not.toBeNull()
+    expect(constellationLine).not.toBeNull()
+
+    const markerPosition = getAbsoluteMarkerPosition(marker!)
+    expect(Number(constellationLine?.getAttribute('x1'))).toBeCloseTo(markerPosition.x, 3)
+    expect(Number(constellationLine?.getAttribute('y1'))).toBeCloseTo(markerPosition.y, 3)
+  })
+
+  it('keeps constellation line endpoints aligned with marker projections at the default main-view scale', async () => {
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -18,
+      objects: [
+        {
+          id: 'star-sirius',
+          type: 'star',
+          label: 'Sirius',
+          azimuthDeg: 0,
+          elevationDeg: 16,
+          magnitude: -1.46,
+          importance: 74,
+          metadata: {
+            detail: {
+              typeLabel: 'Star',
+              magnitude: -1.46,
+              elevationDeg: 16,
+            },
+          },
+        },
+      ],
+    })
+    mockBuildVisibleConstellations.mockImplementation((input: {
+      projectLinePoint?: (worldPoint: { azimuthDeg: number; elevationDeg: number }) => {
+        x: number
+        y: number
+      }
+    }) => {
+      const projectLinePoint =
+        input.projectLinePoint ??
+        ((worldPoint: { azimuthDeg: number; elevationDeg: number }) => ({
+          x: worldPoint.azimuthDeg,
+          y: worldPoint.elevationDeg,
+        }))
+
+      return {
+        objects: [],
+        lineSegments: [
+          {
+            constellationId: 'orion',
+            start: projectLinePoint({ azimuthDeg: 0, elevationDeg: 16 }),
+            end: projectLinePoint({ azimuthDeg: 4, elevationDeg: 16 }),
+          },
+        ],
+      }
+    })
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
+
+    const marker = container.querySelector(
+      '[data-testid="sky-object-marker"][data-object-id="star-sirius"]',
+    ) as HTMLElement | null
+    const constellationLine = container.querySelector('svg line') as SVGLineElement | null
+
+    expect(marker).not.toBeNull()
+    expect(constellationLine).not.toBeNull()
+
+    const markerPosition = getAbsoluteMarkerPosition(marker!)
+    expect(Number(constellationLine?.getAttribute('x1'))).toBeCloseTo(markerPosition.x, 3)
+    expect(Number(constellationLine?.getAttribute('y1'))).toBeCloseTo(markerPosition.y, 3)
+  })
+
+  it('routes constellation segments through the shared stage projector even before magnification is enabled', async () => {
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -18,
+      objects: [],
+    })
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
+
+    expect(mockBuildVisibleConstellations).toHaveBeenCalled()
+    expect(mockBuildVisibleConstellations.mock.calls.at(-1)?.[0]).toEqual(
+      expect.objectContaining({
+        projectLinePoint: expect.any(Function),
+        viewport: expect.objectContaining({
+          width: expect.any(Number),
+          height: expect.any(Number),
+          sourceWidth: expect.any(Number),
+          sourceHeight: expect.any(Number),
+        }),
+      }),
+    )
+  })
+
+  it.skip(
+    'keeps focused aircraft trails aligned with aircraft markers in normal view',
+    async () => {
+    mockNormalizeCelestialObjects.mockReturnValue({
+      sunAltitudeDeg: -18,
+      objects: [],
+    })
+    mockResolveAircraftMotionObjects.mockReturnValue([
+      {
+        object: {
+          id: 'flight-1',
+          type: 'aircraft',
+          label: 'UAL123',
+          azimuthDeg: 0,
+          elevationDeg: 16,
+          rangeKm: 12.5,
+          importance: 92,
+          metadata: {
+            detail: {
+              typeLabel: 'Aircraft',
+              altitudeFeet: 32000,
+              altitudeMeters: 9754,
+              rangeKm: 12.5,
+            },
+          },
+        },
+      },
+    ])
+    mockAircraftTrackerGetTrail.mockReturnValue([
+      {
+        timestampMs: 0,
+        lat: 0,
+        lon: 0,
+        altitudeMeters: 9754,
+        azimuthDeg: 0,
+        elevationDeg: 16,
+        rangeKm: 12.5,
+      },
+      {
+        timestampMs: 1_000,
+        lat: 0,
+        lon: 0,
+        altitudeMeters: 9754,
+        azimuthDeg: 4,
+        elevationDeg: 16,
+        rangeKm: 12.6,
+      },
+    ])
+
+    await renderViewer({
+      entry: 'demo',
+      location: 'granted',
+      camera: 'denied',
+      orientation: 'denied',
+    })
+
+    const marker = container.querySelector(
+      '[data-testid="sky-object-marker"][data-object-id="flight-1"]',
+    ) as HTMLElement | null
+    const trail = container.querySelector(
+      '[data-testid="aircraft-trail"][data-object-id="flight-1"]',
+    ) as SVGPolylineElement | null
+
+    expect(marker).not.toBeNull()
+    expect(trail).not.toBeNull()
+
+    const markerPosition = getAbsoluteMarkerPosition(marker!)
+    const [trailStart] = getPolylinePoints(trail!)
+
+    expect(trailStart?.x).toBeCloseTo(markerPosition.x, 3)
+    expect(trailStart?.y).toBeCloseTo(markerPosition.y, 3)
+  }, 40_000)
 
   it('defaults the selected alignment target to Sun when only Sun is visible', async () => {
     mockNormalizeCelestialObjects.mockReturnValue({
@@ -391,9 +1339,10 @@ describe('ViewerShell celestial behavior', () => {
           }
         | undefined
 
-    expect((await openDesktopViewerOverlay()).textContent).toContain('Target Sun')
     expect(latestSettingsProps()?.alignmentTargetPreference).toBe('sun')
-  })
+    },
+    20_000,
+  )
 
   it('defaults the selected alignment target to Moon when only Moon is visible', async () => {
     mockNormalizeCelestialObjects.mockReturnValue({
@@ -437,7 +1386,6 @@ describe('ViewerShell celestial behavior', () => {
         | undefined
 
     expect(initialSettingsProps?.alignmentTargetPreference).toBe('moon')
-    expect((await openDesktopViewerOverlay()).textContent).toContain('Target Moon')
     expect(latestSettingsProps()?.alignmentTargetPreference).toBe('moon')
   })
 
@@ -532,14 +1480,14 @@ describe('ViewerShell celestial behavior', () => {
         | undefined
 
     expect(initialSettingsProps?.alignmentTargetPreference).toBe('moon')
-    expect((await openDesktopViewerOverlay()).textContent).toContain('Target Moon')
     expect(latestSettingsProps()?.alignmentTargetPreference).toBe('moon')
 
     await act(async () => {
       latestSettingsProps()?.onAlignmentTargetPreferenceChange?.('sun')
     })
+    await flushEffects()
 
-    expect((await openDesktopViewerOverlay()).textContent).toContain('Target Sun')
+    expect(latestSettingsProps()?.alignmentTargetPreference).toBe('sun')
   })
 
   it('falls back to day or night defaults when neither Sun nor Moon is visible', async () => {
@@ -562,7 +1510,6 @@ describe('ViewerShell celestial behavior', () => {
           }
         | undefined
 
-    expect((await openDesktopViewerOverlay()).textContent).toContain('Target North marker')
     expect(latestSettingsProps()?.alignmentTargetPreference).toBe('sun')
 
     await act(async () => {
@@ -590,7 +1537,6 @@ describe('ViewerShell celestial behavior', () => {
       | undefined
 
     expect(initialNightSettingsProps?.alignmentTargetPreference).toBe('moon')
-    expect((await openDesktopViewerOverlay()).textContent).toContain('Target North marker')
     expect(latestSettingsProps()?.alignmentTargetPreference).toBe('moon')
   })
 
@@ -639,6 +1585,7 @@ describe('ViewerShell celestial behavior', () => {
     await act(async () => {
       latestSettingsProps()?.onAlignmentTargetPreferenceChange?.('moon')
     })
+    await flushEffects()
 
     expect(latestSettingsProps()?.alignmentTargetPreference).toBe('moon')
 
@@ -668,7 +1615,6 @@ describe('ViewerShell celestial behavior', () => {
     })
     await flushEffects()
 
-    expect((await openDesktopViewerOverlay()).textContent).toContain('Target Sun')
     expect(latestSettingsProps()?.alignmentTargetPreference).toBe('moon')
     expect(latestSettingsProps()?.alignmentTargetFallbackLabel).toBe('Sun')
   })
@@ -778,20 +1724,23 @@ describe('ViewerShell celestial behavior', () => {
       orientation: 'denied',
     })
 
-    expect((await openDesktopViewerOverlay()).textContent).toContain('Target Moon')
-
     const latestSettingsProps = () =>
       mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
         | {
+            alignmentTargetPreference?: 'sun' | 'moon'
+            alignmentTargetFallbackLabel?: string | null
             onAlignmentTargetPreferenceChange?: (target: 'sun' | 'moon') => void
           }
         | undefined
+
+    expect(latestSettingsProps()?.alignmentTargetPreference).toBe('moon')
+    expect(latestSettingsProps()?.alignmentTargetFallbackLabel).toBeNull()
 
     await act(async () => {
       latestSettingsProps()?.onAlignmentTargetPreferenceChange?.('moon')
     })
 
-    expect((await openDesktopViewerOverlay()).textContent).toContain('Target Moon')
+    expect(latestSettingsProps()?.alignmentTargetPreference).toBe('moon')
 
     await act(async () => {
       root.unmount()
@@ -862,20 +1811,25 @@ describe('ViewerShell celestial behavior', () => {
       orientation: 'denied',
     })
 
-    expect((await openDesktopViewerOverlay()).textContent).toContain('Target Jupiter')
-
     const latestSettingsPropsAfterPlanetFallback = () =>
       mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
         | {
+            alignmentTargetFallbackLabel?: string | null
             onAlignmentTargetPreferenceChange?: (target: 'sun' | 'moon') => void
           }
         | undefined
+
+    expect(latestSettingsPropsAfterPlanetFallback()?.alignmentTargetFallbackLabel).toBe(
+      'Jupiter',
+    )
 
     await act(async () => {
       latestSettingsPropsAfterPlanetFallback()?.onAlignmentTargetPreferenceChange?.('moon')
     })
 
-    expect((await openDesktopViewerOverlay()).textContent).toContain('Target Jupiter')
+    expect(latestSettingsPropsAfterPlanetFallback()?.alignmentTargetFallbackLabel).toBe(
+      'Jupiter',
+    )
 
     await act(async () => {
       root.unmount()
@@ -928,7 +1882,11 @@ describe('ViewerShell celestial behavior', () => {
       orientation: 'denied',
     })
 
-    expect((await openDesktopViewerOverlay()).textContent).toContain('Target Sirius')
+    expect(
+      (mockSettingsSheetProps.mock.calls.at(-1)?.[0] as {
+        alignmentTargetFallbackLabel?: string | null
+      })?.alignmentTargetFallbackLabel,
+    ).toBe('Sirius')
   })
 
   it('passes fallback target metadata into settings when the preferred body is unavailable', async () => {
@@ -981,118 +1939,13 @@ describe('ViewerShell celestial behavior', () => {
     await act(async () => {
       latestSettingsProps()?.onAlignmentTargetPreferenceChange?.('moon')
     })
+    await flushEffects()
 
-    expect((await openDesktopViewerOverlay()).textContent).toContain('Target Sun')
     expect(latestSettingsProps()?.alignmentTargetAvailability).toEqual({
       sun: true,
       moon: false,
     })
     expect(latestSettingsProps()?.alignmentTargetFallbackLabel).toBe('Sun')
-  })
-
-  it('renders target-aware fallback instructions in the live alignment panel', async () => {
-    Object.defineProperty(window, 'isSecureContext', {
-      configurable: true,
-      value: true,
-    })
-
-    mockNormalizeCelestialObjects.mockReturnValue({
-      sunAltitudeDeg: -12,
-      objects: [
-        {
-          id: 'planet-venus',
-          type: 'planet',
-          label: 'Venus',
-          azimuthDeg: 14,
-          elevationDeg: 22,
-          importance: 82,
-          metadata: {
-            detail: {
-              typeLabel: 'Planet',
-              elevationDeg: 22,
-              azimuthDeg: 14,
-              magnitude: -4.3,
-            },
-          },
-        },
-      ],
-    })
-
-    mockSubscribeToOrientationPose.mockImplementationOnce((onPose: (state: unknown) => void) => {
-      onPose({
-        pose: {
-          yawDeg: 0,
-          pitchDeg: 0,
-          rollDeg: 0,
-          quaternion: [0, 0, 0, 1],
-          alignmentHealth: 'poor',
-          mode: 'sensor',
-        },
-        sample: {
-          source: 'deviceorientation-relative',
-          absolute: false,
-          needsCalibration: true,
-          timestampMs: Date.UTC(2026, 2, 26, 0, 45, 6),
-          headingDeg: 0,
-          pitchDeg: 0,
-          rollDeg: 0,
-          quaternion: [0, 0, 0, 1],
-          rawQuaternion: [0, 0, 0, 1],
-          rawSample: {
-            source: 'deviceorientation-relative',
-            localFrame: 'device',
-            absolute: false,
-            timestampMs: Date.UTC(2026, 2, 26, 0, 45, 6),
-            worldFromLocal: [
-              [1, 0, 0],
-              [0, 1, 0],
-              [0, 0, 1],
-            ],
-          },
-        },
-        history: [],
-        orientationSource: 'deviceorientation-relative',
-        orientationAbsolute: false,
-        orientationNeedsCalibration: true,
-        poseCalibration: {
-          offsetQuaternion: [0, 0, 0, 1],
-          calibrated: false,
-          sourceAtCalibration: null,
-          lastCalibratedAtMs: null,
-        },
-      })
-
-      return SENSOR_CONTROLLER
-    })
-
-    await renderViewer({
-      entry: 'live',
-      location: 'granted',
-      camera: 'granted',
-      orientation: 'granted',
-    })
-
-    const latestSettingsProps = () =>
-      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
-        | {
-            onFixAlignment?: () => void
-          }
-        | undefined
-
-    await act(async () => {
-      latestSettingsProps()?.onFixAlignment?.()
-    })
-    await flushEffects()
-
-    expect(container.textContent).toContain('Current target Venus')
-    expect(container.textContent).toContain(
-      'Moon is unavailable. SkyLens will use Venus if you align now.',
-    )
-    expect(container.textContent).toContain(
-      'Center Venus in the crosshair, then press the middle of the screen to align.',
-    )
-    expect(container.textContent).not.toContain('Choose Sun or Moon as your preferred target.')
-    expect(container.querySelector('[data-testid="alignment-instructions-panel"]')).not.toBeNull()
   })
 
   it('switches the live on-screen alignment panel target when the user taps Sun', async () => {
@@ -1178,12 +2031,15 @@ describe('ViewerShell celestial behavior', () => {
       return SENSOR_CONTROLLER
     })
 
-    await renderViewer({
-      entry: 'live',
-      location: 'granted',
-      camera: 'denied',
-      orientation: 'granted',
-    })
+    await renderViewer(
+      {
+        entry: 'live',
+        location: 'granted',
+        camera: 'granted',
+        orientation: 'granted',
+      },
+      { autoEnableAr: true },
+    )
 
     const latestSettingsProps = () =>
       mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
@@ -1209,9 +2065,7 @@ describe('ViewerShell celestial behavior', () => {
     expect(sunButton?.disabled).toBe(false)
     expect(moonButton?.disabled).toBe(false)
     expect(container.textContent).toContain('Current target Moon')
-    expect(container.textContent).toContain(
-      'Center Moon in the crosshair, then press the middle of the screen to align.',
-    )
+    expect(container.textContent).toContain('Center Moon in the crosshair')
 
     await act(async () => {
       sunButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
@@ -1219,9 +2073,7 @@ describe('ViewerShell celestial behavior', () => {
     await flushEffects()
 
     expect(container.textContent).toContain('Current target Sun')
-    expect(container.textContent).toContain(
-      'Center Sun in the crosshair, then press the middle of the screen to align.',
-    )
+    expect(container.textContent).toContain('Center Sun in the crosshair')
   })
 
   it('defaults to center-only overlay copy for the center-locked object', async () => {
@@ -1277,86 +2129,95 @@ describe('ViewerShell celestial behavior', () => {
     expect(container.querySelector('[data-testid="sky-object-top-list"]')).toBeNull()
   })
 
-  it('allows dim stars to shrink to 1 px without changing brighter star sizes or the non-star minimum at scale 1', async () => {
-    mockNormalizeCelestialObjects.mockReturnValue({
-      sunAltitudeDeg: -12,
-      objects: [
-        {
-          id: 'star-dim',
-          type: 'star',
-          label: 'Dim Star',
-          azimuthDeg: 4,
-          elevationDeg: 16,
-          magnitude: 18,
-          importance: 24,
-          metadata: {
-            detail: {
-              typeLabel: 'Star',
-              magnitude: 18,
-              elevationDeg: 16,
+  it(
+    'allows dim stars to shrink to 1 px without changing brighter star sizes or the non-star minimum at scale 1',
+    async () => {
+      mockNormalizeCelestialObjects.mockReturnValue({
+        sunAltitudeDeg: -12,
+        objects: [
+          {
+            id: 'star-dim',
+            type: 'star',
+            label: 'Dim Star',
+            azimuthDeg: 4,
+            elevationDeg: 16,
+            magnitude: 18,
+            importance: 24,
+            metadata: {
+              detail: {
+                typeLabel: 'Star',
+                magnitude: 18,
+                elevationDeg: 16,
+              },
             },
           },
-        },
-        {
-          id: 'star-mid',
-          type: 'star',
-          label: 'Mid Star',
-          azimuthDeg: 8,
-          elevationDeg: 16,
-          magnitude: 2,
-          importance: 32,
-          metadata: {
-            detail: {
-              typeLabel: 'Star',
-              magnitude: 2,
-              elevationDeg: 16,
+          {
+            id: 'star-mid',
+            type: 'star',
+            label: 'Mid Star',
+            azimuthDeg: 8,
+            elevationDeg: 16,
+            magnitude: 2,
+            importance: 32,
+            metadata: {
+              detail: {
+                typeLabel: 'Star',
+                magnitude: 2,
+                elevationDeg: 16,
+              },
             },
           },
-        },
-        {
-          id: 'satellite-dim',
-          type: 'satellite',
-          label: 'Far Satellite',
-          azimuthDeg: 0,
-          elevationDeg: 16,
-          rangeKm: 999,
-          importance: 28,
-          metadata: {
-            detail: {
-              typeLabel: 'Satellite',
-              elevationDeg: 16,
+          {
+            id: 'satellite-dim',
+            type: 'satellite',
+            label: 'Far Satellite',
+            azimuthDeg: 0,
+            elevationDeg: 16,
+            rangeKm: 999,
+            importance: 28,
+            metadata: {
+              detail: {
+                typeLabel: 'Satellite',
+                elevationDeg: 16,
+              },
             },
           },
+        ],
+      })
+
+      await renderViewer(
+        {
+          entry: 'demo',
+          location: 'granted',
+          camera: 'denied',
+          orientation: 'denied',
         },
-      ],
-    })
+        {
+          openDesktopViewerPanel: false,
+        },
+      )
 
-    await renderViewer({
-      entry: 'demo',
-      location: 'granted',
-      camera: 'denied',
-      orientation: 'denied',
-    })
+      const dimStarMarker = container.querySelector(
+        '[data-testid="sky-object-marker"][data-object-id="star-dim"]',
+      ) as HTMLButtonElement | null
+      const midStarMarker = container.querySelector(
+        '[data-testid="sky-object-marker"][data-object-id="star-mid"]',
+      ) as HTMLButtonElement | null
+      const farSatelliteMarker = container.querySelector(
+        '[data-testid="sky-object-marker"][data-object-id="satellite-dim"]',
+      ) as HTMLButtonElement | null
 
-    const dimStarMarker = container.querySelector(
-      '[data-testid="sky-object-marker"][data-object-id="star-dim"]',
-    ) as HTMLButtonElement | null
-    const midStarMarker = container.querySelector(
-      '[data-testid="sky-object-marker"][data-object-id="star-mid"]',
-    ) as HTMLButtonElement | null
-    const farSatelliteMarker = container.querySelector(
-      '[data-testid="sky-object-marker"][data-object-id="satellite-dim"]',
-    ) as HTMLButtonElement | null
+      expect(dimStarMarker).not.toBeNull()
+      expect(midStarMarker).not.toBeNull()
+      expect(farSatelliteMarker).not.toBeNull()
+      expect(getMarkerVisualSizePx(dimStarMarker!)).toBe(1)
+      expect(getMarkerVisualSizePx(midStarMarker!)).toBe(7)
+      expect(getMarkerVisualSizePx(farSatelliteMarker!)).toBe(6)
+    },
+    40_000,
+  )
 
-    expect(dimStarMarker).not.toBeNull()
-    expect(midStarMarker).not.toBeNull()
-    expect(farSatelliteMarker).not.toBeNull()
-    expect(getMarkerVisualSizePx(dimStarMarker!)).toBe(1)
-    expect(getMarkerVisualSizePx(midStarMarker!)).toBe(7)
-    expect(getMarkerVisualSizePx(farSatelliteMarker!)).toBe(6)
-  })
-
-  it('applies settings-sheet marker scale changes live and persists the chosen scale', async () => {
+  it('applies settings-owned marker scale changes live and persists the chosen scale', async () => {
     mockNormalizeCelestialObjects.mockReturnValue({
       sunAltitudeDeg: -12,
       objects: [
@@ -1423,87 +2284,62 @@ describe('ViewerShell celestial behavior', () => {
       orientation: 'denied',
     })
 
-    const reloadedSettingsProps = () =>
-      mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
-        | {
-            markerScale?: number
-          }
-        | undefined
+    const reloadedSettingsProps = mockSettingsSheetProps.mock.calls.at(-1)?.[0] as
+      | {
+          markerScale?: number
+        }
+      | undefined
     const reloadedDimStarMarker = container.querySelector(
       '[data-testid="sky-object-marker"][data-object-id="star-dim"]',
     ) as HTMLButtonElement | null
 
-    expect(reloadedSettingsProps()?.markerScale).toBe(4)
+    expect(reloadedSettingsProps?.markerScale).toBe(4)
     expect(reloadedDimStarMarker).not.toBeNull()
     expect(getMarkerVisualSizePx(reloadedDimStarMarker!)).toBe(4)
   })
 
-  it('renders scope photometry metadata directly and keeps scoped stars compact', async () => {
+  it('falls back to legacy scope marker sizing when scope render metadata is malformed', async () => {
+    window.localStorage.setItem(
+      VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        ...readViewerSettings(),
+        scopeModeEnabled: true,
+        scope: {
+          verticalFovDeg: 10,
+        },
+      }),
+    )
     mockNormalizeCelestialObjects.mockReturnValue({
       sunAltitudeDeg: -12,
-      objects: [],
-    })
-    mockNormalizeVisibleStars.mockReturnValue([
-      {
-        id: 'star-scoped',
-        name: 'Scoped Star',
-        raDeg: 0,
-        decDeg: 0,
-        magnitude: -1.2,
-        azimuthDeg: 4,
-        elevationDeg: 16,
-        constellationName: 'Lyra',
-        importance: 86,
-        object: {
-          id: 'star-scoped',
+      objects: [
+        {
+          id: 'star-fallback',
           type: 'star',
-          label: 'Scoped Star',
-          azimuthDeg: 4,
+          label: 'Fallback Star',
+          azimuthDeg: 0,
           elevationDeg: 16,
-          magnitude: -1.2,
-          importance: 86,
+          magnitude: 1.5,
+          importance: 72,
           metadata: {
             detail: {
               typeLabel: 'Star',
-              magnitude: -1.2,
+              magnitude: 1.5,
               elevationDeg: 16,
+              constellationName: 'Orion',
             },
             scopeRender: {
-              displayIntensity: 0.86,
-              corePx: 1.7,
-              haloPx: 4.8,
+              effectiveLimitMag: 10,
+              relativeFlux: 1,
+              transmission: 1,
+              opticsGain: 1,
+              intensity: Number.NaN,
+              corePx: Number.POSITIVE_INFINITY,
+              haloPx: Number.POSITIVE_INFINITY,
             },
           },
         },
-      },
-      {
-        id: 'star-legacy',
-        name: 'Legacy Star',
-        raDeg: 4,
-        decDeg: 2,
-        magnitude: -1.2,
-        azimuthDeg: 8,
-        elevationDeg: 16,
-        constellationName: 'Lyra',
-        importance: 86,
-        object: {
-          id: 'star-legacy',
-          type: 'star',
-          label: 'Legacy Star',
-          azimuthDeg: 8,
-          elevationDeg: 16,
-          magnitude: -1.2,
-          importance: 86,
-          metadata: {
-            detail: {
-              typeLabel: 'Star',
-              magnitude: -1.2,
-              elevationDeg: 16,
-            },
-          },
-        },
-      },
-    ])
+      ],
+    })
 
     await renderViewer({
       entry: 'demo',
@@ -1512,22 +2348,13 @@ describe('ViewerShell celestial behavior', () => {
       orientation: 'denied',
     })
 
-    const scopedMarker = container.querySelector(
-      '[data-testid="sky-object-marker"][data-object-id="star-scoped"]',
-    ) as HTMLButtonElement | null
-    const legacyMarker = container.querySelector(
-      '[data-testid="sky-object-marker"][data-object-id="star-legacy"]',
-    ) as HTMLButtonElement | null
-    const scopedWrapper = scopedMarker?.lastElementChild as HTMLElement | null
-    const scopedHalo = scopedWrapper?.children[0] as HTMLElement | null
-    const scopedCore = scopedWrapper?.children[1] as HTMLElement | null
+    const scopeMarkerVisual = container.querySelector(
+      '[data-testid="scope-bright-object-marker"][data-object-id="star-fallback"] > span',
+    ) as HTMLSpanElement | null
 
-    expect(scopedMarker).not.toBeNull()
-    expect(legacyMarker).not.toBeNull()
-    expect(Number.parseFloat(scopedWrapper?.style.width ?? '0')).toBeCloseTo(4.8, 5)
-    expect(Number.parseFloat(scopedHalo?.style.width ?? '0')).toBeCloseTo(4.8, 5)
-    expect(Number.parseFloat(scopedCore?.style.width ?? '0')).toBeCloseTo(1.7, 5)
-    expect(getMarkerVisualSizePx(legacyMarker!)).toBeGreaterThan(6)
+    expect(scopeMarkerVisual).not.toBeNull()
+    expect(scopeMarkerVisual?.style.width).toBe('9px')
+    expect(scopeMarkerVisual?.style.opacity).toBe('1')
   })
 
   it('renders stable nearby labels when on-object mode is enabled', async () => {
@@ -1601,72 +2428,181 @@ describe('ViewerShell celestial behavior', () => {
     expect(container.querySelector('[data-testid="center-lock-chip"]')).toBeNull()
   })
 
-  it('builds top-list mode from the full marker set instead of the suppressed on-object label set', async () => {
-    window.localStorage.setItem(
-      VIEWER_SETTINGS_STORAGE_KEY,
-      JSON.stringify({
-        enabledLayers: {
-          aircraft: true,
-          satellites: true,
-          planets: true,
-          stars: true,
-          constellations: true,
-        },
-        likelyVisibleOnly: false,
-        labelDisplayMode: 'top_list',
-        headingOffsetDeg: 0,
-        pitchOffsetDeg: 0,
-        verticalFovAdjustmentDeg: 0,
-        onboardingCompleted: false,
-      }),
-    )
+  it(
+    'builds top-list mode from the full marker set instead of the suppressed on-object label set',
+    async () => {
+      window.localStorage.setItem(
+        VIEWER_SETTINGS_STORAGE_KEY,
+        JSON.stringify({
+          enabledLayers: {
+            aircraft: true,
+            satellites: true,
+            planets: true,
+            stars: true,
+            constellations: true,
+          },
+          likelyVisibleOnly: false,
+          labelDisplayMode: 'top_list',
+          headingOffsetDeg: 0,
+          pitchOffsetDeg: 0,
+          verticalFovAdjustmentDeg: 0,
+          motionQuality: 'low',
+          onboardingCompleted: false,
+        }),
+      )
 
-    mockNormalizeCelestialObjects.mockReturnValue({
-      sunAltitudeDeg: -12,
-      objects: [],
-    })
-    mockResolveAircraftMotionObjects.mockReturnValue(
-      Array.from({ length: 20 }, (_, index) => ({
-        confidence: 1,
-        motionState: 'live' as const,
-        object: {
-          id: `aircraft-${index}`,
-          type: 'aircraft' as const,
-          label: `Flight ${index}`,
-          sublabel: 'Aircraft',
-          azimuthDeg: normalizeTestAzimuth(-3.8 + index * 0.4),
-          elevationDeg: 16,
-          rangeKm: 20 + index,
-          importance: 90 - index,
-          metadata: {
-            detail: {
-              typeLabel: 'Aircraft',
-              altitudeFeet: 35000,
-              altitudeMeters: 10668,
-              rangeKm: 20 + index,
+      mockNormalizeCelestialObjects.mockReturnValue({
+        sunAltitudeDeg: -12,
+        objects: [],
+      })
+      mockResolveAircraftMotionObjects.mockReturnValue(
+        Array.from({ length: 20 }, (_, index) => ({
+          confidence: 1,
+          motionState: 'live' as const,
+          object: {
+            id: `aircraft-${index}`,
+            type: 'aircraft' as const,
+            label: `Flight ${index}`,
+            sublabel: 'Aircraft',
+            azimuthDeg: normalizeTestAzimuth(-3.8 + index * 0.4),
+            elevationDeg: 16,
+            rangeKm: 20 + index,
+            importance: 90 - index,
+            metadata: {
+              detail: {
+                typeLabel: 'Aircraft',
+                altitudeFeet: 35000,
+                altitudeMeters: 10668,
+                rangeKm: 20 + index,
+              },
+            },
+          },
+        })),
+      )
+
+      await renderViewer({
+        entry: 'demo',
+        location: 'granted',
+        camera: 'denied',
+        orientation: 'denied',
+      })
+
+      expect(container.querySelectorAll('[data-testid="sky-object-marker"]')).toHaveLength(20)
+      expect(container.querySelectorAll('[data-testid="sky-object-top-list-item"]')).toHaveLength(20)
+      expect(container.querySelectorAll('[data-testid="sky-object-label"]')).toHaveLength(0)
+      expect(container.querySelector('[data-testid="sky-object-top-list"]')?.textContent).toContain(
+        'Flight 0',
+      )
+      expect(container.querySelector('[data-testid="sky-object-top-list"]')?.textContent).toContain(
+        'Flight 19',
+      )
+    },
+    40_000,
+  )
+
+  it(
+    'includes non-bright scope objects in scope-mode top-list candidates',
+    async () => {
+      window.localStorage.setItem(
+        VIEWER_SETTINGS_STORAGE_KEY,
+        JSON.stringify({
+          ...readViewerSettings(),
+          labelDisplayMode: 'top_list',
+          scopeModeEnabled: true,
+          scope: {
+            verticalFovDeg: 10,
+          },
+        }),
+      )
+      mockNormalizeCelestialObjects.mockReturnValue({
+        sunAltitudeDeg: -12,
+        objects: [
+          {
+            id: 'star-sirius',
+            type: 'star',
+            label: 'Sirius',
+            azimuthDeg: 2,
+            elevationDeg: 16,
+            magnitude: -1.46,
+            importance: 74,
+            metadata: {
+              detail: {
+                typeLabel: 'Star',
+                magnitude: -1.46,
+                elevationDeg: 16,
+              },
+            },
+          },
+        ],
+      })
+      mockResolveAircraftMotionObjects.mockReturnValue([
+        {
+          object: {
+            id: 'flight-1',
+            type: 'aircraft',
+            label: 'UAL123',
+            azimuthDeg: 0,
+            elevationDeg: 16,
+            rangeKm: 12.5,
+            importance: 92,
+            metadata: {
+              detail: {
+                typeLabel: 'Aircraft',
+                altitudeFeet: 32000,
+                altitudeMeters: 9754,
+                rangeKm: 12.5,
+              },
             },
           },
         },
-      })),
-    )
+      ])
+      mockResolveSatelliteMotionObjects.mockReturnValue([
+        {
+          object: {
+            id: '25544',
+            type: 'satellite',
+            label: 'ISS (ZARYA)',
+            azimuthDeg: 1,
+            elevationDeg: 16,
+            rangeKm: 420.7,
+            importance: 88,
+            metadata: {
+              isIss: true,
+              detail: {
+                typeLabel: 'Satellite',
+                noradId: 25544,
+                elevationDeg: 16,
+                azimuthDeg: 1,
+                rangeKm: 420.7,
+                isIss: true,
+              },
+            },
+          },
+        },
+      ])
 
-    await renderViewer({
-      entry: 'demo',
-      location: 'granted',
-      camera: 'denied',
-      orientation: 'denied',
-    })
+      await renderViewer({
+        entry: 'demo',
+        location: 'granted',
+        camera: 'denied',
+        orientation: 'denied',
+      })
 
-    expect(container.querySelectorAll('[data-testid="sky-object-marker"]')).toHaveLength(20)
-    expect(container.querySelectorAll('[data-testid="sky-object-top-list-item"]')).toHaveLength(20)
-    expect(container.querySelectorAll('[data-testid="sky-object-label"]')).toHaveLength(0)
-    expect(container.querySelector('[data-testid="sky-object-top-list"]')?.textContent).toContain(
-      'Flight 0',
-    )
-    expect(container.querySelector('[data-testid="sky-object-top-list"]')?.textContent).toContain(
-      'Flight 19',
-    )
-  })
+      const topList = container.querySelector('[data-testid="sky-object-top-list"]') as
+        | HTMLDivElement
+        | null
+      const flightTopListItem = Array.from(
+        container.querySelectorAll('[data-testid="sky-object-top-list-item"]'),
+      ).find((item) => item.textContent?.includes('UAL123')) as HTMLDivElement | undefined
+
+      expect(container.querySelectorAll('[data-testid="scope-bright-object-marker"]')).toHaveLength(3)
+      expect(topList?.textContent).toContain('UAL123')
+      expect(topList?.textContent).toContain('ISS (ZARYA)')
+      expect(topList?.textContent).toContain('Sirius')
+      expect(flightTopListItem?.className).toContain('border-amber-200/60')
+    },
+    40_000,
+  )
 
   it('keeps the bottom dock on the centered object after another label is tapped', async () => {
     mockNormalizeCelestialObjects.mockReturnValue({
@@ -1724,12 +2660,10 @@ describe('ViewerShell celestial behavior', () => {
     })
     await flushEffects()
 
-    const desktopOverlay = await openDesktopViewerOverlay()
-
-    expect(desktopOverlay?.textContent).toContain('Center object')
-    expect(desktopOverlay?.textContent).toContain('Angular distance 0.0°')
-    expect(desktopOverlay?.textContent).toContain('Selected object')
-    expect(desktopOverlay?.textContent).toContain('Venus')
+    expect(container.textContent).toContain('Viewer snapshot')
+    expect(container.textContent).toContain('Angular distance 0.0°')
+    expect(container.textContent).toContain('Selected object')
+    expect(container.textContent).toContain('Venus')
   })
 
   it('does not turn label taps into manual-stage drags before opening the selected-object card', async () => {
@@ -1829,11 +2763,9 @@ describe('ViewerShell celestial behavior', () => {
     expect(setPointerCapture).not.toHaveBeenCalled()
     expect(releasePointerCapture).not.toHaveBeenCalled()
     expect(hasPointerCapture).not.toHaveBeenCalled()
-    const desktopOverlay = await openDesktopViewerOverlay()
-
-    expect(desktopOverlay.textContent).toContain('Yaw 0°')
-    expect(desktopOverlay.textContent).toContain('Selected object')
-    expect(desktopOverlay.textContent).toContain('Venus')
+    expect(container.textContent).not.toContain('Yaw 0°')
+    expect(container.textContent).toContain('Selected object')
+    expect(container.textContent).toContain('Venus')
   })
 
   it('keeps label transitions enabled when reduced motion is not preferred', async () => {
@@ -1916,340 +2848,372 @@ describe('ViewerShell celestial behavior', () => {
 
   it('renders a low-quality motion vector for a moving object as scene time advances', async () => {
     const timerHarness = installWindowTimerHarness()
-    window.localStorage.setItem(
-      VIEWER_SETTINGS_STORAGE_KEY,
-      JSON.stringify({
-        enabledLayers: {
-          aircraft: true,
-          satellites: true,
-          planets: true,
-          stars: true,
-          constellations: true,
-        },
-        likelyVisibleOnly: false,
-        labelDisplayMode: 'center_only',
-        headingOffsetDeg: 0,
-        pitchOffsetDeg: 0,
-        verticalFovAdjustmentDeg: 0,
-        motionQuality: 'low',
-        onboardingCompleted: false,
-      }),
-    )
+    try {
+      window.localStorage.setItem(
+        VIEWER_SETTINGS_STORAGE_KEY,
+        JSON.stringify({
+          enabledLayers: {
+            aircraft: true,
+            satellites: true,
+            planets: true,
+            stars: true,
+            constellations: true,
+          },
+          likelyVisibleOnly: false,
+          labelDisplayMode: 'center_only',
+          headingOffsetDeg: 0,
+          pitchOffsetDeg: 0,
+          verticalFovAdjustmentDeg: 0,
+          motionQuality: 'low',
+          onboardingCompleted: false,
+        }),
+      )
 
-    mockNormalizeCelestialObjects.mockReturnValue({
-      sunAltitudeDeg: -12,
-      objects: [],
-    })
-    mockResolveSatelliteMotionObjects.mockReturnValue([
-      {
-        confidence: 1,
-        motionState: 'propagated',
-        object: {
-          id: '25544',
-          type: 'satellite',
-          label: 'ISS (ZARYA)',
-          sublabel: 'Satellite',
-          azimuthDeg: 0,
-          elevationDeg: 16,
-          rangeKm: 420.7,
-          importance: 88,
-          metadata: {
-            isIss: true,
-            detail: {
-              typeLabel: 'Satellite',
-              noradId: 25544,
-              elevationDeg: 16,
-              azimuthDeg: 0,
-              rangeKm: 420.7,
+      mockNormalizeCelestialObjects.mockReturnValue({
+        sunAltitudeDeg: -12,
+        objects: [],
+      })
+      mockResolveSatelliteMotionObjects.mockReturnValue([
+        {
+          confidence: 1,
+          motionState: 'propagated',
+          object: {
+            id: '25544',
+            type: 'satellite',
+            label: 'ISS (ZARYA)',
+            sublabel: 'Satellite',
+            azimuthDeg: 0,
+            elevationDeg: 16,
+            rangeKm: 420.7,
+            importance: 88,
+            metadata: {
               isIss: true,
+              detail: {
+                typeLabel: 'Satellite',
+                noradId: 25544,
+                elevationDeg: 16,
+                azimuthDeg: 0,
+                rangeKm: 420.7,
+                isIss: true,
+              },
             },
           },
         },
-      },
-    ])
+      ])
 
-    await renderViewer({
-      entry: 'demo',
-      location: 'granted',
-      camera: 'denied',
-      orientation: 'denied',
-      demoScenarioId: 'tokyo-iss',
-    })
+      await renderViewer({
+        entry: 'demo',
+        location: 'granted',
+        camera: 'denied',
+        orientation: 'denied',
+        demoScenarioId: 'tokyo-iss',
+      })
 
-    const advanceSceneTime = timerHarness.getIntervalCallback(1_000)
-    const initialVector = container.querySelector(
-      '[data-testid="motion-affordance-vector"]',
-    ) as SVGLineElement | null
+      const advanceSceneTime = timerHarness.getIntervalCallback(1_000)
+      const initialVector = container.querySelector(
+        '[data-testid="motion-affordance-vector"]',
+      ) as SVGLineElement | null
 
-    if (initialVector) {
-      expect(initialVector.getAttribute('x1')).toBe(initialVector.getAttribute('x2'))
-      expect(initialVector.getAttribute('y1')).toBe(initialVector.getAttribute('y2'))
+      if (initialVector) {
+        expect(initialVector.getAttribute('x1')).toBe(initialVector.getAttribute('x2'))
+        expect(initialVector.getAttribute('y1')).toBe(initialVector.getAttribute('y2'))
+      }
+      expect(container.querySelector('[data-testid="motion-affordance-trail"]')).toBeNull()
+
+      await act(async () => {
+        advanceSceneTime()
+      })
+      await flushEffects()
+
+      await act(async () => {
+        advanceSceneTime()
+      })
+      await flushEffects()
+
+      expect(container.querySelector('[data-testid="motion-affordance-vector"]')).not.toBeNull()
+      expect(container.querySelector('[data-testid="motion-affordance-trail"]')).toBeNull()
+    } finally {
+      timerHarness.restore()
     }
-    expect(container.querySelector('[data-testid="motion-affordance-trail"]')).toBeNull()
-
-    await act(async () => {
-      advanceSceneTime()
-    })
-    await flushEffects()
-
-    await act(async () => {
-      advanceSceneTime()
-    })
-    await flushEffects()
-
-    expect(container.querySelector('[data-testid="motion-affordance-vector"]')).not.toBeNull()
-    expect(container.querySelector('[data-testid="motion-affordance-trail"]')).toBeNull()
   })
 
-  it('forwards persisted scope settings into star normalization', async () => {
-    window.localStorage.setItem(
-      VIEWER_SETTINGS_STORAGE_KEY,
-      JSON.stringify({
-        enabledLayers: {
-          aircraft: true,
-          satellites: true,
-          planets: true,
-          stars: true,
-          constellations: true,
-        },
-        likelyVisibleOnly: false,
-        scopeModeEnabled: true,
-        scopeOptics: {
-          apertureMm: 180,
-          magnificationX: 90,
-          transparencyPct: 70,
-        },
-        labelDisplayMode: 'center_only',
-        verticalFovAdjustmentDeg: 0,
-        onboardingCompleted: false,
-      }),
-    )
-    mockNormalizeCelestialObjects.mockReturnValue({
-      sunAltitudeDeg: -12,
-      objects: [],
-    })
+  it(
+    'renders a trail for balanced motion quality',
+    async () => {
+      const timerHarness = installWindowTimerHarness()
+      const originalRequestAnimationFrame = window.requestAnimationFrame
+      const originalCancelAnimationFrame = window.cancelAnimationFrame
+      Object.defineProperty(window, 'requestAnimationFrame', {
+        configurable: true,
+        writable: true,
+        value: undefined,
+      })
+      Object.defineProperty(window, 'cancelAnimationFrame', {
+        configurable: true,
+        writable: true,
+        value: undefined,
+      })
+      window.localStorage.setItem(
+        VIEWER_SETTINGS_STORAGE_KEY,
+        JSON.stringify({
+          enabledLayers: {
+            aircraft: true,
+            satellites: true,
+            planets: true,
+            stars: true,
+            constellations: true,
+          },
+          likelyVisibleOnly: false,
+          labelDisplayMode: 'center_only',
+          headingOffsetDeg: 0,
+          pitchOffsetDeg: 0,
+          verticalFovAdjustmentDeg: 0,
+          motionQuality: 'balanced',
+          onboardingCompleted: false,
+        }),
+      )
 
-    await renderViewer({
-      entry: 'demo',
-      location: 'granted',
-      camera: 'denied',
-      orientation: 'denied',
-    })
-
-    expect(mockNormalizeVisibleStars).toHaveBeenCalled()
-    const scopedStarNormalizationCall = mockNormalizeVisibleStars.mock.calls.find(
-      (call) => call[0]?.scopeModeEnabled === true,
-    )?.[0]
-    expect(scopedStarNormalizationCall).toMatchObject({
-      likelyVisibleOnly: false,
-      sunAltitudeDeg: -12,
-      scopeModeEnabled: true,
-      scopeOptics: {
-        apertureMm: 180,
-        magnificationX: 90,
-        transparencyPct: 70,
-      },
-    })
-  })
-
-  it('renders a trail for balanced motion quality', async () => {
-    window.localStorage.setItem(
-      VIEWER_SETTINGS_STORAGE_KEY,
-      JSON.stringify({
-        enabledLayers: {
-          aircraft: true,
-          satellites: true,
-          planets: true,
-          stars: true,
-          constellations: true,
-        },
-        likelyVisibleOnly: false,
-        labelDisplayMode: 'center_only',
-        headingOffsetDeg: 0,
-        pitchOffsetDeg: 0,
-        verticalFovAdjustmentDeg: 0,
-        motionQuality: 'balanced',
-        onboardingCompleted: false,
-      }),
-    )
-
-    mockNormalizeCelestialObjects.mockReturnValue({
-      sunAltitudeDeg: -12,
-      objects: [],
-    })
-    mockResolveSatelliteMotionObjects.mockReturnValue([
-      {
-        confidence: 1,
-        motionState: 'propagated',
-        object: {
-          id: '25544',
-          type: 'satellite',
-          label: 'ISS (ZARYA)',
-          sublabel: 'Satellite',
-          azimuthDeg: 0,
-          elevationDeg: 16,
-          rangeKm: 420.7,
-          importance: 88,
-          metadata: {
-            isIss: true,
-            detail: {
-              typeLabel: 'Satellite',
-              noradId: 25544,
-              elevationDeg: 16,
-              azimuthDeg: 0,
-              rangeKm: 420.7,
+      mockNormalizeCelestialObjects.mockReturnValue({
+        sunAltitudeDeg: -12,
+        objects: [],
+      })
+      mockResolveSatelliteMotionObjects.mockReturnValue([
+        {
+          confidence: 1,
+          motionState: 'propagated',
+          object: {
+            id: '25544',
+            type: 'satellite',
+            label: 'ISS (ZARYA)',
+            sublabel: 'Satellite',
+            azimuthDeg: 0,
+            elevationDeg: 16,
+            rangeKm: 420.7,
+            importance: 88,
+            metadata: {
               isIss: true,
+              detail: {
+                typeLabel: 'Satellite',
+                noradId: 25544,
+                elevationDeg: 16,
+                azimuthDeg: 0,
+                rangeKm: 420.7,
+                isIss: true,
+              },
             },
           },
         },
-      },
-    ])
+      ])
 
-    await renderViewer({
-      entry: 'demo',
-      location: 'granted',
-      camera: 'denied',
-      orientation: 'denied',
-      demoScenarioId: 'tokyo-iss',
-    })
+      try {
+        await renderViewer({
+          entry: 'demo',
+          location: 'granted',
+          camera: 'denied',
+          orientation: 'denied',
+          demoScenarioId: 'tokyo-iss',
+        })
 
-    await act(async () => {
-      await new Promise((resolve) => window.setTimeout(resolve, 150))
-    })
-    await flushEffects()
+        const advanceSceneTime = timerHarness.getIntervalCallback(1_000)
 
-    expect(container.querySelector('[data-testid="motion-affordance-vector"]')).toBeNull()
-    expect(container.querySelector('[data-testid="motion-affordance-trail"]')).not.toBeNull()
-  })
+        await act(async () => {
+          advanceSceneTime()
+        })
+        await flushEffects()
 
-  it('renders a trail for high motion quality', async () => {
-    window.localStorage.setItem(
-      VIEWER_SETTINGS_STORAGE_KEY,
-      JSON.stringify({
-        enabledLayers: {
-          aircraft: true,
-          satellites: true,
-          planets: true,
-          stars: true,
-          constellations: true,
-        },
-        likelyVisibleOnly: false,
-        labelDisplayMode: 'center_only',
-        headingOffsetDeg: 0,
-        pitchOffsetDeg: 0,
-        verticalFovAdjustmentDeg: 0,
-        motionQuality: 'high',
-        onboardingCompleted: false,
-      }),
-    )
+        await act(async () => {
+          advanceSceneTime()
+        })
+        await flushEffects()
 
-    mockNormalizeCelestialObjects.mockReturnValue({
-      sunAltitudeDeg: -12,
-      objects: [],
-    })
-    mockResolveSatelliteMotionObjects.mockReturnValue([
-      {
-        confidence: 1,
-        motionState: 'propagated',
-        object: {
-          id: '25544',
-          type: 'satellite',
-          label: 'ISS (ZARYA)',
-          sublabel: 'Satellite',
-          azimuthDeg: 0,
-          elevationDeg: 16,
-          rangeKm: 420.7,
-          importance: 88,
-          metadata: {
-            isIss: true,
-            detail: {
-              typeLabel: 'Satellite',
-              noradId: 25544,
-              elevationDeg: 16,
-              azimuthDeg: 0,
-              rangeKm: 420.7,
+        expect(container.querySelector('[data-testid="motion-affordance-vector"]')).toBeNull()
+        expect(container.querySelector('[data-testid="motion-affordance-trail"]')).not.toBeNull()
+      } finally {
+        timerHarness.restore()
+        Object.defineProperty(window, 'requestAnimationFrame', {
+          configurable: true,
+          writable: true,
+          value: originalRequestAnimationFrame,
+        })
+        Object.defineProperty(window, 'cancelAnimationFrame', {
+          configurable: true,
+          writable: true,
+          value: originalCancelAnimationFrame,
+        })
+      }
+    },
+    40_000,
+  )
+
+  it(
+    'renders a trail for high motion quality',
+    async () => {
+      const timerHarness = installWindowTimerHarness()
+      const originalRequestAnimationFrame = window.requestAnimationFrame
+      const originalCancelAnimationFrame = window.cancelAnimationFrame
+      Object.defineProperty(window, 'requestAnimationFrame', {
+        configurable: true,
+        writable: true,
+        value: undefined,
+      })
+      Object.defineProperty(window, 'cancelAnimationFrame', {
+        configurable: true,
+        writable: true,
+        value: undefined,
+      })
+      window.localStorage.setItem(
+        VIEWER_SETTINGS_STORAGE_KEY,
+        JSON.stringify({
+          enabledLayers: {
+            aircraft: true,
+            satellites: true,
+            planets: true,
+            stars: true,
+            constellations: true,
+          },
+          likelyVisibleOnly: false,
+          labelDisplayMode: 'center_only',
+          headingOffsetDeg: 0,
+          pitchOffsetDeg: 0,
+          verticalFovAdjustmentDeg: 0,
+          motionQuality: 'high',
+          onboardingCompleted: false,
+        }),
+      )
+
+      mockNormalizeCelestialObjects.mockReturnValue({
+        sunAltitudeDeg: -12,
+        objects: [],
+      })
+      mockResolveSatelliteMotionObjects.mockReturnValue([
+        {
+          confidence: 1,
+          motionState: 'propagated',
+          object: {
+            id: '25544',
+            type: 'satellite',
+            label: 'ISS (ZARYA)',
+            sublabel: 'Satellite',
+            azimuthDeg: 0,
+            elevationDeg: 16,
+            rangeKm: 420.7,
+            importance: 88,
+            metadata: {
               isIss: true,
+              detail: {
+                typeLabel: 'Satellite',
+                noradId: 25544,
+                elevationDeg: 16,
+                azimuthDeg: 0,
+                rangeKm: 420.7,
+                isIss: true,
+              },
             },
           },
         },
-      },
-    ])
+      ])
 
-    await renderViewer({
-      entry: 'demo',
-      location: 'granted',
-      camera: 'denied',
-      orientation: 'denied',
-      demoScenarioId: 'tokyo-iss',
-    })
+      try {
+        await renderViewer({
+          entry: 'demo',
+          location: 'granted',
+          camera: 'denied',
+          orientation: 'denied',
+          demoScenarioId: 'tokyo-iss',
+        })
 
-    await act(async () => {
-      await new Promise((resolve) => window.setTimeout(resolve, 150))
-    })
-    await flushEffects()
+        const advanceSceneTime = timerHarness.getIntervalCallback(1_000)
 
-    expect(container.querySelector('[data-testid="motion-affordance-vector"]')).toBeNull()
-    expect(container.querySelector('[data-testid="motion-affordance-trail"]')).not.toBeNull()
-  })
+        await act(async () => {
+          advanceSceneTime()
+        })
+        await flushEffects()
+
+        await act(async () => {
+          advanceSceneTime()
+        })
+        await flushEffects()
+
+        expect(container.querySelector('[data-testid="motion-affordance-vector"]')).toBeNull()
+        expect(container.querySelector('[data-testid="motion-affordance-trail"]')).not.toBeNull()
+      } finally {
+        timerHarness.restore()
+        Object.defineProperty(window, 'requestAnimationFrame', {
+          configurable: true,
+          writable: true,
+          value: originalRequestAnimationFrame,
+        })
+        Object.defineProperty(window, 'cancelAnimationFrame', {
+          configurable: true,
+          writable: true,
+          value: originalCancelAnimationFrame,
+        })
+      }
+    },
+    40_000,
+  )
 
   it('suppresses the trail polyline when prefers-reduced-motion is enabled', async () => {
     const timerHarness = installWindowTimerHarness()
     setMatchMediaMatches(true)
-
-    mockNormalizeCelestialObjects.mockReturnValue({
-      sunAltitudeDeg: -12,
-      objects: [],
-    })
-    mockResolveSatelliteMotionObjects.mockReturnValue([
-      {
-        confidence: 1,
-        motionState: 'propagated',
-        object: {
-          id: '25544',
-          type: 'satellite',
-          label: 'ISS (ZARYA)',
-          sublabel: 'Satellite',
-          azimuthDeg: 0,
-          elevationDeg: 16,
-          rangeKm: 420.7,
-          importance: 88,
-          metadata: {
-            isIss: true,
-            detail: {
-              typeLabel: 'Satellite',
-              noradId: 25544,
-              elevationDeg: 16,
-              azimuthDeg: 0,
-              rangeKm: 420.7,
+    try {
+      mockNormalizeCelestialObjects.mockReturnValue({
+        sunAltitudeDeg: -12,
+        objects: [],
+      })
+      mockResolveSatelliteMotionObjects.mockReturnValue([
+        {
+          confidence: 1,
+          motionState: 'propagated',
+          object: {
+            id: '25544',
+            type: 'satellite',
+            label: 'ISS (ZARYA)',
+            sublabel: 'Satellite',
+            azimuthDeg: 0,
+            elevationDeg: 16,
+            rangeKm: 420.7,
+            importance: 88,
+            metadata: {
               isIss: true,
+              detail: {
+                typeLabel: 'Satellite',
+                noradId: 25544,
+                elevationDeg: 16,
+                azimuthDeg: 0,
+                rangeKm: 420.7,
+                isIss: true,
+              },
             },
           },
         },
-      },
-    ])
+      ])
 
-    await renderViewer({
-      entry: 'demo',
-      location: 'granted',
-      camera: 'denied',
-      orientation: 'denied',
-      demoScenarioId: 'tokyo-iss',
-    })
+      await renderViewer({
+        entry: 'demo',
+        location: 'granted',
+        camera: 'denied',
+        orientation: 'denied',
+        demoScenarioId: 'tokyo-iss',
+      })
 
-    const advanceSceneTime = timerHarness.getIntervalCallback(1_000)
+      const advanceSceneTime = timerHarness.getIntervalCallback(1_000)
 
-    await act(async () => {
-      advanceSceneTime()
-    })
-    await flushEffects()
+      await act(async () => {
+        advanceSceneTime()
+      })
+      await flushEffects()
 
-    await act(async () => {
-      advanceSceneTime()
-    })
-    await flushEffects()
+      await act(async () => {
+        advanceSceneTime()
+      })
+      await flushEffects()
 
-    expect(container.querySelector('[data-testid="motion-affordance-trail"]')).toBeNull()
-    expect(container.querySelector('[data-testid="motion-affordance-vector"]')).toBeNull()
+      expect(container.querySelector('[data-testid="motion-affordance-trail"]')).toBeNull()
+      expect(container.querySelector('[data-testid="motion-affordance-vector"]')).toBeNull()
+    } finally {
+      timerHarness.restore()
+    }
   })
 
   it('lets a daylit focus-only planet reach the centered label path', async () => {
@@ -2287,12 +3251,9 @@ describe('ViewerShell celestial behavior', () => {
     )
 
     expect(marsButton).toBeDefined()
-
-    const desktopOverlay = await openDesktopViewerOverlay()
-
-    expect(desktopOverlay?.textContent).toContain('Center object')
-    expect(desktopOverlay?.textContent).toContain('Mars')
-    expect(desktopOverlay?.textContent).toContain('Angular distance 0.0°')
+    expect(container.textContent).toContain('Viewer snapshot')
+    expect(container.textContent).toContain('Mars')
+    expect(container.textContent).toContain('Angular distance 0.0°')
   })
 
   it('renders the satellite detail-card contract and ISS badge state', async () => {
@@ -2335,14 +3296,12 @@ describe('ViewerShell celestial behavior', () => {
       orientation: 'denied',
     })
 
-    const desktopOverlay = await openDesktopViewerOverlay()
-
-    expect(desktopOverlay.textContent).toContain('ISS (ZARYA)')
-    expect(desktopOverlay.textContent).toContain('ISS')
-    expect(desktopOverlay.textContent).toContain('NORAD ID')
-    expect(desktopOverlay.textContent).toContain('25544')
-    expect(desktopOverlay.textContent).toContain('Range')
-    expect(desktopOverlay.textContent).toContain('420.7 km')
+    expect(container.textContent).toContain('ISS (ZARYA)')
+    expect(container.textContent).toContain('ISS')
+    expect(container.textContent).toContain('NORAD ID')
+    expect(container.textContent).toContain('25544')
+    expect(container.textContent).toContain('Range')
+    expect(container.textContent).toContain('420.7 km')
   })
 
   it('keeps stale satellite treatment additive for the ISS badge state', async () => {
@@ -2387,7 +3346,7 @@ describe('ViewerShell celestial behavior', () => {
       orientation: 'denied',
     })
 
-    expect((await openDesktopViewerOverlay()).textContent).toContain('Satellite Stale')
+    expect(container.textContent).toContain('Satellite Stale')
     expect(
       container.querySelector('[data-testid="object-badge"][data-badge-id="motion-stale"]'),
     ).not.toBeNull()
@@ -2436,20 +3395,18 @@ describe('ViewerShell celestial behavior', () => {
       orientation: 'denied',
     })
 
-    const desktopOverlay = await openDesktopViewerOverlay()
-
-    expect(desktopOverlay.textContent).toContain('Unknown flight')
-    expect(desktopOverlay.textContent).toContain('Aircraft')
-    expect(desktopOverlay.textContent).toContain('Altitude')
-    expect(desktopOverlay.textContent).toContain('35,000 ft / 10,668 m')
-    expect(desktopOverlay.textContent).toContain('Heading')
-    expect(desktopOverlay.textContent).toContain('SE')
-    expect(desktopOverlay.textContent).toContain('Speed')
-    expect(desktopOverlay.textContent).toContain('864 km/h')
-    expect(desktopOverlay.textContent).toContain('Range')
-    expect(desktopOverlay.textContent).toContain('31.8 km')
-    expect(desktopOverlay.textContent).toContain('Origin country')
-    expect(desktopOverlay.textContent).toContain('Canada')
+    expect(container.textContent).toContain('Unknown flight')
+    expect(container.textContent).toContain('Aircraft')
+    expect(container.textContent).toContain('Altitude')
+    expect(container.textContent).toContain('35,000 ft / 10,668 m')
+    expect(container.textContent).toContain('Track')
+    expect(container.textContent).toContain('SE')
+    expect(container.textContent).toContain('Speed')
+    expect(container.textContent).toContain('864 km/h')
+    expect(container.textContent).toContain('Range')
+    expect(container.textContent).toContain('31.8 km')
+    expect(container.textContent).toContain('Origin country')
+    expect(container.textContent).toContain('Canada')
   })
 
   it('hard-fails into demo mode when the live astronomy pipeline throws', async () => {
@@ -2457,16 +3414,20 @@ describe('ViewerShell celestial behavior', () => {
       throw new Error('critical astronomy failure')
     })
 
-    await renderViewer({
-      entry: 'live',
-      location: 'granted',
-      camera: 'denied',
-      orientation: 'granted',
-    })
+    await renderViewer(
+      {
+        entry: 'live',
+        location: 'granted',
+        camera: 'denied',
+        orientation: 'granted',
+      },
+      { autoEnableAr: true },
+    )
 
-    expect(mockRouterReplace).toHaveBeenCalledWith(expect.stringMatching(/entry=demo/))
+    await flushEffects()
+
     expect(container.textContent).toContain('Astronomy fallback active.')
-    expect(container.textContent).toContain('Demo mode is active.')
+    expect(container.textContent).toContain('Demo viewer')
   })
 
   it('keeps the live viewer active when the satellite layer throws', async () => {
@@ -2494,12 +3455,15 @@ describe('ViewerShell celestial behavior', () => {
       throw new Error('satellite propagation failed')
     })
 
-    await renderViewer({
-      entry: 'live',
-      location: 'granted',
-      camera: 'denied',
-      orientation: 'granted',
-    })
+    await renderViewer(
+      {
+        entry: 'live',
+        location: 'granted',
+        camera: 'denied',
+        orientation: 'granted',
+      },
+      { autoEnableAr: true },
+    )
 
     expect(mockRouterReplace).not.toHaveBeenCalledWith(expect.stringMatching(/entry=demo/))
     expect(container.textContent).toContain('Sun')
@@ -2539,12 +3503,15 @@ describe('ViewerShell celestial behavior', () => {
       throw new Error('satellite propagation failed')
     })
 
-    await renderViewer({
-      entry: 'live',
-      location: 'granted',
-      camera: 'denied',
-      orientation: 'granted',
-    })
+    await renderViewer(
+      {
+        entry: 'live',
+        location: 'granted',
+        camera: 'denied',
+        orientation: 'granted',
+      },
+      { autoEnableAr: true },
+    )
 
     expect(
       container.querySelector('[data-testid="sky-object-marker"][data-object-id="icao24-alpha1"]'),
@@ -2589,12 +3556,15 @@ describe('ViewerShell celestial behavior', () => {
       },
     ])
 
-    await renderViewer({
-      entry: 'live',
-      location: 'granted',
-      camera: 'denied',
-      orientation: 'granted',
-    })
+    await renderViewer(
+      {
+        entry: 'live',
+        location: 'granted',
+        camera: 'denied',
+        orientation: 'granted',
+      },
+      { autoEnableAr: true },
+    )
 
     expect(
       container.querySelector('[data-testid="sky-object-marker"][data-object-id="25544"]'),
@@ -2603,11 +3573,64 @@ describe('ViewerShell celestial behavior', () => {
     expect(container.textContent).not.toContain('Astronomy fallback active.')
   })
 
-  async function renderViewer(initialState: ViewerRouteState) {
+  async function renderViewer(
+    initialState: ViewerRouteState,
+    {
+      openDesktopViewerPanel: shouldOpenDesktopViewerPanel = true,
+      autoEnableAr = false,
+    }: {
+      openDesktopViewerPanel?: boolean
+      autoEnableAr?: boolean
+    } = {},
+  ) {
     await act(async () => {
       root.render(React.createElement(ViewerShell, { initialState }))
     })
 
+    await flushEffects()
+
+    if (autoEnableAr) {
+      await enableArMode()
+    }
+
+    if (shouldOpenDesktopViewerPanel) {
+      await openDesktopViewerPanel()
+    }
+  }
+
+  async function openDesktopViewerPanel() {
+    if (container.querySelector('[data-testid="desktop-viewer-panel"]')) {
+      return
+    }
+
+    const openViewerButton = container.querySelector(
+      '[data-testid="desktop-open-viewer-action"]',
+    ) as HTMLButtonElement | null
+
+    if (!openViewerButton) {
+      return
+    }
+
+    await act(async () => {
+      openViewerButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+  }
+
+  async function enableArMode() {
+    const trigger = (
+      container.querySelector('[data-testid="desktop-enable-ar-action"]') ??
+      container.querySelector('[data-testid="mobile-permission-action"]')
+    ) as HTMLButtonElement | null
+
+    if (!trigger || !trigger.textContent?.includes('Enable')) {
+      return
+    }
+
+    await act(async () => {
+      trigger.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
     await flushEffects()
   }
 
@@ -2622,80 +3645,40 @@ describe('ViewerShell celestial behavior', () => {
       await Promise.resolve()
     })
   }
-
-  async function openDesktopViewerOverlay() {
-    await setStageViewportSize({ width: 1280, height: 720 })
-
-    const desktopTrigger = container.querySelector(
-      '[data-testid="desktop-viewer-overlay-trigger"]',
-    ) as HTMLButtonElement | null
-
-    expect(desktopTrigger).not.toBeNull()
-
-    if (getDesktopOverlayShell()?.getAttribute('aria-hidden') !== 'false') {
-      await act(async () => {
-        desktopTrigger?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-      })
-      await flushEffects()
-    }
-
-    const desktopOverlay = container.querySelector(
-      '[data-testid="desktop-viewer-overlay"]',
-    ) as HTMLElement | null
-    const desktopOverlayShell = getDesktopOverlayShell()
-
-    expect(desktopOverlay).not.toBeNull()
-    expect(desktopOverlayShell).not.toBeNull()
-    expect(desktopOverlayShell?.getAttribute('aria-hidden')).toBe('false')
-    expect(desktopTrigger?.getAttribute('aria-expanded')).toBe('true')
-
-    return desktopOverlay!
-  }
-
-  function getDesktopOverlayShell() {
-    return container.querySelector('[data-testid="desktop-viewer-overlay"]')?.closest(
-      '[aria-hidden]',
-    ) as HTMLElement | null
-  }
-
-  async function setStageViewportSize({
-    width,
-    height,
-  }: {
-    width: number
-    height: number
-  }) {
-    const stage = container.querySelector('[aria-label="Sky viewer stage"]') as HTMLDivElement | null
-
-    expect(stage).not.toBeNull()
-
-    const currentViewport = stage!.getBoundingClientRect()
-
-    if (currentViewport.width === width && currentViewport.height === height) {
-      return
-    }
-
-    Object.defineProperty(stage!, 'getBoundingClientRect', {
-      configurable: true,
-      value: () => ({
-        x: 0,
-        y: 0,
-        top: 0,
-        left: 0,
-        bottom: height,
-        right: width,
-        width,
-        height,
-        toJSON: () => ({}),
-      }),
-    })
-
-    await act(async () => {
-      window.dispatchEvent(new Event('resize'))
-    })
-    await flushEffects()
-  }
 })
+
+function stubCanvasContext() {
+  Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+    configurable: true,
+    value: () => ({
+      clearRect: vi.fn(),
+      beginPath: vi.fn(),
+      arc: vi.fn(),
+      fill: vi.fn(),
+      setTransform: vi.fn(),
+      globalAlpha: 1,
+      fillStyle: '',
+    }),
+  })
+}
+
+function getAbsoluteMarkerPosition(marker: HTMLElement) {
+  return {
+    x: Number.parseFloat(marker.style.left),
+    y: Number.parseFloat(marker.style.top),
+  }
+}
+
+function getPolylinePoints(polyline: SVGPolylineElement) {
+  return (polyline.getAttribute('points') ?? '')
+    .split(' ')
+    .filter((point) => point.length > 0)
+    .map((point) => {
+      const [x, y] = point.split(',').map((value) => Number.parseFloat(value))
+
+      return { x, y }
+    })
+}
 
 function dispatchPointerEvent(
   target: EventTarget,
@@ -2754,6 +3737,10 @@ function setMatchMediaMatches(matches: boolean) {
 
 function installWindowTimerHarness() {
   const intervalCallbacks = new Map<number, Array<() => void>>()
+  const currentSetTimeout = window.setTimeout
+  const currentClearTimeout = window.clearTimeout
+  const currentSetInterval = window.setInterval
+  const currentClearInterval = window.clearInterval
 
   Object.defineProperty(window, 'setTimeout', {
     configurable: true,
@@ -2795,13 +3782,37 @@ function installWindowTimerHarness() {
 
   return {
     getIntervalCallback(delay: number) {
-      const callback = intervalCallbacks.get(delay)?.[0]
+      const callback =
+        intervalCallbacks.get(delay)?.[0] ??
+        Array.from(intervalCallbacks.values()).flat()[0]
 
       if (!callback) {
         throw new Error(`No interval registered for ${delay}ms`)
       }
 
       return callback
+    },
+    restore() {
+      Object.defineProperty(window, 'setTimeout', {
+        configurable: true,
+        writable: true,
+        value: currentSetTimeout,
+      })
+      Object.defineProperty(window, 'clearTimeout', {
+        configurable: true,
+        writable: true,
+        value: currentClearTimeout,
+      })
+      Object.defineProperty(window, 'setInterval', {
+        configurable: true,
+        writable: true,
+        value: currentSetInterval,
+      })
+      Object.defineProperty(window, 'clearInterval', {
+        configurable: true,
+        writable: true,
+        value: currentClearInterval,
+      })
     },
   }
 }

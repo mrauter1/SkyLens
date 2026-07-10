@@ -5,12 +5,43 @@ import type { CacheHealth } from '../health/contracts'
 import type { SatelliteGroupId, TleApiResponse, TleSatellite } from './contracts'
 import { TleApiResponseSchema, TleSatelliteSchema } from './contracts'
 
-const TLE_CACHE_KEY = 'tle:catalog'
+const TLE_CACHE_KEY = 'skylens-serverless.tle-catalog.v1'
 const REFRESH_WINDOW_MS = 6 * 60 * 60 * 1000
 const STALE_WINDOW_MS = 24 * 60 * 60 * 1000
 const ISS_NORAD_ID = 25544
 
+type TleFetchAttempt = {
+  groupId: SatelliteGroupId
+  requestUrl: string
+  requestPath: string
+  relayIndex?: number
+  relayTemplate?: string
+  relayUrl?: string
+  relayPath?: string
+  status?: number
+  message: string
+}
+
+class TleGroupFetchError extends Error {
+  readonly groupId: SatelliteGroupId
+  readonly attempts: TleFetchAttempt[]
+
+  constructor(groupId: SatelliteGroupId, attempts: TleFetchAttempt[], options?: { cause?: unknown }) {
+    super(`TLE upstream failed for ${groupId}.`, options?.cause ? { cause: options.cause } : undefined)
+    this.name = 'TleGroupFetchError'
+    this.groupId = groupId
+    this.attempts = attempts
+  }
+}
+
 const tleCache = createMemoryCache<{ satellites: TleSatellite[] }>()
+const CacheEntrySchema = z.object({
+  value: z.object({
+    satellites: z.array(TleSatelliteSchema),
+  }),
+  fetchedAt: z.string().datetime(),
+  expiresAt: z.string().datetime(),
+})
 
 const TleRecordSchema = z.object({
   name: z.string().min(1),
@@ -40,7 +71,7 @@ export async function getTleApiResponse(
   fetchImpl: typeof fetch = fetch,
   now = new Date(),
 ): Promise<TleApiResponse> {
-  const cachedEntry = tleCache.get(TLE_CACHE_KEY)
+  const cachedEntry = getCachedEntry()
 
   if (cachedEntry && Date.parse(cachedEntry.expiresAt) > now.getTime()) {
     return TleApiResponseSchema.parse({
@@ -54,15 +85,17 @@ export async function getTleApiResponse(
     const satellites = await fetchSatelliteCatalog(fetchImpl)
     const entry = createFreshEntry(satellites, now)
 
-    tleCache.set(TLE_CACHE_KEY, entry)
+    setCachedEntry(entry)
 
     return TleApiResponseSchema.parse({
       fetchedAt: entry.fetchedAt,
       expiresAt: entry.expiresAt,
       satellites: entry.value.satellites,
     })
-  } catch {
+  } catch (cause) {
     if (cachedEntry && isWithinStaleWindow(cachedEntry, now)) {
+      console.error('TLE refresh failed; serving stale cache.', getTleFailureContext(cause))
+
       return TleApiResponseSchema.parse({
         fetchedAt: cachedEntry.fetchedAt,
         expiresAt: cachedEntry.expiresAt,
@@ -71,16 +104,17 @@ export async function getTleApiResponse(
       })
     }
 
-    throw new Error('TLE data unavailable.')
+    throw new Error('TLE data unavailable.', cause ? { cause } : undefined)
   }
 }
 
 export function resetTleCacheForTests() {
   tleCache.clear()
+  getStorage()?.removeItem(TLE_CACHE_KEY)
 }
 
 export function getTleCacheHealth(now = new Date()): CacheHealth {
-  const cachedEntry = tleCache.get(TLE_CACHE_KEY)
+  const cachedEntry = getCachedEntry()
 
   if (!cachedEntry) {
     return {
@@ -112,19 +146,10 @@ export function getTleCacheHealth(now = new Date()): CacheHealth {
 }
 
 async function fetchSatelliteCatalog(fetchImpl: typeof fetch) {
+  const relayTemplates = getConfiguredTleRelayTemplates()
   const groupResponses = await Promise.all(
     TLE_GROUP_SOURCES.map(async ({ groupId, url }) => {
-      const response = await fetchImpl(url, {
-        cache: 'no-store',
-      })
-
-      if (!response.ok) {
-        throw new Error(`TLE upstream failed for ${groupId}.`)
-      }
-
-      const text = await response.text()
-
-      return parseTleGroup(text, groupId)
+      return fetchTleGroupWithFallback(groupId, url, relayTemplates, fetchImpl)
     }),
   )
 
@@ -224,4 +249,198 @@ function isWithinStaleWindow(
   now: Date,
 ) {
   return now.getTime() <= Date.parse(entry.expiresAt) + STALE_WINDOW_MS
+}
+
+function getCachedEntry() {
+  const memoryEntry = tleCache.get(TLE_CACHE_KEY)
+
+  if (memoryEntry) {
+    return memoryEntry
+  }
+
+  const storage = getStorage()
+
+  if (!storage) {
+    return undefined
+  }
+
+  const serialized = storage.getItem(TLE_CACHE_KEY)
+
+  if (!serialized) {
+    return undefined
+  }
+
+  try {
+    const parsed = CacheEntrySchema.parse(JSON.parse(serialized))
+
+    tleCache.set(TLE_CACHE_KEY, parsed)
+
+    return parsed
+  } catch {
+    storage.removeItem(TLE_CACHE_KEY)
+    return undefined
+  }
+}
+
+async function fetchTleGroupWithFallback(
+  groupId: SatelliteGroupId,
+  upstreamUrl: string,
+  relayTemplates: readonly string[] | null,
+  fetchImpl: typeof fetch,
+) {
+  const attempts: TleFetchAttempt[] = []
+  const requestTargets = buildTleRequestTargets(upstreamUrl, relayTemplates)
+
+  for (const target of requestTargets) {
+    try {
+      const response = await fetchImpl(target.requestUrl, {
+        cache: 'no-store',
+      })
+
+      if (!response.ok) {
+        attempts.push(
+          buildFetchAttempt(groupId, target, {
+            status: response.status,
+            message: `HTTP ${response.status}`,
+          }),
+        )
+        continue
+      }
+
+      const text = await response.text()
+
+      return parseTleGroup(text, groupId)
+    } catch (cause) {
+      attempts.push(
+        buildFetchAttempt(groupId, target, {
+          message: getErrorMessage(cause),
+        }),
+      )
+    }
+  }
+
+  throw new TleGroupFetchError(groupId, attempts, { cause: attempts.at(-1)?.message })
+}
+
+function getConfiguredTleRelayTemplates() {
+  const configuredTemplates = process.env.NEXT_PUBLIC_SKYLENS_TLE_PROXY_URL_TEMPLATE
+    ?.split(',')
+    .map((template) => template.trim())
+    .filter((template) => template.length > 0)
+
+  if (!configuredTemplates || configuredTemplates.length === 0) {
+    return null
+  }
+
+  for (const [relayIndex, relayTemplate] of configuredTemplates.entries()) {
+    if (!relayTemplate.includes('{url}')) {
+      throw new Error(`TLE proxy template at relay index ${relayIndex} must include {url}.`)
+    }
+  }
+
+  return configuredTemplates
+}
+
+type TleRequestTarget = {
+  requestUrl: string
+  relayIndex?: number
+  relayTemplate?: string
+  relayUrl?: string
+}
+
+function buildTleRequestTargets(
+  upstreamUrl: string,
+  relayTemplates: readonly string[] | null,
+): TleRequestTarget[] {
+  if (!relayTemplates) {
+    return [{ requestUrl: upstreamUrl }]
+  }
+
+  return relayTemplates.map((relayTemplate, relayIndex) => {
+    const relayUrl = relayTemplate.replace('{url}', encodeURIComponent(upstreamUrl))
+
+    return {
+      requestUrl: relayUrl,
+      relayIndex,
+      relayTemplate,
+      relayUrl,
+    }
+  })
+}
+
+function buildFetchAttempt(
+  groupId: SatelliteGroupId,
+  request: TleRequestTarget,
+  details: {
+    status?: number
+    message: string
+  },
+): TleFetchAttempt {
+  return {
+    groupId,
+    requestUrl: request.requestUrl,
+    requestPath: getUrlPath(request.requestUrl),
+    relayIndex: request.relayIndex,
+    relayTemplate: request.relayTemplate,
+    relayUrl: request.relayUrl,
+    relayPath: request.relayUrl ? getUrlPath(request.relayUrl) : undefined,
+    status: details.status,
+    message: details.message,
+  }
+}
+
+function getUrlPath(urlString: string) {
+  try {
+    const url = new URL(urlString)
+
+    return `${url.pathname}${url.search}`
+  } catch {
+    return urlString
+  }
+}
+
+function getTleFailureContext(cause: unknown) {
+  if (cause instanceof TleGroupFetchError) {
+    return {
+      groupId: cause.groupId,
+      attempts: cause.attempts,
+    }
+  }
+
+  if (cause instanceof Error) {
+    return {
+      message: cause.message,
+    }
+  }
+
+  return {
+    message: String(cause),
+  }
+}
+
+function getErrorMessage(cause: unknown) {
+  if (cause instanceof Error) {
+    return cause.message
+  }
+
+  return String(cause)
+}
+
+function getStorage(): Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> | null {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  try {
+    return window.localStorage
+  } catch {
+    return null
+  }
+}
+
+function setCachedEntry(entry: CacheEntry<{ satellites: TleSatellite[] }>) {
+  tleCache.set(TLE_CACHE_KEY, entry)
+  getStorage()?.setItem(TLE_CACHE_KEY, JSON.stringify(entry))
+
+  return entry
 }

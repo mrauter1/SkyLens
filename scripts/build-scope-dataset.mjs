@@ -1,32 +1,29 @@
-import {
-  buildScopeDataset,
-  formatBuildUsage,
-  parseBuildCommandArgs,
-} from '../lib/scope-data/index.mjs'
+import { buildScopeDataset } from './scope/build-core.mjs'
 
-async function main() {
-  const options = parseBuildCommandArgs(process.argv.slice(2))
+function parseArgs(argv) {
+  let mode = 'prod'
 
-  if (options.help) {
-    process.stdout.write(`${formatBuildUsage()}\n`)
-    return
+  for (const argument of argv) {
+    if (argument === '--dev') {
+      mode = 'dev'
+      continue
+    }
+    throw new Error(`scope-build-arg-unknown:${argument}`)
   }
 
-  const result = await buildScopeDataset({ mode: options.mode })
+  return { mode }
+}
 
-  process.stdout.write(
-    [
-      `Built scope dataset at ${result.datasetRoot}`,
-      `kind=${result.kind}`,
-      `bands=${result.bands.map((band) => `${band.bandDir}:${band.totalRows}`).join(', ')}`,
-      result.usedFallbackBecauseSourceMissing
-        ? 'source=dev-fallback (production source unavailable)'
-        : `source=${result.manifest.sourceCatalog}`,
-    ].join('\n') + '\n'
-  )
+async function main() {
+  const options = parseArgs(process.argv.slice(2))
+  const result = await buildScopeDataset(options)
+
+  console.log(`datasetRoot: ${result.datasetRoot}`)
+  console.log(`kind: ${result.manifest.kind}`)
+  console.log(`sourceCatalog: ${result.manifest.sourceCatalog}`)
 }
 
 main().catch((error) => {
-  console.error(error.message)
+  console.error(error instanceof Error ? error.message : String(error))
   process.exitCode = 1
 })
