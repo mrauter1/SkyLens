@@ -46,7 +46,7 @@ describe('SkyLens root bootstrap contract', () => {
       url: 'http://127.0.0.1:3100',
     })
     expect(VIEWER_SETTINGS_STORAGE_KEY).toBe(
-      'skylens-serverless.viewer-settings.v1',
+      'skylens-serverless.viewer-settings.v2',
     )
   })
 

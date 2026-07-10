@@ -6,6 +6,10 @@ export const metadata: Metadata = {
   title: 'SkyLens',
   description: "Point your phone at the sky and see what's above you.",
   applicationName: 'SkyLens',
+  icons: {
+    icon: '/icons/icon-192.svg',
+    apple: '/icons/icon-192.svg',
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',

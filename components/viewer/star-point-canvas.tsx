@@ -24,6 +24,9 @@ type StarPointCanvasProps = {
 
 const CORE_RADIUS_MIN_PX = 0.8
 const CORE_RADIUS_MAX_PX = 6.2
+const MAX_CANVAS_DEVICE_PIXEL_RATIO = 2
+const DENSE_STAR_POINT_THRESHOLD = 2_000
+const VERY_DENSE_STAR_POINT_THRESHOLD = 8_000
 
 export function StarPointCanvas({
   widthPx,
@@ -48,7 +51,10 @@ export function StarPointCanvas({
       return
     }
 
-    const devicePixelRatio = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1
+    const devicePixelRatio = resolveStarCanvasPixelRatio(
+      typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1,
+      points.length,
+    )
     const backingWidthPx = Math.round(widthPx * devicePixelRatio)
     const backingHeightPx = Math.round(heightPx * devicePixelRatio)
 
@@ -84,6 +90,23 @@ export function StarPointCanvas({
       }}
     />
   )
+}
+
+export function resolveStarCanvasPixelRatio(
+  devicePixelRatio: number,
+  pointCount: number,
+) {
+  const safeDevicePixelRatio = Number.isFinite(devicePixelRatio)
+    ? Math.max(1, devicePixelRatio)
+    : 1
+
+  if (pointCount >= VERY_DENSE_STAR_POINT_THRESHOLD) {
+    return 1
+  }
+  if (pointCount >= DENSE_STAR_POINT_THRESHOLD) {
+    return Math.min(safeDevicePixelRatio, 1.5)
+  }
+  return Math.min(safeDevicePixelRatio, MAX_CANVAS_DEVICE_PIXEL_RATIO)
 }
 
 function normalizeStarPointRadiusPx(value: number, fallback: number) {

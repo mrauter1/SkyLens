@@ -862,16 +862,18 @@ export function startDeviceOrientationProvider(
   }
 }
 
+export interface OrientationPoseState {
+  pose: CameraPose
+  sample: OrientationSample
+  history: OrientationSample[]
+  orientationSource: OrientationSource
+  orientationAbsolute: boolean
+  orientationNeedsCalibration: boolean
+  poseCalibration: PoseCalibration
+}
+
 export function subscribeToOrientationPose(
-  onPose: (state: {
-    pose: CameraPose
-    sample: OrientationSample
-    history: OrientationSample[]
-    orientationSource: OrientationSource
-    orientationAbsolute: boolean
-    orientationNeedsCalibration: boolean
-    poseCalibration: PoseCalibration
-  }) => void,
+  onPose: (state: OrientationPoseState) => void,
   {
     runtime,
     initialCalibration = createPoseCalibration(),

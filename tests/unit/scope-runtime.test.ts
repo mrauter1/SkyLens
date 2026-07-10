@@ -12,6 +12,7 @@ import {
   applyScopeProperMotion,
   convertScopeEquatorialToHorizontal,
   convertScopeHorizontalToEquatorial,
+  createScopeEquatorialToHorizontalConverter,
 } from '../../lib/scope/coordinates'
 import {
   areScopeDeepStarsDaylightSuppressed,
@@ -331,9 +332,14 @@ describe('scope runtime modules', () => {
       observer,
       observer.timestampMs,
     )
+    const batchedHorizontal = createScopeEquatorialToHorizontalConverter(
+      observer,
+      observer.timestampMs,
+    )(equatorial)
 
     expect(horizontal.azimuthDeg).toBeCloseTo(180, 3)
     expect(horizontal.elevationDeg).toBeCloseTo(42, 3)
+    expect(batchedHorizontal).toEqual(horizontal)
   })
 
   it('caches manifest, names, band indexes, and decoded tiles for the session', async () => {

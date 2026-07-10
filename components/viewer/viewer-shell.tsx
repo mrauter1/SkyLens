@@ -107,8 +107,8 @@ import {
 } from '../../lib/scope/catalog'
 import {
   applyScopeProperMotion,
-  convertScopeEquatorialToHorizontal,
   convertScopeHorizontalToEquatorial,
+  createScopeEquatorialToHorizontalConverter,
   getObservationJulianYear,
 } from '../../lib/scope/coordinates'
 import {
@@ -144,6 +144,7 @@ import {
   type OrientationSample,
   type OrientationSource,
   type OrientationPermissionFailureReason,
+  type OrientationPoseState,
   type PoseCalibration,
 } from '../../lib/sensors/orientation'
 import type { CameraPose, ObserverState, SkyObject } from '../../lib/viewer/contracts'
@@ -156,6 +157,7 @@ import {
 } from '../../lib/viewer/alignment-tutorial'
 import {
   SCOPE_LENS_DIAMETER_PCT_RANGE,
+  applySafePerformanceSettings,
   getDefaultViewerSettings,
   normalizeScopeLensDiameterPct,
   readViewerSettings,
@@ -163,6 +165,11 @@ import {
   type ManualObserverSettings,
   type MotionQuality,
 } from '../../lib/viewer/settings'
+import {
+  getServerViewerResponsiveShell,
+  getViewerResponsiveShell,
+  subscribeToViewerResponsiveShell,
+} from '../../lib/viewer/responsive-shell'
 import {
   MAIN_VIEW_OPTICS_RANGES,
   MAIN_VIEW_DEEP_STAR_STARTUP_VISIBLE_COUNT_BAND,
@@ -457,10 +464,7 @@ const SCENE_CLOCK_COARSE_INTERVAL_MS = 1_000
 const AIRCRAFT_REQUEST_TIMEOUT_MS = 8_000
 const ORIENTATION_READY_TIMEOUT_MS = 5_000
 const CAMERA_READY_TIMEOUT_MS = 8_000
-const SCENE_CLOCK_FRAME_INTERVAL_MS: Record<Exclude<MotionQuality, 'low'>, number> = {
-  balanced: 1_000 / 15,
-  high: 1_000 / 30,
-}
+const ORIENTATION_REACT_COMMIT_INTERVAL_MS = 1_000 / 15
 const MOTION_AFFORDANCE_SAMPLE_LIMITS: Record<MotionQuality, number> = {
   low: 2,
   balanced: 8,
@@ -653,6 +657,12 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     getHydratedSnapshot,
     getServerHydrationSnapshot,
   )
+  const activeResponsiveShell = useSyncExternalStore(
+    subscribeToViewerResponsiveShell,
+    getViewerResponsiveShell,
+    getServerViewerResponsiveShell,
+  )
+  const renderAllResponsiveShellsForUnitTests = process.env.NODE_ENV === 'test'
   const initialDemoScenario = getDemoScenario(initialState.demoScenarioId)
   const persistedViewerSettings = hasMounted
     ? readViewerSettings()
@@ -732,7 +742,6 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       errorName: null,
     })
   const [cameraDevices, setCameraDevices] = useState<CameraDeviceOption[]>([])
-  const [renderFrameToken, setRenderFrameToken] = useState(0)
   const [cameraSourceSize, setCameraSourceSize] = useState<{
     width: number
     height: number
@@ -788,6 +797,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     Record<string, ViewerBannerUiState>
   >({})
   const [isMobileOverlayOpen, setIsMobileOverlayOpen] = useState(false)
+  const [viewerNavigationPending, setViewerNavigationPending] = useState(false)
   const [isDesktopViewerPanelOpen, setIsDesktopViewerPanelOpen] = useState(false)
   const [isDesktopSettingsSheetOpen, setIsDesktopSettingsSheetOpen] = useState(false)
   const [isMobileSettingsSheetOpen, setIsMobileSettingsSheetOpen] = useState(false)
@@ -837,6 +847,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     absolute: false,
   })
   const sceneTimeMsRef = useRef(sceneTimeMs)
+  const sceneClockLastWallTimeMsRef = useRef(getCurrentTimestampMs())
   const hasAppliedLocationZenithPoseRef = useRef(false)
   const aircraftTrackerRef = useRef(createAircraftTracker())
   const poorSinceRef = useRef<number | null>(null)
@@ -886,6 +897,38 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     arModeActive &&
     (hasLiveSessionStarted || startupState === 'awaiting-orientation')
   const enabledLayers = viewerSettings.enabledLayers
+  const [sceneEnabledLayers, setSceneEnabledLayers] = useState(enabledLayers)
+  useEffect(() => {
+    if (
+      process.env.NODE_ENV === 'test' ||
+      typeof window.requestAnimationFrame !== 'function'
+    ) {
+      let cancelled = false
+      queueMicrotask(() => {
+        if (!cancelled) {
+          setSceneEnabledLayers(enabledLayers)
+        }
+      })
+      return () => {
+        cancelled = true
+      }
+    }
+
+    // Let the native control paint before invalidating the astronomy scene in a later task.
+    let timeoutId: number | null = null
+    const frameId = window.requestAnimationFrame(() => {
+      timeoutId = window.setTimeout(() => {
+        setSceneEnabledLayers(enabledLayers)
+      }, 0)
+    })
+
+    return () => {
+      window.cancelAnimationFrame(frameId)
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId)
+      }
+    }
+  }, [enabledLayers])
   const likelyVisibleOnly = viewerSettings.likelyVisibleOnly
   const observer =
     state.entry === 'demo'
@@ -935,19 +978,32 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const sceneOptics = scopeModeRequested ? normalizedScopeOptics : normalizedMainViewOptics
   const demoAircraftSeedTimeMs =
     Math.floor(sceneTimeMs / POLL_INTERVAL_MS_BY_QUALITY.high) * POLL_INTERVAL_MS_BY_QUALITY.high
-  const sceneSnapshot = observer
-    ? buildSceneSnapshot({
-        observer,
-        timeMs: sceneTimeMs,
-        enabledLayers,
-        likelyVisibleOnly,
-        activeOptics: sceneOptics,
-        focusedObjectId: selectedObjectId,
-        aircraftTracker: aircraftTrackerRef.current,
-        aircraftRevision,
-        satelliteCatalog: activeSatelliteCatalog,
-      })
-    : EMPTY_SCENE_SNAPSHOT
+  const sceneSnapshot = useMemo(
+    () =>
+      observer
+        ? buildSceneSnapshot({
+            observer,
+            timeMs: sceneTimeMs,
+            enabledLayers: sceneEnabledLayers,
+            likelyVisibleOnly,
+            activeOptics: sceneOptics,
+            focusedObjectId: selectedObjectId,
+            aircraftTracker: aircraftTrackerRef.current,
+            aircraftRevision,
+            satelliteCatalog: activeSatelliteCatalog,
+          })
+        : EMPTY_SCENE_SNAPSHOT,
+    [
+      activeSatelliteCatalog,
+      aircraftRevision,
+      sceneEnabledLayers,
+      likelyVisibleOnly,
+      observer,
+      sceneOptics,
+      sceneTimeMs,
+      selectedObjectId,
+    ],
+  )
   const cameraStreamActive =
     arModeActive && state.camera === 'granted' && cameraRuntimePhase === 'playing'
   const cameraError = state.entry === 'demo' ? null : liveCameraError
@@ -1058,7 +1114,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   })
   const mainViewDeepStarGovernor = resolveMainViewDeepStarGovernor({
     hasObserver: observer !== null,
-    starsLayerEnabled: enabledLayers.stars,
+    starsLayerEnabled: sceneEnabledLayers.stars,
     daylightSuppressed: scopeDeepStarsDaylightSuppressed,
     mainViewDeepStarsEnabled: viewerSettings.mainViewDeepStarsEnabled,
     magnificationX: normalizedMainViewOptics.magnificationX,
@@ -1066,7 +1122,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     previousTransitionReason: mainViewDeepStarGovernorStateRef.current?.transitionReason,
   })
   const scopeDeepStarsEnabled =
-    observer !== null && enabledLayers.stars && !scopeDeepStarsDaylightSuppressed
+    observer !== null && sceneEnabledLayers.stars && !scopeDeepStarsDaylightSuppressed
   const mainViewDeepStarsEnabled =
     observer !== null && mainViewDeepStarGovernor.enabled
   const activeDeepStarsEnabled = scopeModeActive
@@ -1139,65 +1195,99 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     viewport.height,
     viewport.width,
   ])
-  const scopeProjectionViewport: ProjectViewport = {
-    width: scopeLensDiameterPx,
-    height: scopeLensDiameterPx,
-  }
-  const scopeProjectionContext: StageProjectionContext = {
-    profile: scopeProjectionProfile,
-    viewport: scopeProjectionViewport,
-    projectWorldPoint: (worldPoint) =>
-      projectWorldPointToScreenWithProfile(
-        cameraPose,
-        worldPoint,
-        scopeProjectionViewport,
-        scopeProjectionProfile,
-      ),
-  }
-  const stageConstellationScene =
-    observer && sceneSnapshot.error === null
-      ? buildVisibleConstellations({
+  const scopeProjectionContext = useMemo<StageProjectionContext>(() => {
+    const projectionViewport: ProjectViewport = {
+      width: scopeLensDiameterPx,
+      height: scopeLensDiameterPx,
+    }
+
+    return {
+      profile: scopeProjectionProfile,
+      viewport: projectionViewport,
+      projectWorldPoint: (worldPoint) =>
+        projectWorldPointToScreenWithProfile(
           cameraPose,
-          viewport: stageProjectionContext.viewport,
-          verticalFovAdjustmentDeg: viewerSettings.verticalFovAdjustmentDeg,
-          projectLinePoint: stageProjectionContext.projectWorldPoint,
-          enabledLayers,
-          likelyVisibleOnly,
-          sunAltitudeDeg: sceneSnapshot.sunAltitudeDeg,
-          visibleStars: sceneSnapshot.constellationStars,
-          starCatalog: STAR_CATALOG,
-        })
-      : EMPTY_CONSTELLATION_SCENE
-  const scopeConstellationLineScene =
-    observer && sceneSnapshot.error === null && scopeModeActive
-      ? buildVisibleConstellations({
-          cameraPose,
-          viewport: scopeProjectionContext.viewport,
-          verticalFovAdjustmentDeg: viewerSettings.verticalFovAdjustmentDeg,
-          projectLinePoint: scopeProjectionContext.projectWorldPoint,
-          enabledLayers,
-          likelyVisibleOnly,
-          sunAltitudeDeg: sceneSnapshot.sunAltitudeDeg,
-          visibleStars: sceneSnapshot.constellationStars,
-          starCatalog: STAR_CATALOG,
-        })
-      : EMPTY_CONSTELLATION_SCENE
-  const sceneObjects = sceneSnapshot.error
-    ? EMPTY_SCENE_SNAPSHOT.objects
-    : [...sceneSnapshot.objects, ...stageConstellationScene.objects]
+          worldPoint,
+          projectionViewport,
+          scopeProjectionProfile,
+        ),
+    }
+  }, [cameraPose, scopeLensDiameterPx, scopeProjectionProfile])
+  const stageConstellationScene = useMemo(
+    () =>
+      observer && sceneSnapshot.error === null
+        ? buildVisibleConstellations({
+            cameraPose,
+            viewport: stageProjectionContext.viewport,
+            verticalFovAdjustmentDeg: viewerSettings.verticalFovAdjustmentDeg,
+            projectLinePoint: stageProjectionContext.projectWorldPoint,
+            enabledLayers: sceneEnabledLayers,
+            likelyVisibleOnly,
+            sunAltitudeDeg: sceneSnapshot.sunAltitudeDeg,
+            visibleStars: sceneSnapshot.constellationStars,
+            starCatalog: STAR_CATALOG,
+          })
+        : EMPTY_CONSTELLATION_SCENE,
+    [
+      cameraPose,
+      sceneEnabledLayers,
+      likelyVisibleOnly,
+      observer,
+      sceneSnapshot,
+      stageProjectionContext,
+      viewerSettings.verticalFovAdjustmentDeg,
+    ],
+  )
+  const scopeConstellationLineScene = useMemo(
+    () =>
+      observer && sceneSnapshot.error === null && scopeModeActive
+        ? buildVisibleConstellations({
+            cameraPose,
+            viewport: scopeProjectionContext.viewport,
+            verticalFovAdjustmentDeg: viewerSettings.verticalFovAdjustmentDeg,
+            projectLinePoint: scopeProjectionContext.projectWorldPoint,
+            enabledLayers: sceneEnabledLayers,
+            likelyVisibleOnly,
+            sunAltitudeDeg: sceneSnapshot.sunAltitudeDeg,
+            visibleStars: sceneSnapshot.constellationStars,
+            starCatalog: STAR_CATALOG,
+          })
+        : EMPTY_CONSTELLATION_SCENE,
+    [
+      cameraPose,
+      sceneEnabledLayers,
+      likelyVisibleOnly,
+      observer,
+      sceneSnapshot,
+      scopeModeActive,
+      scopeProjectionContext,
+      viewerSettings.verticalFovAdjustmentDeg,
+    ],
+  )
+  const sceneObjects = useMemo(
+    () =>
+      sceneSnapshot.error
+        ? EMPTY_SCENE_SNAPSHOT.objects
+        : [...sceneSnapshot.objects, ...stageConstellationScene.objects],
+    [sceneSnapshot, stageConstellationScene.objects],
+  )
   const defaultAlignmentTargetPreference = resolveDefaultAlignmentTargetPreference(
     sceneObjects,
     sceneSnapshot.sunAltitudeDeg,
   )
   const alignmentTargetPreference =
     viewerSettings.alignmentTargetPreference ?? defaultAlignmentTargetPreference
-  const projectedObjects: ProjectedSkyObject[] = sceneObjects.map((object) => ({
-    ...object,
-    projection: stageProjectionContext.projectWorldPoint({
-      azimuthDeg: object.azimuthDeg,
-      elevationDeg: object.elevationDeg,
-    }),
-  }))
+  const projectedObjects = useMemo<ProjectedSkyObject[]>(
+    () =>
+      sceneObjects.map((object) => ({
+        ...object,
+        projection: stageProjectionContext.projectWorldPoint({
+          azimuthDeg: object.azimuthDeg,
+          elevationDeg: object.elevationDeg,
+        }),
+      })),
+    [sceneObjects, stageProjectionContext],
+  )
   const wideCenterLockedCandidate = pickCenterLockedCandidate(
     projectedObjects
       .filter((object) => object.projection.visible)
@@ -1244,91 +1334,93 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     }))
   const observationJulianYear = getObservationJulianYear(sceneTimeMs)
   const projectedDeepStars = useMemo<ProjectedDeepStarObject[]>(
-    () =>
-      hasMounted && activeDeepStarsEnabled && observer
-        ? scopeLoadedDeepStars.flatMap((star) => {
-            const adjustedPosition = applyScopeProperMotion(star, observationJulianYear)
-            const horizontalPosition = convertScopeEquatorialToHorizontal(
-              adjustedPosition,
-              observer,
-              sceneTimeMs,
-            )
-            if (horizontalPosition.elevationDeg < 0) {
-              return []
-            }
+    () => {
+      if (!hasMounted || !activeDeepStarsEnabled || !observer) {
+        return []
+      }
 
-            const scopeRender = computeScopeRenderProfile({
-              magnitude: star.vMag,
-              altitudeDeg: horizontalPosition.elevationDeg,
-              optics: activeOptics,
-            })
-            const emergenceAlpha = computeScopeDeepStarEmergenceAlpha(
-              scopeRender.effectiveLimitMag - star.vMag,
-            )
+      const convertEquatorialToHorizontal =
+        createScopeEquatorialToHorizontalConverter(observer, sceneTimeMs)
 
-            if (emergenceAlpha <= 0) {
-              return []
-            }
-            const activeProjection = scopeModeActive
-              ? projectWorldPointToScreenWithProfile(
-                  cameraPose,
-                  horizontalPosition,
-                  {
-                    width: scopeLensDiameterPx,
-                    height: scopeLensDiameterPx,
-                  },
-                  activeProjectionProfile,
-                )
-              : stageProjectionContext.projectWorldPoint(horizontalPosition)
-            const scopeProjection = scopeModeActive ? activeProjection : null
-            const scopeOffsetX = (scopeProjection?.x ?? 0) - scopeLensRadiusPx
-            const scopeOffsetY = (scopeProjection?.y ?? 0) - scopeLensRadiusPx
-            const scopeInLensCircle =
-              scopeProjection !== null &&
-              scopeProjection.visible &&
-              scopeOffsetX * scopeOffsetX + scopeOffsetY * scopeOffsetY <=
-                scopeLensRadiusPx * scopeLensRadiusPx
-            const projection =
-              scopeProjection === null
-                ? activeProjection
-                : offsetScopeProjectionToStage(
-                    scopeProjection,
-                    scopeLensOffsetX,
-                    scopeLensOffsetY,
-                  )
+      return scopeLoadedDeepStars.flatMap((star) => {
+        const adjustedPosition = applyScopeProperMotion(star, observationJulianYear)
+        const horizontalPosition = convertEquatorialToHorizontal(adjustedPosition)
+        if (horizontalPosition.elevationDeg < 0) {
+          return []
+        }
 
-            return [{
-              id: star.id,
-              type: 'star' as const,
-              label: star.displayName ?? 'Deep star',
-              displayName: star.displayName,
-              bMinusV: star.bMinusV,
-              azimuthDeg: horizontalPosition.azimuthDeg,
-              elevationDeg: horizontalPosition.elevationDeg,
-              magnitude: star.vMag,
-              importance: getScopeDeepStarImportance(star.vMag, Boolean(star.displayName)),
-              metadata: {
-                detail: {
-                  typeLabel: 'Star',
-                  magnitude: star.vMag,
-                  elevationDeg: horizontalPosition.elevationDeg,
-                  bMinusV: star.bMinusV,
-                },
-                scopeRender: {
-                  typeLabel: 'Scope render',
-                  ...scopeRender,
-                },
-                scopeFilter: {
-                  effectiveLimitMag: scopeRender.effectiveLimitMag,
-                },
+        const scopeRender = computeScopeRenderProfile({
+          magnitude: star.vMag,
+          altitudeDeg: horizontalPosition.elevationDeg,
+          optics: activeOptics,
+        })
+        const emergenceAlpha = computeScopeDeepStarEmergenceAlpha(
+          scopeRender.effectiveLimitMag - star.vMag,
+        )
+
+        if (emergenceAlpha <= 0) {
+          return []
+        }
+        const activeProjection = scopeModeActive
+          ? projectWorldPointToScreenWithProfile(
+              cameraPose,
+              horizontalPosition,
+              {
+                width: scopeLensDiameterPx,
+                height: scopeLensDiameterPx,
               },
-              projection,
-              scopeProjection,
-              scopeInLensCircle,
-              source: 'scope-deep-star' as const,
-            }]
-          })
-        : [],
+              activeProjectionProfile,
+            )
+          : stageProjectionContext.projectWorldPoint(horizontalPosition)
+        const scopeProjection = scopeModeActive ? activeProjection : null
+        const scopeOffsetX = (scopeProjection?.x ?? 0) - scopeLensRadiusPx
+        const scopeOffsetY = (scopeProjection?.y ?? 0) - scopeLensRadiusPx
+        const scopeInLensCircle =
+          scopeProjection !== null &&
+          scopeProjection.visible &&
+          scopeOffsetX * scopeOffsetX + scopeOffsetY * scopeOffsetY <=
+            scopeLensRadiusPx * scopeLensRadiusPx
+        const projection =
+          scopeProjection === null
+            ? activeProjection
+            : offsetScopeProjectionToStage(
+                scopeProjection,
+                scopeLensOffsetX,
+                scopeLensOffsetY,
+              )
+
+        return [{
+          id: star.id,
+          type: 'star' as const,
+          label: star.displayName ?? 'Deep star',
+          displayName: star.displayName,
+          bMinusV: star.bMinusV,
+          azimuthDeg: horizontalPosition.azimuthDeg,
+          elevationDeg: horizontalPosition.elevationDeg,
+          magnitude: star.vMag,
+          importance: getScopeDeepStarImportance(star.vMag, Boolean(star.displayName)),
+          metadata: {
+            detail: {
+              typeLabel: 'Star',
+              magnitude: star.vMag,
+              elevationDeg: horizontalPosition.elevationDeg,
+              bMinusV: star.bMinusV,
+            },
+            scopeRender: {
+              typeLabel: 'Scope render',
+              ...scopeRender,
+            },
+            scopeFilter: {
+              effectiveLimitMag: scopeRender.effectiveLimitMag,
+            },
+          },
+          projection,
+          scopeProjection,
+          scopeInLensCircle,
+          source: 'scope-deep-star' as const,
+        }]
+      })
+    },
     [
       activeDeepStarsEnabled,
       activeOptics,
@@ -1404,9 +1496,15 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     [hasMounted, mainViewRenderedDeepStars, scopeModeActive],
   )
   const interactiveMarkerObjects: ActiveProjectedSkyObject[] = mainViewInteractiveMarkerObjects
-  const labelObjects: ActiveProjectedSkyObject[] = scopeModeActive
-    ? [...scopeInteractiveMarkerObjects, ...projectedDeepStars.filter((object) => object.scopeInLensCircle)]
-    : [...mainViewInteractiveMarkerObjects, ...mainViewRenderedDeepStars]
+  const labelObjects: ActiveProjectedSkyObject[] =
+    viewerSettings.labelDisplayMode === 'center_only'
+      ? []
+      : scopeModeActive
+        ? [
+            ...scopeInteractiveMarkerObjects,
+            ...projectedDeepStars.filter((object) => object.scopeInLensCircle),
+          ]
+        : [...mainViewInteractiveMarkerObjects, ...mainViewRenderedDeepStars]
   const markerLabelCandidates = labelObjects.map((object) => ({
     object,
     projection: object.projection,
@@ -1428,6 +1526,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
               centerLockedObjectId: stageCenterLockedObjectId,
             }),
           )
+          .slice(0, PUBLIC_CONFIG.defaults.maxLabels)
           .map((candidate) => candidate.object)
       : []
   const selectedObject = resolveInteractionSummaryObject(
@@ -2574,56 +2673,40 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   }, [state.entry, state.location])
 
   useEffect(() => {
-    const sceneClock = resolveSceneClock({
-      prefersReducedMotion,
-      motionQuality: viewerSettings.motionQuality,
-    })
-    const wallClockStartMs = getCurrentTimestampMs()
-    const demoSceneStartTimeMs = sceneTimeMsRef.current
-    const readNextSceneTimeMs = () =>
-      state.entry === 'demo'
-        ? demoSceneStartTimeMs + (getCurrentTimestampMs() - wallClockStartMs)
-        : getCurrentTimestampMs()
-    const commitSceneTime = () => {
-      const nextSceneTimeMs = readNextSceneTimeMs()
+    if (!documentVisible) {
+      return
+    }
 
-      setSceneTimeMs((current) => (current === nextSceneTimeMs ? current : nextSceneTimeMs))
+    const commitSceneTime = () => {
+      const wallTimeMs = getCurrentTimestampMs()
+      const elapsedWallTimeMs = Math.max(
+        0,
+        wallTimeMs - sceneClockLastWallTimeMsRef.current,
+      )
+      sceneClockLastWallTimeMsRef.current = wallTimeMs
+
+      setSceneTimeMs((current) => {
+        const nextSceneTimeMs =
+          state.entry === 'demo' ? current + elapsedWallTimeMs : wallTimeMs
+
+        return current === nextSceneTimeMs ? current : nextSceneTimeMs
+      })
     }
 
     commitSceneTime()
 
-    if (sceneClock.mode === 'coarse') {
-      const intervalId = window.setInterval(commitSceneTime, sceneClock.intervalMs)
-
-      return () => {
-        window.clearInterval(intervalId)
-      }
-    }
-
-    let animationFrameId: number | null = null
-    let lastCommittedFrameMs = Number.NEGATIVE_INFINITY
-
-    const tick = (frameMs: number) => {
-      if (frameMs - lastCommittedFrameMs >= sceneClock.intervalMs) {
-        lastCommittedFrameMs = frameMs
-        commitSceneTime()
-      }
-
-      animationFrameId = window.requestAnimationFrame(tick)
-    }
-
-    animationFrameId = window.requestAnimationFrame(tick)
+    const intervalId = window.setInterval(
+      commitSceneTime,
+      SCENE_CLOCK_COARSE_INTERVAL_MS,
+    )
 
     return () => {
-      if (animationFrameId !== null) {
-        window.cancelAnimationFrame(animationFrameId)
-      }
+      window.clearInterval(intervalId)
     }
   }, [
     demoScenario.observer.timestampMs,
-    prefersReducedMotion,
+    documentVisible,
     state.entry,
-    viewerSettings.motionQuality,
   ])
 
   useEffect(() => {
@@ -2823,6 +2906,10 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   }, [])
 
   useEffect(() => {
+    if (!documentVisible) {
+      return
+    }
+
     let disposed = false
 
     const refreshHealth = async () => {
@@ -2848,7 +2935,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       disposed = true
       window.clearInterval(intervalId)
     }
-  }, [])
+  }, [documentVisible])
 
   useEffect(() => {
     if (typeof document === 'undefined') {
@@ -3048,7 +3135,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   ])
 
   useEffect(() => {
-    if (!hasLiveSessionStarted || state.entry === 'demo') {
+    if (!documentVisible || !hasLiveSessionStarted || state.entry === 'demo') {
       return
     }
 
@@ -3078,7 +3165,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       disposed = true
       window.clearInterval(intervalId)
     }
-  }, [hasLiveSessionStarted, state.entry])
+  }, [documentVisible, hasLiveSessionStarted, state.entry])
 
   useEffect(() => {
     if (state.entry !== 'live' || typeof window === 'undefined') {
@@ -3169,7 +3256,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   }, [hasLiveSessionStarted, observerSource, state.location])
 
   useEffect(() => {
-    if (!cameraStreamActive) {
+    if (!cameraStreamActive || !documentVisible) {
       return
     }
 
@@ -3188,8 +3275,6 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     }) | null
 
     const updateSize = (width?: number, height?: number) => {
-      setRenderFrameToken((current) => current + 1)
-
       if (!frameVideo) {
         return
       }
@@ -3254,7 +3339,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         callbackVideo.cancelVideoFrameCallback(videoFrameRequestId)
       }
     }
-  }, [cameraStreamActive])
+  }, [cameraStreamActive, documentVisible])
 
   useEffect(() => {
     const videoElement = videoElementRef.current
@@ -3524,93 +3609,129 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       return
     }
 
+    let pendingOrientationUpdate: OrientationPoseState | null = null
+    let orientationCommitTimeoutId: number | null = null
+    let lastOrientationCommitAtMs = Number.NEGATIVE_INFINITY
+
+    const commitOrientationUpdate = ({
+      pose,
+      sample,
+      orientationSource: nextOrientationSource,
+      orientationAbsolute,
+      orientationNeedsCalibration,
+      poseCalibration,
+    }: OrientationPoseState) => {
+      setSensorCameraPose(pose)
+      setOrientationSource(nextOrientationSource)
+      setOrientationAbsolute(orientationAbsolute)
+      setOrientationNeedsCalibration(orientationNeedsCalibration)
+      setLatestOrientationSample(sample)
+      setOrientationReadiness('ready')
+      setOrientationLifecycleDiagnostic((current) => ({
+        ...current,
+        transitionReason: nextOrientationSource,
+        lifecycleEvent: 'first-usable-sample',
+        elapsedMs:
+          orientationRequestStartedAtMsRef.current === null
+            ? null
+            : getCurrentTimestampMs() - orientationRequestStartedAtMsRef.current,
+        errorName: null,
+      }))
+      clearOrientationStartupTimeout()
+      if (previousOrientationSampleTimestampRef.current !== null) {
+        const sampleIntervalMs = sample.timestampMs - previousOrientationSampleTimestampRef.current
+
+        if (sampleIntervalMs > 0) {
+          setOrientationSampleRateHz(1_000 / sampleIntervalMs)
+        }
+      }
+      previousOrientationSampleTimestampRef.current = sample.timestampMs
+      const previousSelection = previousOrientationSelectionRef.current
+      const upgradedFromRelative =
+        orientationAbsolute &&
+        (previousSelection.source === 'relative-sensor' ||
+          previousSelection.source === 'deviceorientation-relative' ||
+          (!previousSelection.absolute && previousSelection.source !== null))
+      setOrientationUpgradedFromRelative((current) =>
+        orientationAbsolute ? current || upgradedFromRelative : false,
+      )
+      previousOrientationSelectionRef.current = {
+        source: nextOrientationSource,
+        absolute: orientationAbsolute,
+      }
+      const currentRouteState = viewerRouteStateRef.current
+
+      if (currentRouteState.orientation !== 'granted') {
+        commitViewerRouteState({
+          ...currentRouteState,
+          orientation: 'granted',
+        })
+      }
+      setStartupState(
+        resolveStartupState({
+          orientationStatus: 'granted',
+          cameraStatus: currentRouteState.camera,
+          hasObserver: liveObserverRef.current !== null,
+          orientationNeedsCalibration,
+          orientationAbsolute,
+        }),
+      )
+
+      if (pose.alignmentHealth === 'poor') {
+        if (poorSinceRef.current === null) {
+          poorSinceRef.current = sample.timestampMs
+        }
+
+        if (sample.timestampMs - poorSinceRef.current >= 3_000) {
+          setShowAlignmentGuidance(true)
+        }
+
+        return
+      }
+
+      poorSinceRef.current = null
+      setShowAlignmentGuidance(false)
+      setCalibrationBanner(
+        orientationNeedsCalibration
+          ? 'Relative motion is active. Center the suggested target and align before trusting labels.'
+          : poseCalibration.calibrated
+            ? 'Calibration is active.'
+            : null,
+      )
+    }
+
+    const flushOrientationUpdate = () => {
+      orientationCommitTimeoutId = null
+      const update = pendingOrientationUpdate
+      pendingOrientationUpdate = null
+      if (!update) {
+        return
+      }
+
+      lastOrientationCommitAtMs = performance.now()
+      commitOrientationUpdate(update)
+    }
+
+    const enqueueOrientationUpdate = (update: OrientationPoseState) => {
+      pendingOrientationUpdate = update
+      const elapsedMs = performance.now() - lastOrientationCommitAtMs
+      const remainingMs = ORIENTATION_REACT_COMMIT_INTERVAL_MS - elapsedMs
+
+      if (remainingMs <= 0 && orientationCommitTimeoutId === null) {
+        flushOrientationUpdate()
+        return
+      }
+
+      if (orientationCommitTimeoutId === null) {
+        orientationCommitTimeoutId = window.setTimeout(
+          flushOrientationUpdate,
+          Math.max(0, remainingMs),
+        )
+      }
+    }
+
     const controller = subscribeToOrientationPose(
-      ({
-        pose,
-        sample,
-        orientationSource: nextOrientationSource,
-        orientationAbsolute,
-        orientationNeedsCalibration,
-        poseCalibration,
-      }) => {
-        setSensorCameraPose(pose)
-        setOrientationSource(nextOrientationSource)
-        setOrientationAbsolute(orientationAbsolute)
-        setOrientationNeedsCalibration(orientationNeedsCalibration)
-        setLatestOrientationSample(sample)
-        setOrientationReadiness('ready')
-        setOrientationLifecycleDiagnostic((current) => ({
-          ...current,
-          transitionReason: nextOrientationSource,
-          lifecycleEvent: 'first-usable-sample',
-          elapsedMs:
-            orientationRequestStartedAtMsRef.current === null
-              ? null
-              : getCurrentTimestampMs() - orientationRequestStartedAtMsRef.current,
-          errorName: null,
-        }))
-        clearOrientationStartupTimeout()
-        if (previousOrientationSampleTimestampRef.current !== null) {
-          const sampleIntervalMs = sample.timestampMs - previousOrientationSampleTimestampRef.current
-
-          if (sampleIntervalMs > 0) {
-            setOrientationSampleRateHz(1_000 / sampleIntervalMs)
-          }
-        }
-        previousOrientationSampleTimestampRef.current = sample.timestampMs
-        const previousSelection = previousOrientationSelectionRef.current
-        const upgradedFromRelative =
-          orientationAbsolute &&
-          (previousSelection.source === 'relative-sensor' ||
-            previousSelection.source === 'deviceorientation-relative' ||
-            (!previousSelection.absolute && previousSelection.source !== null))
-        setOrientationUpgradedFromRelative((current) =>
-          orientationAbsolute ? current || upgradedFromRelative : false,
-        )
-        previousOrientationSelectionRef.current = {
-          source: nextOrientationSource,
-          absolute: orientationAbsolute,
-        }
-        const currentRouteState = viewerRouteStateRef.current
-
-        if (currentRouteState.orientation !== 'granted') {
-          commitViewerRouteState({
-            ...currentRouteState,
-            orientation: 'granted',
-          })
-        }
-        setStartupState(
-          resolveStartupState({
-            orientationStatus: 'granted',
-            cameraStatus: currentRouteState.camera,
-            hasObserver: liveObserverRef.current !== null,
-            orientationNeedsCalibration,
-            orientationAbsolute,
-          }),
-        )
-
-        if (pose.alignmentHealth === 'poor') {
-          if (poorSinceRef.current === null) {
-            poorSinceRef.current = sample.timestampMs
-          }
-
-          if (sample.timestampMs - poorSinceRef.current >= 3_000) {
-            setShowAlignmentGuidance(true)
-          }
-
-          return
-        }
-
-        poorSinceRef.current = null
-        setShowAlignmentGuidance(false)
-        setCalibrationBanner(
-          orientationNeedsCalibration
-            ? 'Relative motion is active. Center the suggested target and align before trusting labels.'
-            : poseCalibration.calibrated
-              ? 'Calibration is active.'
-              : null,
-        )
-      },
+      enqueueOrientationUpdate,
       {
         initialCalibration: viewerSettings.poseCalibration,
       },
@@ -3619,6 +3740,10 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     orientationControllerRef.current = controller
 
     return () => {
+      if (orientationCommitTimeoutId !== null) {
+        window.clearTimeout(orientationCommitTimeoutId)
+      }
+      pendingOrientationUpdate = null
       controller.stop()
 
       if (orientationControllerRef.current === controller) {
@@ -4073,6 +4198,9 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         ...current,
         motionQuality,
       }))
+    },
+    onResetPerformanceSettings: () => {
+      setViewerSettings((current) => applySafePerformanceSettings(current))
     },
     onVerticalFovAdjustmentChange: (value: number) => {
       setViewerSettings((current) => ({
@@ -4555,7 +4683,6 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       <div
         ref={handleStageRef}
         className="absolute inset-0 touch-none"
-        data-frame-token={renderFrameToken}
         data-debug-camera-yaw-deg={
           process.env.NODE_ENV === 'production' ? undefined : cameraPose.yawDeg
         }
@@ -4725,7 +4852,11 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
               data-testid="sky-object-marker"
               data-object-id={object.id}
               className={`absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full ${
-                prefersReducedMotion ? '' : 'transition'
+                prefersReducedMotion
+                  ? ''
+                  : object.type === 'aircraft' || object.type === 'satellite'
+                    ? 'transition-[left,top,opacity] duration-1000 ease-linear'
+                    : 'transition'
               }`}
               style={{
                 left: `${object.projection.x}px`,
@@ -4829,6 +4960,8 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
 
       <div className="pointer-events-none relative z-10 flex min-h-screen flex-col justify-between px-4 pb-5 pt-4 sm:px-6 sm:pb-6">
         <div className="flex flex-col gap-3">
+          {activeResponsiveShell === 'desktop' || renderAllResponsiveShellsForUnitTests ? (
+            <>
           {desktopWarningRailItems.length > 0 ? (
             <section
               className="desktop-only-shell desktop-only-shell-flex pointer-events-auto mx-auto w-full max-w-4xl flex-col gap-2"
@@ -4866,7 +4999,17 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
           >
             <div className="pointer-events-auto shell-panel rounded-[1.6rem] px-4 py-4 sm:px-5">
               <div className="flex flex-col gap-4">
-                <div className="flex justify-end">
+                <div className="flex items-center justify-between gap-3">
+                  <Link
+                    href="/"
+                    data-testid="viewer-home-action"
+                    data-navigation-pending={viewerNavigationPending}
+                    aria-busy={viewerNavigationPending}
+                    onClick={() => setViewerNavigationPending(true)}
+                    className="inline-flex min-h-11 items-center rounded-full border border-sky-100/15 px-4 py-2 text-sm font-medium text-sky-50"
+                  >
+                    {viewerNavigationPending ? 'Leaving…' : 'Home'}
+                  </Link>
                   <SettingsSheet {...desktopSettingsSheetProps} />
                 </div>
                 {isDesktopViewerPanelOpen ? (
@@ -5264,9 +5407,12 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
               )}
             </section>
           ) : null}
+            </>
+          ) : null}
         </div>
       </div>
-      <div className="compact-only-shell pointer-events-none fixed inset-x-0 bottom-0 z-20 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+      {activeResponsiveShell === 'compact' || renderAllResponsiveShellsForUnitTests ? (
+        <div className="compact-only-shell pointer-events-none fixed inset-x-0 bottom-0 z-20 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
         {shouldShowAlignmentInstructions ? (
           <CompactMobilePanelShell
             ref={mobileAlignmentOverlayPanelRef}
@@ -5660,6 +5806,16 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
                 </div>
               ) : null}
               <div className="pointer-events-auto flex flex-wrap justify-center gap-2">
+                <Link
+                  href="/"
+                  data-testid="viewer-home-action"
+                  data-navigation-pending={viewerNavigationPending}
+                  aria-busy={viewerNavigationPending}
+                  onClick={() => setViewerNavigationPending(true)}
+                  className="inline-flex min-h-11 items-center rounded-full border border-sky-100/15 bg-slate-950/70 px-5 py-3 text-sm font-semibold text-sky-50 shadow-[0_12px_30px_rgba(3,7,13,0.32)]"
+                >
+                  {viewerNavigationPending ? 'Leaving…' : 'Home'}
+                </Link>
                 {!isMobileAlignmentFocusActive ? (
                   <button
                     ref={mobileViewerOverlayTriggerRef}
@@ -5732,7 +5888,8 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
             </button>
           </div>
         ) : null}
-      </div>
+        </div>
+      ) : null}
     </main>
   )
 }
@@ -7356,31 +7513,6 @@ function getInitialReducedMotionPreference() {
   }
 
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches
-}
-
-function resolveSceneClock({
-  prefersReducedMotion,
-  motionQuality,
-}: {
-  prefersReducedMotion: boolean
-  motionQuality: MotionQuality
-}) {
-  if (
-    prefersReducedMotion ||
-    motionQuality === 'low' ||
-    typeof window === 'undefined' ||
-    typeof window.requestAnimationFrame !== 'function'
-  ) {
-    return {
-      mode: 'coarse' as const,
-      intervalMs: SCENE_CLOCK_COARSE_INTERVAL_MS,
-    }
-  }
-
-  return {
-    mode: 'animated' as const,
-    intervalMs: SCENE_CLOCK_FRAME_INTERVAL_MS[motionQuality],
-  }
 }
 
 type AlignmentInstructionsProps = {

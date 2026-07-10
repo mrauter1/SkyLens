@@ -597,6 +597,58 @@ describe('ViewerShell startup gating', () => {
     10_000,
   )
 
+  it('coalesces high-rate orientation samples into one trailing React commit', async () => {
+    vi.useFakeTimers()
+    let emitPose:
+      | ((state: ReturnType<typeof createMockOrientationPoseUpdate>) => void)
+      | null = null
+
+    mockSubscribeToOrientationPose.mockImplementationOnce((onPose: (state: unknown) => void) => {
+      emitPose = onPose as (state: ReturnType<typeof createMockOrientationPoseUpdate>) => void
+      return SENSOR_CONTROLLER
+    })
+
+    await renderStartedLiveViewer()
+    await flushEffects()
+    expect(emitPose).not.toBeNull()
+
+    await act(async () => {
+      emitPose?.(
+        createMockOrientationPoseUpdate({
+          source: 'absolute-sensor',
+          providerKind: 'sensor',
+          absolute: true,
+          timestampMs: 1_000,
+        }),
+      )
+    })
+    await flushEffects()
+    expect(mockSettingsSheetProps).toHaveBeenCalled()
+    mockSettingsSheetProps.mockClear()
+
+    for (let index = 1; index <= 10; index += 1) {
+      await act(async () => {
+        emitPose?.(
+          createMockOrientationPoseUpdate({
+            source: 'absolute-sensor',
+            providerKind: 'sensor',
+            absolute: true,
+            timestampMs: 1_000 + index,
+          }),
+        )
+      })
+    }
+
+    expect(mockSettingsSheetProps).not.toHaveBeenCalled()
+
+    await act(async () => {
+      vi.advanceTimersByTime(67)
+    })
+    await flushEffects()
+
+    expect(mockSettingsSheetProps).toHaveBeenCalledTimes(1)
+  })
+
   it('reports no motion sample without inventing a denial when providers emit nothing', async () => {
     vi.useFakeTimers()
     stubAnimationFrames()
@@ -3374,7 +3426,7 @@ describe('ViewerShell startup gating', () => {
     expect(deepStarDiagnostics?.textContent).toContain('initial-baseline')
   })
 
-  it('advances demo scene time continuously with the animation-driven cadence', async () => {
+  it('advances demo ephemeris time on the coarse scene cadence', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-03-26T00:00:00.000Z'))
 
@@ -3393,17 +3445,17 @@ describe('ViewerShell startup gating', () => {
       const initialSceneTimeMs = getLatestSceneTimeMs()
 
       await act(async () => {
-        vi.advanceTimersByTime(250)
+        vi.advanceTimersByTime(1_000)
       })
       await flushEffects()
 
-      expect(getLatestSceneTimeMs()).toBeGreaterThan(initialSceneTimeMs + 150)
+      expect(getLatestSceneTimeMs()).toBeGreaterThanOrEqual(initialSceneTimeMs + 1_000)
     } finally {
       restoreAnimationFrame()
     }
   })
 
-  it('keeps live scene time synced to wall clock under the animation cadence', async () => {
+  it('keeps live ephemeris time synced to wall clock on the coarse cadence', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-03-26T00:00:00.000Z'))
 
@@ -3416,13 +3468,56 @@ describe('ViewerShell startup gating', () => {
       const initialSceneTimeMs = getLatestSceneTimeMs()
 
       await act(async () => {
-        vi.advanceTimersByTime(250)
+        vi.advanceTimersByTime(1_000)
       })
       await flushEffects()
 
-      expect(getLatestSceneTimeMs()).toBeGreaterThan(initialSceneTimeMs + 150)
+      expect(getLatestSceneTimeMs()).toBeGreaterThanOrEqual(initialSceneTimeMs + 1_000)
     } finally {
       restoreAnimationFrame()
+    }
+  })
+
+  it('pauses ephemeris work while hidden and resumes from current time when visible', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-03-26T00:00:00.000Z'))
+    const originalVisibilityState = Object.getOwnPropertyDescriptor(document, 'visibilityState')
+    let visibilityState: DocumentVisibilityState = 'hidden'
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => visibilityState,
+    })
+
+    try {
+      await renderViewer({
+        entry: 'demo',
+        location: 'unavailable',
+        camera: 'unavailable',
+        orientation: 'unavailable',
+        demoScenarioId: 'sf-evening',
+      })
+      await flushEffects()
+      const hiddenSceneTimeMs = getLatestSceneTimeMs()
+
+      await act(async () => {
+        vi.advanceTimersByTime(3_000)
+      })
+      await flushEffects()
+      expect(getLatestSceneTimeMs()).toBe(hiddenSceneTimeMs)
+
+      visibilityState = 'visible'
+      await act(async () => {
+        document.dispatchEvent(new Event('visibilitychange'))
+        vi.advanceTimersByTime(1_000)
+      })
+      await flushEffects()
+      expect(getLatestSceneTimeMs()).toBeGreaterThanOrEqual(hiddenSceneTimeMs + 4_000)
+    } finally {
+      if (originalVisibilityState) {
+        Object.defineProperty(document, 'visibilityState', originalVisibilityState)
+      } else {
+        Reflect.deleteProperty(document, 'visibilityState')
+      }
     }
   })
 
@@ -3652,7 +3747,7 @@ describe('ViewerShell startup gating', () => {
       expect(firstCall?.tracker).toBe(mockAircraftTracker)
 
       await act(async () => {
-        vi.advanceTimersByTime(15_000)
+        vi.advanceTimersByTime(30_000)
       })
       await flushEffects()
 
@@ -3915,7 +4010,7 @@ describe('ViewerShell startup gating', () => {
     }
   }, 10_000)
 
-  it('uses requestAnimationFrame as the render-loop fallback when video-frame callbacks are unavailable', async () => {
+  it('uses requestAnimationFrame only to sample camera dimensions when video-frame callbacks are unavailable', async () => {
     let animationFrameCallback: FrameRequestCallback | null = null
     const originalRequestAnimationFrame = window.requestAnimationFrame
     const originalCancelAnimationFrame = window.cancelAnimationFrame
@@ -3961,23 +4056,17 @@ describe('ViewerShell startup gating', () => {
       await renderStartedLiveViewer()
       await openDesktopViewerPanel()
 
-      const stage = container.querySelector('[aria-label="Sky viewer stage"]') as
-        | HTMLDivElement
-        | null
-
-      expect(stage).not.toBeNull()
       expect(animationFrameCallback).toBeTypeOf('function')
-
-      const frameTokenBefore = Number(stage?.getAttribute('data-frame-token') ?? '0')
+      const requestAnimationFrameMock = window.requestAnimationFrame as ReturnType<typeof vi.fn>
+      const callCountBefore = requestAnimationFrameMock.mock.calls.length
 
       await act(async () => {
         animationFrameCallback?.(16)
       })
       await flushEffects()
 
-      expect(Number(stage?.getAttribute('data-frame-token') ?? '0')).toBeGreaterThan(
-        frameTokenBefore,
-      )
+      expect(requestAnimationFrameMock.mock.calls.length).toBeGreaterThan(callCountBefore)
+      expect(container.querySelector('[data-frame-token]')).toBeNull()
     } finally {
       Object.defineProperty(window, 'requestAnimationFrame', {
         configurable: true,

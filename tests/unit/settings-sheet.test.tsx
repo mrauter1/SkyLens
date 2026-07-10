@@ -40,6 +40,7 @@ describe('SettingsSheet', () => {
     const onLabelDisplayModeChange = vi.fn()
     const onMotionQualityChange = vi.fn()
     const onMainViewDeepStarsEnabledChange = vi.fn()
+    const onResetPerformanceSettings = vi.fn()
 
     await act(async () => {
       root.render(
@@ -68,6 +69,7 @@ describe('SettingsSheet', () => {
           onLikelyVisibleOnlyChange: vi.fn(),
           onLabelDisplayModeChange,
           onMotionQualityChange,
+          onResetPerformanceSettings,
         }),
       )
     })
@@ -122,6 +124,15 @@ describe('SettingsSheet', () => {
     })
 
     expect(onMotionQualityChange).toHaveBeenCalledWith('high')
+
+    const resetPerformanceButton = Array.from(document.body.querySelectorAll('button')).find(
+      (button) => button.textContent?.includes('Reset performance settings'),
+    )
+    expect(resetPerformanceButton).toBeDefined()
+    await act(async () => {
+      resetPerformanceButton!.click()
+    })
+    expect(onResetPerformanceSettings).toHaveBeenCalledTimes(1)
 
     const mainViewDeepStarsToggle = document.body.querySelector(
       'input[aria-label="Main-view deep stars"]',

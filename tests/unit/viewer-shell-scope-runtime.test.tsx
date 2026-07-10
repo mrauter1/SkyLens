@@ -1982,6 +1982,7 @@ function setStoredViewerSettings(overrides: Record<string, unknown>) {
     VIEWER_SETTINGS_STORAGE_KEY,
     JSON.stringify({
       ...readViewerSettings(),
+      mainViewDeepStarsEnabled: true,
       ...overrides,
     }),
   )

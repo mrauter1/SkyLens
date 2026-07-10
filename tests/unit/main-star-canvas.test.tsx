@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { MainStarCanvas } from '../../components/viewer/main-star-canvas'
+import { resolveStarCanvasPixelRatio } from '../../components/viewer/star-point-canvas'
 
 type CanvasFillCall = {
   x: number
@@ -168,6 +169,12 @@ describe('MainStarCanvas', () => {
     expect(canvas?.height).toBe(1688)
     expect(canvas?.style.width).toBe('390px')
     expect(canvas?.style.height).toBe('844px')
+  })
+
+  it('caps backing resolution as point density increases', () => {
+    expect(resolveStarCanvasPixelRatio(3, 100)).toBe(2)
+    expect(resolveStarCanvasPixelRatio(3, 2_000)).toBe(1.5)
+    expect(resolveStarCanvasPixelRatio(3, 8_000)).toBe(1)
   })
 })
 

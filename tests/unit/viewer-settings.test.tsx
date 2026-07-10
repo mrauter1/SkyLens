@@ -60,6 +60,7 @@ vi.mock('../../lib/health/client', () => ({
 
 import { ViewerShell } from '../../components/viewer/viewer-shell'
 import {
+  LEGACY_VIEWER_SETTINGS_STORAGE_KEY,
   SCOPE_LENS_DIAMETER_PCT_RANGE,
   VIEWER_SETTINGS_STORAGE_KEY,
   readViewerSettings,
@@ -121,10 +122,10 @@ describe('ViewerShell settings integration', () => {
         stars: true,
         constellations: true,
       },
-      mainViewDeepStarsEnabled: true,
+      mainViewDeepStarsEnabled: false,
       likelyVisibleOnly: false,
       labelDisplayMode: 'on_objects',
-      motionQuality: 'balanced',
+      motionQuality: 'low',
       markerScale: 1,
       scopeLensDiameterPct: SCOPE_LENS_DIAMETER_PCT_RANGE.defaultValue,
       alignmentTargetPreference: null,
@@ -146,9 +147,49 @@ describe('ViewerShell settings integration', () => {
     })
   })
 
+  it('migrates legacy performance-heavy settings to the safe v2 baseline before use', () => {
+    window.localStorage.clear()
+    window.localStorage.setItem(
+      LEGACY_VIEWER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        enabledLayers: {
+          aircraft: false,
+          satellites: true,
+          planets: true,
+          stars: true,
+          constellations: true,
+        },
+        likelyVisibleOnly: true,
+        labelDisplayMode: 'on_objects',
+        motionQuality: 'high',
+        mainViewDeepStarsEnabled: true,
+        scopeModeEnabled: true,
+        verticalFovAdjustmentDeg: 6,
+        onboardingCompleted: true,
+      }),
+    )
+
+    expect(readViewerSettings()).toMatchObject({
+      enabledLayers: {
+        aircraft: false,
+        satellites: true,
+      },
+      likelyVisibleOnly: true,
+      labelDisplayMode: 'center_only',
+      motionQuality: 'low',
+      mainViewDeepStarsEnabled: false,
+      scopeModeEnabled: false,
+      verticalFovAdjustmentDeg: 6,
+      onboardingCompleted: true,
+    })
+    const migratedValue = window.localStorage.getItem(VIEWER_SETTINGS_STORAGE_KEY)
+    expect(migratedValue).not.toBeNull()
+    expect(readViewerSettings()).toEqual(JSON.parse(migratedValue ?? 'null'))
+  })
+
   it('restores a persisted alignment target preference while keeping older payloads readable', () => {
     expect(readViewerSettings().alignmentTargetPreference).toBeNull()
-    expect(readViewerSettings().mainViewDeepStarsEnabled).toBe(true)
+    expect(readViewerSettings().mainViewDeepStarsEnabled).toBe(false)
 
     window.localStorage.setItem(
       VIEWER_SETTINGS_STORAGE_KEY,
@@ -173,7 +214,7 @@ describe('ViewerShell settings integration', () => {
   })
 
   it('reads and persists the main-view deep-stars toggle without breaking legacy payloads', () => {
-    expect(readViewerSettings().mainViewDeepStarsEnabled).toBe(true)
+    expect(readViewerSettings().mainViewDeepStarsEnabled).toBe(false)
 
     writeViewerSettings({
       ...readViewerSettings(),
@@ -199,7 +240,7 @@ describe('ViewerShell settings integration', () => {
       }),
     )
 
-    expect(readViewerSettings().mainViewDeepStarsEnabled).toBe(true)
+    expect(readViewerSettings().mainViewDeepStarsEnabled).toBe(false)
   })
 
   it('clamps persisted marker scale values into the supported 1x to 4x range', () => {
@@ -807,7 +848,7 @@ describe('ViewerShell settings integration', () => {
         ?.checked,
     ).toBe(true)
     expect(
-      (document.body.querySelector('input[aria-label="Balanced"]') as HTMLInputElement | null)
+      (document.body.querySelector('input[aria-label="Low"]') as HTMLInputElement | null)
         ?.checked,
     ).toBe(true)
 
@@ -817,7 +858,7 @@ describe('ViewerShell settings integration', () => {
 
     expect(readViewerSettings()).toMatchObject({
       labelDisplayMode: 'on_objects',
-      motionQuality: 'balanced',
+      motionQuality: 'low',
       verticalFovAdjustmentDeg: 6,
     })
     expect(readViewerSettings().poseCalibration.calibrated).toBe(false)
@@ -941,7 +982,7 @@ describe('ViewerShell settings integration', () => {
 
     expect(reloadedCheckboxes[0].checked).toBe(true)
     expect(reloadedCheckboxes[1].checked).toBe(false)
-    expect(reloadedCheckboxes[5].checked).toBe(true)
+    expect(reloadedCheckboxes[5].checked).toBe(false)
 
     const reloadedAlignmentButton = Array.from(document.body.querySelectorAll('button')).find(
       (button) => button.textContent?.includes('Alignment'),

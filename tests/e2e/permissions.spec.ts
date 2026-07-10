@@ -29,7 +29,8 @@ test('bare /view defaults to free-navigation until Enable AR is pressed', async 
     mobileOverlay.getByRole('heading', { name: 'Manual observer needed' }),
   ).toBeVisible()
   await expect(mobileOverlay.getByText('Location: Pending')).toBeVisible()
-  await expect(page.getByTestId('desktop-enable-ar-action')).toHaveCount(1)
+  await expect(page.getByTestId('mobile-permission-action')).toContainText('Enable AR')
+  await expect(page.getByTestId('desktop-enable-ar-action')).toHaveCount(0)
 })
 
 test('partial live state keeps Enable AR visible without auto-starting AR', async ({
@@ -44,7 +45,8 @@ test('partial live state keeps Enable AR visible without auto-starting AR', asyn
   ).toBeVisible()
   await expect(mobileOverlay.getByText('Camera: Pending')).toBeVisible()
   await expect(mobileOverlay.getByText('Motion: AR off')).toBeVisible()
-  await expect(page.getByTestId('desktop-enable-ar-action')).toHaveCount(1)
+  await expect(page.getByTestId('mobile-permission-action')).toContainText('Enable AR')
+  await expect(page.getByTestId('desktop-enable-ar-action')).toHaveCount(0)
 })
 
 test('camera denial enters the non-camera fallback shell', async ({ page }) => {

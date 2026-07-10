@@ -2429,7 +2429,7 @@ describe('ViewerShell celestial behavior', () => {
   })
 
   it(
-    'builds top-list mode from the full marker set instead of the suppressed on-object label set',
+    'builds top-list mode from the full marker set while bounding rendered labels',
     async () => {
       window.localStorage.setItem(
         VIEWER_SETTINGS_STORAGE_KEY,
@@ -2488,12 +2488,12 @@ describe('ViewerShell celestial behavior', () => {
       })
 
       expect(container.querySelectorAll('[data-testid="sky-object-marker"]')).toHaveLength(20)
-      expect(container.querySelectorAll('[data-testid="sky-object-top-list-item"]')).toHaveLength(20)
+      expect(container.querySelectorAll('[data-testid="sky-object-top-list-item"]')).toHaveLength(18)
       expect(container.querySelectorAll('[data-testid="sky-object-label"]')).toHaveLength(0)
       expect(container.querySelector('[data-testid="sky-object-top-list"]')?.textContent).toContain(
-        'Flight 0',
+        'Flight 18',
       )
-      expect(container.querySelector('[data-testid="sky-object-top-list"]')?.textContent).toContain(
+      expect(container.querySelector('[data-testid="sky-object-top-list"]')?.textContent).not.toContain(
         'Flight 19',
       )
     },

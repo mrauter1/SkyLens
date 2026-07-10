@@ -11,10 +11,10 @@ test('audited viewport uses the intended shell without document overflow', async
 
   if (compactExpected) {
     await expect(compactTrigger).toBeVisible()
-    await expect(desktopHeader).toBeHidden()
+    await expect(desktopHeader).toHaveCount(0)
   } else {
     await expect(desktopHeader).toBeVisible()
-    await expect(compactTrigger).toBeHidden()
+    await expect(compactTrigger).toHaveCount(0)
   }
 
   const overflow = await page.evaluate(() => ({
@@ -23,6 +23,26 @@ test('audited viewport uses the intended shell without document overflow', async
   }))
 
   expect(overflow.width).toBeLessThanOrEqual(overflow.viewport + 1)
+})
+
+test('the active viewer shell provides one working Home action', async ({ page }) => {
+  await page.goto('/view?entry=demo&demoScenario=tokyo-iss')
+
+  const homeAction = page.getByTestId('viewer-home-action')
+  await expect(homeAction).toHaveCount(1)
+  await expect(homeAction).toBeVisible()
+  await homeAction.click()
+
+  await expect(page).toHaveURL(/\/$/)
+  await expect(page.getByRole('heading', { name: 'SkyLens' })).toBeVisible()
+
+  await page.goBack()
+  await expect(page).toHaveURL(/\/view\?entry=demo&demoScenario=tokyo-iss$/)
+  await expect(page.getByTestId('viewer-home-action')).toHaveCount(1)
+
+  await page.goForward()
+  await expect(page).toHaveURL(/\/$/)
+  await expect(page.getByRole('heading', { name: 'SkyLens' })).toBeVisible()
 })
 
 test('Settings remains inside the dynamic viewport and its final action is reachable', async ({

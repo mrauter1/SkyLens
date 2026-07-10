@@ -18,7 +18,8 @@ import {
   type ScopeOptics,
 } from './scope-optics'
 
-export const VIEWER_SETTINGS_STORAGE_KEY = 'skylens-serverless.viewer-settings.v1'
+export const LEGACY_VIEWER_SETTINGS_STORAGE_KEY = 'skylens-serverless.viewer-settings.v1'
+export const VIEWER_SETTINGS_STORAGE_KEY = 'skylens-serverless.viewer-settings.v2'
 export const SCOPE_VERTICAL_FOV_MIN_DEG = SCOPE_VERTICAL_FOV_RANGE.min
 export const SCOPE_VERTICAL_FOV_MAX_DEG = SCOPE_VERTICAL_FOV_RANGE.max
 export const SCOPE_VERTICAL_FOV_DEFAULT_DEG = SCOPE_VERTICAL_FOV_RANGE.defaultValue
@@ -129,10 +130,10 @@ export function getDefaultViewerSettings(): ViewerSettings {
       stars: config.defaults.enabledLayers.includes('stars'),
       constellations: config.defaults.enabledLayers.includes('constellations'),
     },
-    mainViewDeepStarsEnabled: true,
+    mainViewDeepStarsEnabled: false,
     likelyVisibleOnly: config.defaults.likelyVisibleOnly,
     labelDisplayMode: 'center_only',
-    motionQuality: 'balanced',
+    motionQuality: 'low',
     markerScale: 1,
     scopeLensDiameterPct: SCOPE_LENS_DIAMETER_PCT_RANGE.defaultValue,
     poseCalibration: createIdentityPoseCalibration(),
@@ -160,60 +161,20 @@ export function readViewerSettings(storage = getBrowserStorage()): ViewerSetting
   try {
     const rawValue = storage.getItem(VIEWER_SETTINGS_STORAGE_KEY)
 
-    if (!rawValue) {
+    if (rawValue) {
+      return parseViewerSettings(rawValue, defaults)
+    }
+
+    const legacyRawValue = storage.getItem(LEGACY_VIEWER_SETTINGS_STORAGE_KEY)
+    if (!legacyRawValue) {
       return defaults
     }
 
-    const parsed = SettingsSchema.partial().parse(JSON.parse(rawValue))
-    const {
-      scopeLensDiameterPct: rawScopeLensDiameterPct,
-      mainViewOptics: rawMainViewOpticsInput,
-      scope: rawScopeInput,
-      scopeOptics: rawScopeOpticsInput,
-      scopeModeEnabled: rawScopeModeEnabled,
-      ...parsedSettings
-    } = parsed
-    const mainViewOpticsInput = getSettingsObject(rawMainViewOpticsInput)
-    const scopeInput = getSettingsObject(rawScopeInput)
-    const scopeOpticsInput = getSettingsObject(rawScopeOpticsInput)
-    const legacyScopeVerticalFovDeg = readNumberSetting(scopeInput.verticalFovDeg)
-    const storedScopeMagnificationX = readNumberSetting(scopeOpticsInput.magnificationX)
-    const scopeModeEnabled =
-      readBooleanSetting(rawScopeModeEnabled) ??
-      readBooleanSetting(scopeInput.enabled) ??
-      defaults.scopeModeEnabled
-
-    return normalizeViewerSettings({
-      ...defaults,
-      ...parsedSettings,
-      scopeLensDiameterPct: normalizeScopeLensDiameterPct(rawScopeLensDiameterPct),
-      scopeModeEnabled,
-      enabledLayers: {
-        ...defaults.enabledLayers,
-        ...parsed.enabledLayers,
-      },
-      mainViewDeepStarsEnabled:
-        readBooleanSetting(parsed.mainViewDeepStarsEnabled) ?? defaults.mainViewDeepStarsEnabled,
-      mainViewOptics: normalizeMainViewOptics({
-        ...defaults.mainViewOptics,
-        apertureMm: readNumberSetting(mainViewOpticsInput.apertureMm),
-        magnificationX: readNumberSetting(mainViewOpticsInput.magnificationX),
-      }),
-      scope: {
-        ...defaults.scope,
-        verticalFovDeg: legacyScopeVerticalFovDeg ?? defaults.scope.verticalFovDeg,
-      },
-      scopeOptics: normalizeScopeOptics({
-        ...defaults.scopeOptics,
-        apertureMm: readNumberSetting(scopeOpticsInput.apertureMm),
-        magnificationX:
-          storedScopeMagnificationX ??
-          (legacyScopeVerticalFovDeg === undefined
-            ? undefined
-            : scopeVerticalFovDegToMagnificationX(legacyScopeVerticalFovDeg)),
-        transparencyPct: readNumberSetting(scopeOpticsInput.transparencyPct),
-      }),
-    })
+    const migratedSettings = applySafePerformanceSettings(
+      parseViewerSettings(legacyRawValue, defaults),
+    )
+    writeViewerSettings(migratedSettings, storage)
+    return migratedSettings
   } catch {
     return defaults
   }
@@ -284,6 +245,71 @@ export function normalizeViewerSettings(settings: ViewerSettings): ViewerSetting
     manualObserver: normalizeManualObserver(settings.manualObserver),
     onboardingCompleted: settings.onboardingCompleted,
   }
+}
+
+export function applySafePerformanceSettings(
+  settings: ViewerSettings,
+): ViewerSettings {
+  return normalizeViewerSettings({
+    ...settings,
+    mainViewDeepStarsEnabled: false,
+    labelDisplayMode: 'center_only',
+    motionQuality: 'low',
+    scopeModeEnabled: false,
+  })
+}
+
+function parseViewerSettings(rawValue: string, defaults: ViewerSettings) {
+  const parsed = SettingsSchema.partial().parse(JSON.parse(rawValue))
+  const {
+    scopeLensDiameterPct: rawScopeLensDiameterPct,
+    mainViewOptics: rawMainViewOpticsInput,
+    scope: rawScopeInput,
+    scopeOptics: rawScopeOpticsInput,
+    scopeModeEnabled: rawScopeModeEnabled,
+    ...parsedSettings
+  } = parsed
+  const mainViewOpticsInput = getSettingsObject(rawMainViewOpticsInput)
+  const scopeInput = getSettingsObject(rawScopeInput)
+  const scopeOpticsInput = getSettingsObject(rawScopeOpticsInput)
+  const legacyScopeVerticalFovDeg = readNumberSetting(scopeInput.verticalFovDeg)
+  const storedScopeMagnificationX = readNumberSetting(scopeOpticsInput.magnificationX)
+  const scopeModeEnabled =
+    readBooleanSetting(rawScopeModeEnabled) ??
+    readBooleanSetting(scopeInput.enabled) ??
+    defaults.scopeModeEnabled
+
+  return normalizeViewerSettings({
+    ...defaults,
+    ...parsedSettings,
+    scopeLensDiameterPct: normalizeScopeLensDiameterPct(rawScopeLensDiameterPct),
+    scopeModeEnabled,
+    enabledLayers: {
+      ...defaults.enabledLayers,
+      ...parsed.enabledLayers,
+    },
+    mainViewDeepStarsEnabled:
+      readBooleanSetting(parsed.mainViewDeepStarsEnabled) ?? defaults.mainViewDeepStarsEnabled,
+    mainViewOptics: normalizeMainViewOptics({
+      ...defaults.mainViewOptics,
+      apertureMm: readNumberSetting(mainViewOpticsInput.apertureMm),
+      magnificationX: readNumberSetting(mainViewOpticsInput.magnificationX),
+    }),
+    scope: {
+      ...defaults.scope,
+      verticalFovDeg: legacyScopeVerticalFovDeg ?? defaults.scope.verticalFovDeg,
+    },
+    scopeOptics: normalizeScopeOptics({
+      ...defaults.scopeOptics,
+      apertureMm: readNumberSetting(scopeOpticsInput.apertureMm),
+      magnificationX:
+        storedScopeMagnificationX ??
+        (legacyScopeVerticalFovDeg === undefined
+          ? undefined
+          : scopeVerticalFovDegToMagnificationX(legacyScopeVerticalFovDeg)),
+      transparencyPct: readNumberSetting(scopeOpticsInput.transparencyPct),
+    }),
+  })
 }
 
 function normalizeManualObserver(

@@ -58,6 +58,7 @@ type SettingsSheetProps = {
   onLikelyVisibleOnlyChange: (enabled: boolean) => void
   onLabelDisplayModeChange: (mode: LabelDisplayMode) => void
   onMotionQualityChange: (quality: MotionQuality) => void
+  onResetPerformanceSettings?: () => void
   onVerticalFovAdjustmentChange?: (value: number) => void
   onScopeModeEnabledChange?: (enabled: boolean) => void
   onScopeLensDiameterPctChange?: (value: number) => void
@@ -143,7 +144,7 @@ export function SettingsSheet({
   cameraDevices = [],
   selectedCameraDeviceId = null,
   layers,
-  mainViewDeepStarsEnabled = true,
+  mainViewDeepStarsEnabled = false,
   layerAvailabilityLabels,
   likelyVisibleOnly,
   labelDisplayMode,
@@ -153,6 +154,7 @@ export function SettingsSheet({
   onLikelyVisibleOnlyChange,
   onLabelDisplayModeChange,
   onMotionQualityChange,
+  onResetPerformanceSettings,
   onVerticalFovAdjustmentChange,
   onScopeModeEnabledChange,
   onScopeLensDiameterPctChange,
@@ -366,6 +368,15 @@ export function SettingsSheet({
             </label>
           ))}
         </div>
+        {onResetPerformanceSettings ? (
+          <button
+            type="button"
+            onClick={onResetPerformanceSettings}
+            className="mt-3 min-h-11 w-full rounded-2xl border border-sky-100/15 bg-slate-950/35 px-4 py-3 text-sm font-medium text-sky-50"
+          >
+            Reset performance settings
+          </button>
+        ) : null}
       </fieldset>
       <div className="grid grid-cols-2 gap-3">
         <button

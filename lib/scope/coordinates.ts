@@ -51,16 +51,32 @@ export function convertScopeEquatorialToHorizontal(
   observer: ObserverState,
   timeMs: number,
 ) {
+  return createScopeEquatorialToHorizontalConverter(observer, timeMs)({
+    raDeg,
+    decDeg,
+  })
+}
+
+export function createScopeEquatorialToHorizontalConverter(
+  observer: ObserverState,
+  timeMs: number,
+) {
   const time = new Date(timeMs)
   const astronomyObserver = new Observer(observer.lat, observer.lon, observer.altMeters)
   const rotation = Rotation_EQJ_HOR(time, astronomyObserver)
-  const equatorial = VectorFromSphere(new Spherical(decDeg, normalizeRaDeg(raDeg), 1), time)
-  const horizontal = RotateVector(rotation, equatorial)
-  const horizon = HorizonFromVector(horizontal, 'normal')
 
-  return {
-    azimuthDeg: normalizeRaDeg(horizon.lon),
-    elevationDeg: horizon.lat,
+  return ({ raDeg, decDeg }: { raDeg: number; decDeg: number }) => {
+    const equatorial = VectorFromSphere(
+      new Spherical(decDeg, normalizeRaDeg(raDeg), 1),
+      time,
+    )
+    const horizontal = RotateVector(rotation, equatorial)
+    const horizon = HorizonFromVector(horizontal, 'normal')
+
+    return {
+      azimuthDeg: normalizeRaDeg(horizon.lon),
+      elevationDeg: horizon.lat,
+    }
   }
 }
 
