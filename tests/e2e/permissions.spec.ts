@@ -121,6 +121,22 @@ test('disabling AR returns the mobile surface to free-navigation', async ({ page
   await expect(page.getByTestId('mobile-scope-action')).toBeVisible()
 })
 
+test('live overlay prevents its AR control from receiving background interaction', async ({
+  page,
+}) => {
+  await page.goto('/view?entry=live&location=granted')
+  await ensureMobileViewerOverlayOpen(page)
+
+  const overlay = page.getByTestId('mobile-viewer-overlay')
+  const arToggleBar = page.getByTestId('mobile-ar-toggle-bar')
+
+  await expect(overlay).toBeVisible()
+  await expect(arToggleBar).toHaveAttribute('inert', '')
+  await overlay.getByRole('button', { name: 'Close' }).click()
+  await expect(overlay).toHaveCount(0)
+  await expect(arToggleBar).not.toHaveAttribute('inert', '')
+})
+
 test('compact alignment panel keeps lower controls reachable on a short viewport', async ({
   page,
 }) => {

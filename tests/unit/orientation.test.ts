@@ -5,6 +5,8 @@ import type {
   OrientationRuntime,
 } from '../../lib/sensors/orientation'
 import {
+  createPoseCalibration,
+  createPoseCalibrationFromReferencePose,
   getOrientationCapabilities,
   rawPoseQuaternionFromSample,
   requestOrientationPermission,
@@ -472,17 +474,41 @@ describe('orientation runtime coordinator', () => {
       source: string
       absolute: boolean
       needsCalibration: boolean
+      calibrated: boolean
+      forward: readonly [number, number, number]
+    }> = []
+    const calibrationChanges: Array<{
+      reason: string
+      sourceAtCalibration: string | null
+      activeSource: string
     }> = []
 
     const controller = subscribeToOrientationPose(
-      ({ orientationSource, orientationAbsolute, orientationNeedsCalibration }) => {
+      ({
+        orientationSource,
+        orientationAbsolute,
+        orientationNeedsCalibration,
+        poseCalibration,
+        sample,
+      }) => {
         states.push({
           source: orientationSource,
           absolute: orientationAbsolute,
           needsCalibration: orientationNeedsCalibration,
+          calibrated: poseCalibration.calibrated,
+          forward: getCameraBasisVectors(sample.quaternion).forward,
         })
       },
-      { runtime },
+      {
+        runtime,
+        onCalibrationChange(change) {
+          calibrationChanges.push({
+            reason: change.reason,
+            sourceAtCalibration: change.sourceAtCalibration,
+            activeSource: change.activeSource,
+          })
+        },
+      },
     )
 
     emit('deviceorientation', {
@@ -493,30 +519,174 @@ describe('orientation runtime coordinator', () => {
     })
     await vi.advanceTimersByTimeAsync(ORIENTATION_SELECTION_TIMEOUT_MS)
 
+    const relativeSample = states.at(-1)
+    expect(relativeSample?.source).toBe('deviceorientation-relative')
+    const latestRawQuaternion = rawPoseQuaternionFromSample({
+      source: 'deviceorientation-relative',
+      providerKind: 'event',
+      localFrame: 'device',
+      absolute: false,
+      timestampMs: 0,
+      worldFromLocal: worldFromDeviceOrientation(15, 75, -10),
+    })
+    controller.setCalibration(
+      createPoseCalibrationFromReferencePose(latestRawQuaternion, {
+        source: 'deviceorientation-relative',
+        timestampMs: 1,
+      }),
+    )
+
     emit('deviceorientationabsolute', {
-      alpha: 270,
+      alpha: 0,
       beta: 90,
       gamma: 0,
       absolute: true,
     })
     emit('deviceorientationabsolute', {
-      alpha: 270,
+      alpha: 0,
       beta: 90,
       gamma: 0,
       absolute: true,
     })
     controller.stop()
 
-    expect(states[0]).toEqual({
+    expect(states[0]).toMatchObject({
       source: 'deviceorientation-relative',
       absolute: false,
       needsCalibration: true,
     })
-    expect(states.at(-1)).toEqual({
+    expect(states.at(-1)).toMatchObject({
       source: 'deviceorientation-absolute',
       absolute: true,
       needsCalibration: false,
+      calibrated: false,
     })
+    expect(states.at(-1)?.forward).toEqual([
+      expect.closeTo(0, 6),
+      expect.closeTo(1, 6),
+      expect.closeTo(0, 6),
+    ])
+    expect(calibrationChanges).toEqual([
+      {
+        reason: 'source-frame-changed',
+        sourceAtCalibration: 'deviceorientation-relative',
+        activeSource: 'deviceorientation-absolute',
+      },
+    ])
+  })
+
+  it('preserves relative calibration for continuous readings from the same frame', async () => {
+    vi.useFakeTimers()
+
+    const { runtime, emit } = createOrientationRuntime({
+      supportsAbsoluteSensor: false,
+      supportsRelativeSensor: false,
+      supportsAbsoluteEvent: false,
+    })
+    const states: Array<{ calibrated: boolean; needsCalibration: boolean }> = []
+    const calibrationChanges: string[] = []
+    const controller = subscribeToOrientationPose(
+      ({ poseCalibration, orientationNeedsCalibration }) => {
+        states.push({
+          calibrated: poseCalibration.calibrated,
+          needsCalibration: orientationNeedsCalibration,
+        })
+      },
+      {
+        runtime,
+        onCalibrationChange(change) {
+          calibrationChanges.push(change.reason)
+        },
+      },
+    )
+
+    emit('deviceorientation', {
+      alpha: 90,
+      beta: 90,
+      gamma: 0,
+      absolute: false,
+    })
+    await vi.advanceTimersByTimeAsync(ORIENTATION_SELECTION_TIMEOUT_MS)
+    const rawQuaternion = rawPoseQuaternionFromSample({
+      source: 'deviceorientation-relative',
+      providerKind: 'event',
+      localFrame: 'device',
+      absolute: false,
+      timestampMs: 0,
+      worldFromLocal: worldFromDeviceOrientation(90, 90, 0),
+    })
+    controller.setCalibration(
+      createPoseCalibrationFromReferencePose(rawQuaternion, {
+        source: 'deviceorientation-relative',
+        timestampMs: 1,
+      }),
+    )
+    emit('deviceorientation', {
+      alpha: 80,
+      beta: 90,
+      gamma: 0,
+      absolute: false,
+    })
+    controller.stop()
+
+    expect(states.at(-1)).toEqual({
+      calibrated: true,
+      needsCalibration: false,
+    })
+    expect(calibrationChanges).toEqual([])
+  })
+
+  it('invalidates persisted relative calibration when a new session reuses the same source name', async () => {
+    vi.useFakeTimers()
+
+    const { runtime, emit } = createOrientationRuntime({
+      supportsAbsoluteSensor: false,
+      supportsRelativeSensor: false,
+      supportsAbsoluteEvent: false,
+    })
+    const relativeCalibration = createPoseCalibrationFromReferencePose(
+      rawPoseQuaternionFromSample({
+        source: 'deviceorientation-relative',
+        providerKind: 'event',
+        localFrame: 'device',
+        absolute: false,
+        timestampMs: 0,
+        worldFromLocal: worldFromDeviceOrientation(90, 90, 0),
+      }),
+      {
+        source: 'deviceorientation-relative',
+        timestampMs: 1,
+      },
+    )
+    const calibrationChanges: string[] = []
+    const states: Array<{ calibrated: boolean; needsCalibration: boolean }> = []
+    const controller = subscribeToOrientationPose(
+      ({ poseCalibration, orientationNeedsCalibration }) => {
+        states.push({
+          calibrated: poseCalibration.calibrated,
+          needsCalibration: orientationNeedsCalibration,
+        })
+      },
+      {
+        runtime,
+        initialCalibration: relativeCalibration,
+        onCalibrationChange(change) {
+          calibrationChanges.push(change.reason)
+        },
+      },
+    )
+
+    emit('deviceorientation', {
+      alpha: 0,
+      beta: 90,
+      gamma: 0,
+      absolute: false,
+    })
+    await vi.advanceTimersByTimeAsync(ORIENTATION_SELECTION_TIMEOUT_MS)
+    controller.stop()
+
+    expect(states).toEqual([{ calibrated: false, needsCalibration: true }])
+    expect(calibrationChanges).toEqual(['relative-frame-restarted'])
   })
 
   it('uses a Safari compass fixture whose aligned heading matches the quaternion-derived heading', () => {
@@ -630,6 +800,236 @@ describe('orientation runtime coordinator', () => {
     controller.stop()
 
     expect(getSensorStartCount('absolute')).toBeGreaterThanOrEqual(4)
+  })
+
+  it('invalidates relative calibration when the same provider source starts a new frame', async () => {
+    vi.useFakeTimers()
+
+    const { runtime, emit, dispatchWindowEvent } = createOrientationRuntime({
+      supportsAbsoluteSensor: false,
+      supportsRelativeSensor: false,
+      supportsAbsoluteEvent: false,
+    })
+    const states: Array<{ calibrated: boolean; needsCalibration: boolean }> = []
+    const calibrationChanges: string[] = []
+    const controller = subscribeToOrientationPose(
+      ({ poseCalibration, orientationNeedsCalibration }) => {
+        states.push({
+          calibrated: poseCalibration.calibrated,
+          needsCalibration: orientationNeedsCalibration,
+        })
+      },
+      {
+        runtime,
+        onCalibrationChange(change) {
+          calibrationChanges.push(change.reason)
+        },
+      },
+    )
+
+    emit('deviceorientation', {
+      alpha: 90,
+      beta: 90,
+      gamma: 0,
+      absolute: false,
+    })
+    await vi.advanceTimersByTimeAsync(ORIENTATION_SELECTION_TIMEOUT_MS)
+    controller.setCalibration(
+      createPoseCalibrationFromReferencePose(
+        rawPoseQuaternionFromSample({
+          source: 'deviceorientation-relative',
+          providerKind: 'event',
+          localFrame: 'device',
+          absolute: false,
+          timestampMs: 0,
+          worldFromLocal: worldFromDeviceOrientation(90, 90, 0),
+        }),
+        {
+          source: 'deviceorientation-relative',
+          timestampMs: 1,
+        },
+      ),
+    )
+
+    dispatchWindowEvent('pagehide')
+    dispatchWindowEvent('pageshow')
+    emit('deviceorientation', {
+      alpha: 0,
+      beta: 90,
+      gamma: 0,
+      absolute: false,
+    })
+    await vi.advanceTimersByTimeAsync(ORIENTATION_SELECTION_TIMEOUT_MS)
+    controller.stop()
+
+    expect(states.at(-1)).toEqual({
+      calibrated: false,
+      needsCalibration: true,
+    })
+    expect(calibrationChanges).toEqual(['relative-frame-restarted'])
+  })
+
+  it('invalidates an absolute calibration before applying it to a relative source', async () => {
+    vi.useFakeTimers()
+
+    const { runtime, emit } = createOrientationRuntime({
+      supportsAbsoluteSensor: false,
+      supportsRelativeSensor: false,
+      supportsAbsoluteEvent: false,
+    })
+    const calibrationChanges: Array<{ reason: string; activeSource: string }> = []
+    const states: Array<{ calibrated: boolean; needsCalibration: boolean }> = []
+    const absoluteCalibration = createPoseCalibrationFromReferencePose(
+      rawPoseQuaternionFromSample({
+        source: 'deviceorientation-absolute',
+        providerKind: 'event',
+        localFrame: 'device',
+        absolute: true,
+        timestampMs: 0,
+        worldFromLocal: worldFromDeviceOrientation(90, 90, 0),
+      }),
+      {
+        source: 'deviceorientation-absolute',
+        timestampMs: 1,
+      },
+    )
+    const controller = subscribeToOrientationPose(
+      ({ poseCalibration, orientationNeedsCalibration }) => {
+        states.push({
+          calibrated: poseCalibration.calibrated,
+          needsCalibration: orientationNeedsCalibration,
+        })
+      },
+      {
+        runtime,
+        initialCalibration: absoluteCalibration,
+        onCalibrationChange(change) {
+          calibrationChanges.push({
+            reason: change.reason,
+            activeSource: change.activeSource,
+          })
+        },
+      },
+    )
+
+    emit('deviceorientation', {
+      alpha: 0,
+      beta: 90,
+      gamma: 0,
+      absolute: false,
+    })
+    await vi.advanceTimersByTimeAsync(ORIENTATION_SELECTION_TIMEOUT_MS)
+    controller.stop()
+
+    expect(states).toEqual([
+      {
+        calibrated: false,
+        needsCalibration: true,
+      },
+    ])
+    expect(calibrationChanges).toEqual([
+      {
+        reason: 'source-frame-changed',
+        activeSource: 'deviceorientation-relative',
+      },
+    ])
+  })
+
+  it('preserves world-frame calibration across absolute provider sources and sessions', async () => {
+    vi.useFakeTimers()
+
+    const { runtime, emit } = createOrientationRuntime({
+      supportsAbsoluteSensor: false,
+      supportsRelativeSensor: false,
+    })
+    const absoluteCalibration = createPoseCalibrationFromReferencePose(
+      rawPoseQuaternionFromSample({
+        source: 'absolute-sensor',
+        providerKind: 'sensor',
+        localFrame: 'screen',
+        absolute: true,
+        timestampMs: 0,
+        rawQuaternion: [0, 0, Math.SQRT1_2, Math.SQRT1_2],
+      }),
+      {
+        source: 'absolute-sensor',
+        timestampMs: 1,
+      },
+    )
+    const calibrations: boolean[] = []
+    const calibrationChanges: string[] = []
+    const controller = subscribeToOrientationPose(
+      ({ poseCalibration }) => {
+        calibrations.push(poseCalibration.calibrated)
+      },
+      {
+        runtime,
+        initialCalibration: absoluteCalibration,
+        onCalibrationChange(change) {
+          calibrationChanges.push(change.reason)
+        },
+      },
+    )
+
+    emit('deviceorientationabsolute', {
+      alpha: 0,
+      beta: 90,
+      gamma: 0,
+      absolute: true,
+    })
+    await vi.advanceTimersByTimeAsync(ORIENTATION_SELECTION_TIMEOUT_MS)
+    controller.stop()
+
+    expect(calibrations).toEqual([true])
+    expect(calibrationChanges).toEqual([])
+  })
+
+  it('clears an uncalibrated legacy offset before it can affect a new source', async () => {
+    vi.useFakeTimers()
+
+    const { runtime, emit } = createOrientationRuntime({
+      supportsAbsoluteSensor: false,
+      supportsRelativeSensor: false,
+    })
+    const legacyCalibration = createPoseCalibration({
+      calibrated: false,
+      sourceAtCalibration: 'deviceorientation-absolute',
+      offsetQuaternion: [0, 0, Math.SQRT1_2, Math.SQRT1_2],
+    })
+    const states: Array<{ calibrated: boolean; forward: readonly [number, number, number] }> = []
+    const calibrationChanges: string[] = []
+    const controller = subscribeToOrientationPose(
+      ({ poseCalibration, sample }) => {
+        states.push({
+          calibrated: poseCalibration.calibrated,
+          forward: getCameraBasisVectors(sample.quaternion).forward,
+        })
+      },
+      {
+        runtime,
+        initialCalibration: legacyCalibration,
+        onCalibrationChange(change) {
+          calibrationChanges.push(change.reason)
+        },
+      },
+    )
+
+    emit('deviceorientationabsolute', {
+      alpha: 0,
+      beta: 90,
+      gamma: 0,
+      absolute: true,
+    })
+    await vi.advanceTimersByTimeAsync(ORIENTATION_SELECTION_TIMEOUT_MS)
+    controller.stop()
+
+    expect(states[0]).toMatchObject({ calibrated: false })
+    expect(states[0].forward).toEqual([
+      expect.closeTo(0, 6),
+      expect.closeTo(1, 6),
+      expect.closeTo(0, 6),
+    ])
+    expect(calibrationChanges).toEqual(['source-frame-changed'])
   })
 
   it('falls back cleanly on Samsung Internet when sensor constructors exist but fail and the event path survives restart', async () => {

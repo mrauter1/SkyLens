@@ -2362,6 +2362,8 @@ describe('ViewerShell startup gating', () => {
     })
 
     await renderStartedLiveViewer()
+    const subscriptionsBefore = mockSubscribeToOrientationPose.mock.calls.length
+    const stopsBefore = SENSOR_CONTROLLER.stop.mock.calls.length
 
     let alignButton = container.querySelector(
       '[data-testid="mobile-align-action"]',
@@ -2401,6 +2403,8 @@ describe('ViewerShell startup gating', () => {
     })
     await flushEffects()
 
+    expect(mockSubscribeToOrientationPose).toHaveBeenCalledTimes(subscriptionsBefore)
+    expect(SENSOR_CONTROLLER.stop).toHaveBeenCalledTimes(stopsBefore)
     expect(readViewerSettings().poseCalibration.calibrated).toBe(true)
     expect(container.querySelector('[data-testid="alignment-instructions-panel"]')).toBeNull()
     expect(container.querySelector('[data-testid="alignment-crosshair-button"]')).toBeNull()
@@ -4111,6 +4115,8 @@ describe('ViewerShell startup gating', () => {
       expect(latestSettingsProps()?.onResetCalibration).toBeTypeOf('function')
       expect(readViewerSettings().poseCalibration.calibrated).toBe(false)
       const calibrationCallsBefore = SENSOR_CONTROLLER.setCalibration.mock.calls.length
+      const subscriptionsBefore = mockSubscribeToOrientationPose.mock.calls.length
+      const stopsBefore = SENSOR_CONTROLLER.stop.mock.calls.length
 
       await act(async () => {
         latestSettingsProps()?.onFineAdjustCalibration?.({ axis: 'yaw', deltaDeg: 0.75 })
@@ -4131,9 +4137,81 @@ describe('ViewerShell startup gating', () => {
         calibrationCallsBefore + 2,
       )
       expect(readViewerSettings().poseCalibration.calibrated).toBe(false)
+      expect(mockSubscribeToOrientationPose).toHaveBeenCalledTimes(subscriptionsBefore)
+      expect(SENSOR_CONTROLLER.stop).toHaveBeenCalledTimes(stopsBefore)
     },
     10_000,
   )
+
+  it('persists runtime calibration invalidation and preserves its notice through motion updates', async () => {
+    const update = createMockOrientationPoseUpdate({
+      source: 'absolute-sensor',
+      providerKind: 'sensor',
+      absolute: true,
+    })
+    mockSubscribeToOrientationPose.mockImplementationOnce((onPose: (state: unknown) => void) => {
+      onPose(update)
+      return SENSOR_CONTROLLER
+    })
+    await renderStartedLiveViewer()
+
+    const settingsProps = mockSettingsSheetProps.mock.calls.at(-1)?.[0]
+    await act(async () => {
+      settingsProps.onFineAdjustCalibration({ axis: 'yaw', deltaDeg: 0.75 })
+    })
+    expect(readViewerSettings().poseCalibration.calibrated).toBe(true)
+    const subscriptionsBefore = mockSubscribeToOrientationPose.mock.calls.length
+    const stopsBefore = SENSOR_CONTROLLER.stop.mock.calls.length
+    const [onPose, options] = mockSubscribeToOrientationPose.mock.calls.at(-1)!
+
+    await act(async () => {
+      options.onCalibrationChange({
+        poseCalibration: update.poseCalibration,
+        reason: 'source-frame-changed',
+        sourceAtCalibration: 'relative-sensor',
+        activeSource: 'absolute-sensor',
+      })
+    })
+    // Subsequent samples must not restore the invalid offset or erase the explanation.
+    await act(async () => {
+      onPose(update)
+      await new Promise((resolve) => window.setTimeout(resolve, 80))
+    })
+    expect(readViewerSettings().poseCalibration).toEqual(update.poseCalibration)
+    expect(mockSubscribeToOrientationPose).toHaveBeenCalledTimes(subscriptionsBefore)
+    expect(SENSOR_CONTROLLER.stop).toHaveBeenCalledTimes(stopsBefore)
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="mobile-viewer-overlay-trigger"]')!.click()
+    })
+    expect(container.querySelector('[data-testid="mobile-viewer-overlay"]')?.textContent)
+      .toContain('The motion reference changed. Previous alignment was cleared')
+  })
+
+  it('makes the background AR control inert while viewer or alignment dialogs are open', async () => {
+    await renderStartedLiveViewer()
+    const arBar = container.querySelector<HTMLElement>('[data-testid="mobile-ar-toggle-bar"]')!
+    const viewerTrigger = container.querySelector<HTMLButtonElement>(
+      '[data-testid="mobile-viewer-overlay-trigger"]',
+    )!
+    expect(arBar.hasAttribute('inert')).toBe(false)
+
+    await act(async () => { viewerTrigger.click() })
+    expect(arBar.hasAttribute('inert')).toBe(true)
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="mobile-viewer-overlay-backdrop"]')!.click()
+    })
+    expect(arBar.hasAttribute('inert')).toBe(false)
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="mobile-align-action"]')!.click()
+    })
+    expect(arBar.hasAttribute('inert')).toBe(true)
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="mobile-alignment-overlay-backdrop"]')!.click()
+    })
+    expect(arBar.hasAttribute('inert')).toBe(false)
+  })
 
   it('wires live-panel fine-adjust and reset controls into the existing calibration path', async () => {
     mockSubscribeToOrientationPose.mockImplementationOnce((onPose: (state: unknown) => void) => {

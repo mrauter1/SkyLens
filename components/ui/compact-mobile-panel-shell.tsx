@@ -42,10 +42,12 @@ export const CompactMobilePanelShell = forwardRef<HTMLElement, CompactMobilePane
         data-testid={shellTestId}
       >
         {shellChildren}
-        <div className={`relative flex h-full items-end justify-center ${frameClassName}`}>
+        <div
+          className={`pointer-events-none relative flex h-full items-end justify-center ${frameClassName}`}
+        >
           <section
             ref={ref}
-            className={`shell-panel relative flex max-h-full min-h-0 w-full max-w-xl flex-col overflow-hidden rounded-[1.5rem] p-4 ${panelClassName}`}
+            className={`shell-panel pointer-events-auto relative flex max-h-full min-h-0 w-full max-w-xl flex-col overflow-hidden rounded-[1.5rem] p-4 ${panelClassName}`}
             style={{ maxHeight: COMPACT_MOBILE_PANEL_MAX_HEIGHT }}
             data-testid={panelTestId}
             {...panelProps}

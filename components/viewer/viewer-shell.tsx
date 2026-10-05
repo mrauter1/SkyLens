@@ -824,6 +824,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const orientationControllerRef = useRef<ReturnType<typeof subscribeToOrientationPose> | null>(
     null,
   )
+  const poseCalibrationRef = useRef(viewerSettings.poseCalibration)
   const videoElementRef = useRef<HTMLVideoElement | null>(null)
   const cameraStreamRef = useRef<MediaStream | null>(null)
   const cameraRequestIdRef = useRef(0)
@@ -3596,6 +3597,10 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   }, [interactionMode])
 
   useEffect(() => {
+    poseCalibrationRef.current = viewerSettings.poseCalibration
+  }, [viewerSettings.poseCalibration])
+
+  useEffect(() => {
     orientationControllerRef.current?.stop()
     orientationControllerRef.current = null
     poorSinceRef.current = null
@@ -3619,7 +3624,6 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       orientationSource: nextOrientationSource,
       orientationAbsolute,
       orientationNeedsCalibration,
-      poseCalibration,
     }: OrientationPoseState) => {
       setSensorCameraPose(pose)
       setOrientationSource(nextOrientationSource)
@@ -3691,13 +3695,6 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
 
       poorSinceRef.current = null
       setShowAlignmentGuidance(false)
-      setCalibrationBanner(
-        orientationNeedsCalibration
-          ? 'Relative motion is active. Center the suggested target and align before trusting labels.'
-          : poseCalibration.calibrated
-            ? 'Calibration is active.'
-            : null,
-      )
     }
 
     const flushOrientationUpdate = () => {
@@ -3733,7 +3730,17 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     const controller = subscribeToOrientationPose(
       enqueueOrientationUpdate,
       {
-        initialCalibration: viewerSettings.poseCalibration,
+        initialCalibration: poseCalibrationRef.current,
+        onCalibrationChange: ({ poseCalibration, reason }) => {
+          poseCalibrationRef.current = poseCalibration
+          setViewerSettings((current) => ({ ...current, poseCalibration }))
+          setLastAppliedCalibrationTarget(null)
+          setCalibrationBanner(
+            reason === 'relative-frame-restarted'
+              ? 'Motion tracking restarted. Align again before trusting label placement.'
+              : 'The motion reference changed. Previous alignment was cleared; align again if labels look off.',
+          )
+        },
       },
     )
 
@@ -3764,7 +3771,6 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     commitViewerRouteState,
     manualMode,
     shouldRunOrientationSession,
-    viewerSettings.poseCalibration,
   ])
 
   useEffect(() => {
@@ -5871,7 +5877,8 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         )}
         {showMobileArToggle ? (
           <div
-            className="pointer-events-auto relative z-50 flex justify-center pt-3"
+            className="pointer-events-auto relative z-10 flex justify-center pt-3"
+            inert={isMobileOverlayOpen || shouldShowAlignmentInstructions || isMobileSettingsSheetOpen}
             data-testid="mobile-ar-toggle-bar"
           >
             <button
