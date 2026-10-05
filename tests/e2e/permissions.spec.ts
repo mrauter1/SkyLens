@@ -1,6 +1,10 @@
 import { expect, test, type Page } from '@playwright/test'
 
-import { dismissViewerOnboarding, ensureMobileViewerOverlayOpen } from './mobile-overlay'
+import {
+  clickInteriorBackdropAbovePanel,
+  dismissViewerOnboarding,
+  ensureMobileViewerOverlayOpen,
+} from './mobile-overlay'
 
 test('location denial keeps the viewer open with manual observer fallback', async ({ page }) => {
   await page.goto(
@@ -135,6 +139,26 @@ test('live overlay prevents its AR control from receiving background interaction
   await overlay.getByRole('button', { name: 'Close' }).click()
   await expect(overlay).toHaveCount(0)
   await expect(arToggleBar).not.toHaveAttribute('inert', '')
+})
+
+test('alignment repeatedly closes from the interior backdrop above its panel', async ({ page }) => {
+  // Alignment instructions have bounded content, independent of sky catalog size.
+  await page.setViewportSize({ width: 412, height: 1400 })
+  await page.goto('/view?entry=live&location=granted&camera=granted&orientation=granted')
+  await dismissViewerOnboarding(page)
+  const alignButton = page.getByTestId('mobile-align-action')
+  const alignmentShell = page.getByTestId('mobile-alignment-overlay-shell')
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await alignButton.click()
+    await expect(alignmentShell).toBeVisible()
+    await clickInteriorBackdropAbovePanel(page, {
+      backdropTestId: 'mobile-alignment-overlay-backdrop',
+      panelTestId: 'mobile-alignment-overlay-panel',
+    })
+    await expect(alignmentShell).toHaveCount(0)
+    await expect(alignButton).toBeFocused()
+  }
 })
 
 test('compact alignment panel keeps lower controls reachable on a short viewport', async ({

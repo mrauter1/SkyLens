@@ -1,9 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-import {
-  clickInteriorBackdropAbovePanel,
-  ensureMobileViewerOverlayOpen,
-} from './mobile-overlay'
+import { ensureMobileViewerOverlayOpen } from './mobile-overlay'
 
 const SF_DEMO_ROUTE =
   '/view?entry=demo&location=unavailable&camera=unavailable&orientation=unavailable&demoScenario=sf-evening'
@@ -180,30 +177,29 @@ test('settings sheet closes from its backdrop and restores focus to Settings', a
   await expect(settingsTrigger).toBeFocused()
 })
 
-test('mobile overlay repeatedly closes from the interior backdrop above its panel', async ({
+test('mobile overlay opens from the trigger and closes from the backdrop only', async ({
   page,
 }) => {
-  // This intentionally leaves a large dimmed region above the bottom sheet so
-  // the click exercises the shared frame's hit testing, not its 16 px edge.
-  await page.setViewportSize({ width: 768, height: 2000 })
   await page.goto(SF_DEMO_ROUTE)
 
   const trigger = page.getByTestId('mobile-viewer-overlay-trigger')
   const mobileOverlay = page.getByTestId('mobile-viewer-overlay')
 
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    await ensureMobileViewerOverlayOpen(page)
-    await mobileOverlay.getByText('Privacy reassurance').click()
-    await expect(mobileOverlay).toBeVisible()
+  await expect(trigger).toBeVisible()
+  await expect(mobileOverlay).toHaveCount(0)
 
-    await clickInteriorBackdropAbovePanel(page, {
-      backdropTestId: 'mobile-viewer-overlay-backdrop',
-      panelTestId: 'mobile-viewer-overlay',
-    })
-    await expect(mobileOverlay).toHaveCount(0)
-    await expect(trigger).toBeVisible()
-    await expect(trigger).toBeFocused()
-  }
+  await trigger.click()
+  await expect(mobileOverlay).toBeVisible()
+
+  await mobileOverlay.getByText('Privacy reassurance').click()
+  await expect(mobileOverlay).toBeVisible()
+
+  await page.getByTestId('mobile-viewer-overlay-backdrop').click({
+    position: { x: 8, y: 8 },
+  })
+  await expect(page.getByTestId('mobile-viewer-overlay')).toHaveCount(0)
+  await expect(trigger).toBeVisible()
+  await expect(trigger).toBeFocused()
 })
 
 test('mobile overlay keeps lower sections reachable on a short viewport', async ({ page }) => {

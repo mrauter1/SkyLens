@@ -40,20 +40,21 @@ export async function clickInteriorBackdropAbovePanel(
   await expect(backdrop).toBeVisible()
   await expect(panel).toBeVisible()
 
-  const [backdropBox, panelBox] = await Promise.all([
-    backdrop.boundingBox(),
+  const [frameBox, panelBox] = await Promise.all([
+    panel.locator('..').boundingBox(),
     panel.boundingBox(),
   ])
 
-  expect(backdropBox).not.toBeNull()
+  expect(frameBox).not.toBeNull()
   expect(panelBox).not.toBeNull()
 
   const x = panelBox!.x + panelBox!.width / 2
-  const availableHeight = panelBox!.y - backdropBox!.y
+  const availableHeight = panelBox!.y - frameBox!.y
 
-  expect(availableHeight).toBeGreaterThan(24)
+  // Stay inside the transparent frame: shell padding already worked before the fix.
+  expect(availableHeight).toBeGreaterThan(8)
 
-  const y = panelBox!.y - Math.min(12, availableHeight / 2)
+  const y = frameBox!.y + availableHeight / 2
   const hitTestId = await page.evaluate(
     ({ x, y }) => document.elementFromPoint(x, y)?.getAttribute('data-testid'),
     { x, y },
