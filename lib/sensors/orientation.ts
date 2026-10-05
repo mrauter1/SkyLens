@@ -901,6 +901,9 @@ export function subscribeToOrientationPose(
 
   if (!currentWindow) {
     return {
+      getLatestState() {
+        return null
+      },
       recenter() {},
       setCalibration() {},
       stop() {},
@@ -914,6 +917,7 @@ export function subscribeToOrientationPose(
   let calibration = createPoseCalibration(initialCalibration)
   let smoothedSample: OrientationSample | null = null
   let latestSample: InternalProviderSample | null = null
+  let latestPoseState: OrientationPoseState | null = null
   let history: OrientationSample[] = []
   let selectedSource: AutomaticOrientationSource | null = null
   let selectedProviderId: InternalProviderId | null = null
@@ -1166,7 +1170,6 @@ export function subscribeToOrientationPose(
 
     const preserveCompassValidation =
       rawSample.providerKind === 'event' &&
-      rawSample.compassBacked === true &&
       (providerId === 'deviceorientation-relative-event' ||
         providerId === 'deviceorientation-safari-validated-event')
 
@@ -1197,7 +1200,7 @@ export function subscribeToOrientationPose(
 
     resetStallTimeout()
 
-    onPose({
+    latestPoseState = {
       sample: smoothedSample,
       history,
       orientationSource: smoothedSample.source,
@@ -1205,7 +1208,8 @@ export function subscribeToOrientationPose(
       orientationNeedsCalibration: smoothedSample.needsCalibration,
       poseCalibration: calibration,
       pose: buildCameraPose(smoothedSample, alignmentHealth),
-    })
+    }
+    onPose(latestPoseState)
   }
 
   function reconcileCalibrationForSample(nextSource: AutomaticOrientationSource) {
@@ -1299,7 +1303,7 @@ export function subscribeToOrientationPose(
         return providerSample
       }
 
-      return providerSample
+      return promoteCompassBackedSample(providerSample)
     }
 
     if (!validationPassed || !canAttemptAbsoluteUpgrade()) {
@@ -1364,6 +1368,7 @@ export function subscribeToOrientationPose(
     selectedSource = null
     selectedProviderId = null
     latestSample = null
+    latestPoseState = null
     smoothedSample = null
     history = []
     selectionCandidates = new Map()
@@ -1402,6 +1407,9 @@ export function subscribeToOrientationPose(
   }
 
   return {
+    getLatestState() {
+      return latestPoseState
+    },
     recenter() {
       if (!smoothedSample) {
         return

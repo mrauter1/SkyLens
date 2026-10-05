@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { buildViewerHref, type ViewerRouteState } from '../../lib/permissions/coordinator'
+import { createAxisAngleQuaternion } from '../../lib/projection/camera'
 import { resetScopeCatalogSessionCacheForTests } from '../../lib/scope/catalog'
 import {
   SCOPE_LENS_DIAMETER_PCT_RANGE,
@@ -111,7 +112,13 @@ vi.mock('../../lib/sensors/orientation', async () => {
 
   return {
     ...actual,
-    subscribeToOrientationPose: mockSubscribeToOrientationPose,
+    subscribeToOrientationPose: (
+      onPose: Parameters<typeof actual.subscribeToOrientationPose>[0],
+      options: Parameters<typeof actual.subscribeToOrientationPose>[1],
+    ) => mockSubscribeToOrientationPose((state: Parameters<typeof onPose>[0]) => {
+      SENSOR_CONTROLLER.getLatestState.mockReturnValue(state)
+      onPose(state)
+    }, options),
     requestOrientationPermission: mockRequestOrientationPermission,
     requestOrientationPermissionDetailed: async () => {
       const status = await mockRequestOrientationPermission()
@@ -184,6 +191,7 @@ const SENSOR_CONTROLLER = {
   stop: vi.fn(),
   recenter: vi.fn(),
   setCalibration: vi.fn(),
+  getLatestState: vi.fn(),
 }
 
 const TRACKER = {
@@ -299,6 +307,7 @@ describe('ViewerShell startup gating', () => {
     SENSOR_CONTROLLER.stop.mockReset()
     SENSOR_CONTROLLER.recenter.mockReset()
     SENSOR_CONTROLLER.setCalibration.mockReset()
+    SENSOR_CONTROLLER.getLatestState.mockReset()
     TRACKER.stop.mockReset()
 
     mockRequestStartupObserverState.mockResolvedValue(LIVE_OBSERVER_FIXTURE)
@@ -2436,6 +2445,71 @@ describe('ViewerShell startup gating', () => {
     expect(container.querySelector('[data-testid="alignment-crosshair-button"]')).not.toBeNull()
   })
 
+  it('aligns against the current source before its throttled pose reaches React', async () => {
+    vi.useFakeTimers()
+    stubAnimationFrames()
+    const relativeState = createMockOrientationPoseUpdate({
+      source: 'relative-sensor', providerKind: 'sensor', absolute: false,
+    })
+    mockSubscribeToOrientationPose.mockImplementationOnce((onPose) => {
+      onPose(relativeState)
+      return SENSOR_CONTROLLER
+    })
+    await renderStartedLiveViewer()
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="mobile-align-action"]')!.click()
+    })
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="alignment-start-action"]')!.click()
+    })
+
+    const absoluteState = createMockOrientationPoseUpdate({
+      source: 'absolute-sensor', providerKind: 'sensor', absolute: true,
+    })
+    // Hold React's 15 Hz update while the controller already owns the new source.
+    await act(async () => {
+      mockSubscribeToOrientationPose.mock.calls[0][0](absoluteState)
+    })
+    expect(container.textContent).toContain('Relative sensor')
+    SENSOR_CONTROLLER.setCalibration.mockClear()
+    let appliedDuringClick: unknown
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="alignment-crosshair-button"]')!.click()
+      // Calibration must reach the controller in this event, before another sample.
+      appliedDuringClick = SENSOR_CONTROLLER.setCalibration.mock.calls.at(-1)?.[0]
+    })
+    expect(readViewerSettings().poseCalibration.sourceAtCalibration).toBe('absolute-sensor')
+    expect(appliedDuringClick).toMatchObject({
+      calibrated: true, sourceAtCalibration: 'absolute-sensor',
+    })
+    expect(container.querySelector('[data-testid="alignment-crosshair-button"]')).toBeNull()
+  })
+
+  it('keeps alignment focus open when tracking has no current sample', async () => {
+    mockSubscribeToOrientationPose.mockImplementationOnce((onPose) => {
+      onPose(createMockOrientationPoseUpdate({
+        source: 'relative-sensor', providerKind: 'sensor', absolute: false,
+      }))
+      return SENSOR_CONTROLLER
+    })
+    await renderStartedLiveViewer()
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="mobile-align-action"]')!.click()
+    })
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="alignment-start-action"]')!.click()
+    })
+    SENSOR_CONTROLLER.getLatestState.mockReturnValue(null)
+    SENSOR_CONTROLLER.setCalibration.mockClear()
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="alignment-crosshair-button"]')!.click()
+    })
+    expect(SENSOR_CONTROLLER.setCalibration).not.toHaveBeenCalled()
+    expect(readViewerSettings().poseCalibration.calibrated).toBe(false)
+    expect(container.querySelector('[data-testid="alignment-crosshair-button"]')).not.toBeNull()
+    expect(container.textContent).toContain('Wait for a fresh motion sample')
+  })
+
   it('exposes on-view manual nudges and gated reset controls in the alignment panel', async () => {
     mockSubscribeToOrientationPose.mockImplementationOnce((onPose: (state: unknown) => void) => {
       onPose({
@@ -4098,6 +4172,9 @@ describe('ViewerShell startup gating', () => {
   it(
     'syncs fine-adjust and reset calibration actions into persisted viewer settings',
     async () => {
+      SENSOR_CONTROLLER.getLatestState.mockReturnValue(createMockOrientationPoseUpdate({
+        source: 'absolute-sensor', providerKind: 'sensor', absolute: true,
+      }))
       await renderStartedLiveViewer()
 
       const latestSettingsProps = () =>
@@ -4142,6 +4219,30 @@ describe('ViewerShell startup gating', () => {
     },
     10_000,
   )
+
+  it('accumulates consecutive fine adjustments before React commits settings', async () => {
+    let currentState = createMockOrientationPoseUpdate({
+      source: 'absolute-sensor', providerKind: 'sensor', absolute: true,
+    })
+    SENSOR_CONTROLLER.getLatestState.mockImplementation(() => currentState)
+    SENSOR_CONTROLLER.setCalibration.mockImplementation((poseCalibration) => {
+      currentState = { ...currentState, poseCalibration }
+    })
+    await renderStartedLiveViewer()
+    const onFineAdjust = mockSettingsSheetProps.mock.calls.at(-1)![0].onFineAdjustCalibration
+
+    await act(async () => {
+      onFineAdjust({ axis: 'yaw', deltaDeg: 0.75 })
+      onFineAdjust({ axis: 'yaw', deltaDeg: 0.75 })
+    })
+
+    const expectedOffset = createAxisAngleQuaternion([0, 0, 1], 1.5)
+    const actualOffset = readViewerSettings().poseCalibration.offsetQuaternion
+    actualOffset.forEach((component, index) => {
+      expect(component).toBeCloseTo(expectedOffset[index], 8)
+    })
+    expect(SENSOR_CONTROLLER.setCalibration).toHaveBeenCalledTimes(2)
+  })
 
   it('persists runtime calibration invalidation and preserves its notice through motion updates', async () => {
     const update = createMockOrientationPoseUpdate({

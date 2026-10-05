@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type {
   DeviceOrientationReading,
   OrientationRuntime,
+  OrientationSample,
 } from '../../lib/sensors/orientation'
 import {
   createPoseCalibration,
@@ -548,6 +549,7 @@ describe('orientation runtime coordinator', () => {
       gamma: 0,
       absolute: true,
     })
+    const latestState = controller.getLatestState()
     controller.stop()
 
     expect(states[0]).toMatchObject({
@@ -573,6 +575,11 @@ describe('orientation runtime coordinator', () => {
         activeSource: 'deviceorientation-absolute',
       },
     ])
+    expect(latestState).toMatchObject({
+      orientationSource: 'deviceorientation-absolute',
+      orientationAbsolute: true,
+    })
+    expect(controller.getLatestState()).toBeNull()
   })
 
   it('preserves relative calibration for continuous readings from the same frame', async () => {
@@ -747,15 +754,132 @@ describe('orientation runtime coordinator', () => {
       { source: 'deviceorientation-relative', absolute: false },
       { source: 'deviceorientation-relative', absolute: false },
       { source: 'deviceorientation-absolute', absolute: true },
-      { source: 'deviceorientation-relative', absolute: false },
       { source: 'deviceorientation-absolute', absolute: true },
-      { source: 'deviceorientation-relative', absolute: false },
-      { source: 'deviceorientation-relative', absolute: false },
+      { source: 'deviceorientation-absolute', absolute: true },
+      { source: 'deviceorientation-absolute', absolute: true },
+      { source: 'deviceorientation-absolute', absolute: true },
       { source: 'deviceorientation-relative', absolute: false },
       { source: 'deviceorientation-relative', absolute: false },
       { source: 'deviceorientation-relative', absolute: false },
       { source: 'deviceorientation-absolute', absolute: true },
     ])
+  })
+
+  it('preserves absolute calibration during the Safari compass validation grace period', async () => {
+    vi.useFakeTimers()
+
+    const { runtime, emit } = createOrientationRuntime({
+      supportsAbsoluteSensor: false,
+      supportsRelativeSensor: false,
+      supportsAbsoluteEvent: false,
+    })
+    const states: Array<{
+      source: string
+      calibrated: boolean
+      sample: OrientationSample
+    }> = []
+    const calibrationChanges: string[] = []
+    const controller = subscribeToOrientationPose(
+      ({ orientationSource, poseCalibration, sample }) => {
+        states.push({
+          source: orientationSource,
+          calibrated: poseCalibration.calibrated,
+          sample,
+        })
+      },
+      {
+        runtime,
+        onCalibrationChange(change) {
+          calibrationChanges.push(change.reason)
+        },
+      },
+    )
+
+    emitCompassAlignedSample(emit)
+    await vi.advanceTimersByTimeAsync(ORIENTATION_SELECTION_TIMEOUT_MS)
+    emitCompassAlignedSample(emit)
+    emitCompassAlignedSample(emit)
+    emitCompassAlignedSample(emit)
+
+    const absoluteState = states.at(-1)!
+    expect(absoluteState.source).toBe('deviceorientation-absolute')
+    controller.setCalibration(
+      createPoseCalibrationFromReferencePose(absoluteState.sample.rawQuaternion, {
+        source: 'deviceorientation-absolute',
+        timestampMs: 1,
+      }),
+    )
+
+    emitCompassMisalignedSample(emit)
+    controller.stop()
+
+    expect(states.at(-1)).toMatchObject({
+      source: 'deviceorientation-absolute',
+      calibrated: true,
+    })
+    expect(calibrationChanges).toEqual([])
+  })
+
+  it('applies Safari compass grace to missing payloads and downgrades after sustained misses', async () => {
+    vi.useFakeTimers()
+
+    const { runtime, emit } = createOrientationRuntime({
+      supportsAbsoluteSensor: false,
+      supportsRelativeSensor: false,
+      supportsAbsoluteEvent: false,
+    })
+    const states: Array<{ source: string; calibrated: boolean }> = []
+    const calibrationChanges: string[] = []
+    const controller = subscribeToOrientationPose(
+      ({ orientationSource, poseCalibration }) => {
+        states.push({
+          source: orientationSource,
+          calibrated: poseCalibration.calibrated,
+        })
+      },
+      {
+        runtime,
+        onCalibrationChange(change) {
+          calibrationChanges.push(change.reason)
+        },
+      },
+    )
+
+    emitCompassAlignedSample(emit)
+    await vi.advanceTimersByTimeAsync(ORIENTATION_SELECTION_TIMEOUT_MS)
+    emitCompassAlignedSample(emit)
+    emitCompassAlignedSample(emit)
+    emitCompassAlignedSample(emit)
+    const absoluteSample = controller.getLatestState()!.sample
+    controller.setCalibration(
+      createPoseCalibrationFromReferencePose(absoluteSample.rawQuaternion, {
+        source: 'deviceorientation-absolute',
+        timestampMs: 1,
+      }),
+    )
+
+    emitCompassMissingSample(emit)
+    emitCompassAlignedSample(emit)
+    expect(states.at(-1)).toEqual({
+      source: 'deviceorientation-absolute',
+      calibrated: true,
+    })
+    expect(calibrationChanges).toEqual([])
+
+    emitCompassMissingSample(emit)
+    emitCompassMissingSample(emit)
+    expect(states.at(-1)).toEqual({
+      source: 'deviceorientation-absolute',
+      calibrated: true,
+    })
+    emitCompassMissingSample(emit)
+    controller.stop()
+
+    expect(states.at(-1)).toEqual({
+      source: 'deviceorientation-relative',
+      calibrated: false,
+    })
+    expect(calibrationChanges).toEqual(['source-frame-changed'])
   })
 
   it('restarts arbitration after lifecycle suspend and provider stall', async () => {
@@ -774,9 +898,12 @@ describe('orientation runtime coordinator', () => {
       quaternion: [0, 0, 0, 1],
     })
     await vi.advanceTimersByTimeAsync(ORIENTATION_SELECTION_TIMEOUT_MS)
+    expect(controller.getLatestState()?.orientationSource).toBe('absolute-sensor')
 
     setVisibility('hidden')
+    expect(controller.getLatestState()).toBeNull()
     setVisibility('visible')
+    expect(controller.getLatestState()).toBeNull()
     await flushMicrotasks()
 
     emitSensorReading('absolute', {
@@ -1240,6 +1367,16 @@ function emitCompassMisalignedSample(
     gamma: 0,
     webkitCompassHeading: 0,
     webkitCompassAccuracy: 5,
+  })
+}
+
+function emitCompassMissingSample(
+  emit: (type: WindowEventType, reading: DeviceOrientationReading) => void,
+) {
+  emit('deviceorientation', {
+    alpha: 90,
+    beta: 90,
+    gamma: 0,
   })
 }
 
