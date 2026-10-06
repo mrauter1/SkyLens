@@ -784,6 +784,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   )
   const [showAlignmentGuidance, setShowAlignmentGuidance] = useState(false)
   const [calibrationBanner, setCalibrationBanner] = useState<string | null>(null)
+  const [alignmentFocusNotice, setAlignmentFocusNotice] = useState<string | null>(null)
   const [lastAppliedCalibrationTarget, setLastAppliedCalibrationTarget] =
     useState<CalibrationTarget | null>(null)
   const [healthStatus, setHealthStatus] = useState<HealthApiResponse | null>(null)
@@ -824,6 +825,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   const orientationControllerRef = useRef<ReturnType<typeof subscribeToOrientationPose> | null>(
     null,
   )
+  const poseCalibrationRef = useRef(viewerSettings.poseCalibration)
   const videoElementRef = useRef<HTMLVideoElement | null>(null)
   const cameraStreamRef = useRef<MediaStream | null>(null)
   const cameraRequestIdRef = useRef(0)
@@ -1690,7 +1692,8 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     manualMode,
     preferredTargetUnavailable: calibrationTargetResolution.preferredTargetUnavailable,
   })
-  const alignmentFocusPrompt = `Press the middle of the screen to align to ${calibrationTarget.label}.`
+  const alignmentFocusPrompt = alignmentFocusNotice ??
+    `Press the middle of the screen to align to ${calibrationTarget.label}.`
   const showMobileArToggle = state.entry === 'live'
   const showMobileAlignAction = state.entry === 'live' && !isMobileAlignmentFocusActive
   const showMobileScopeAction = scopeControlsAvailable && !isMobileAlignmentFocusActive
@@ -1796,6 +1799,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
           : getDesktopAlignmentFallbackFocusTarget,
     }
     setShowAlignmentGuidance(false)
+    setAlignmentFocusNotice(null)
     setIsDesktopViewerPanelOpen(false)
     setIsMobileOverlayOpen(false)
     setIsDesktopSettingsSheetOpen(false)
@@ -1811,6 +1815,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
 
     alignmentOverlayRestoreTargetRef.current = null
     setShowAlignmentGuidance(false)
+    setAlignmentFocusNotice(null)
     setIsMobileOverlayOpen(false)
     setIsDesktopSettingsSheetOpen(false)
     setIsMobileSettingsSheetOpen(false)
@@ -1826,6 +1831,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       )
     setIsAlignmentPanelOpen(false)
     setIsMobileAlignmentFocusActive(false)
+    setAlignmentFocusNotice(null)
   }
 
   const handleMobileViewerOverlayKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
@@ -3596,6 +3602,15 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   }, [interactionMode])
 
   useEffect(() => {
+    if (poseCalibrationRef.current === viewerSettings.poseCalibration) {
+      return
+    }
+
+    poseCalibrationRef.current = viewerSettings.poseCalibration
+    orientationControllerRef.current?.setCalibration(viewerSettings.poseCalibration)
+  }, [viewerSettings.poseCalibration])
+
+  useEffect(() => {
     orientationControllerRef.current?.stop()
     orientationControllerRef.current = null
     poorSinceRef.current = null
@@ -3619,7 +3634,6 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       orientationSource: nextOrientationSource,
       orientationAbsolute,
       orientationNeedsCalibration,
-      poseCalibration,
     }: OrientationPoseState) => {
       setSensorCameraPose(pose)
       setOrientationSource(nextOrientationSource)
@@ -3691,13 +3705,6 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
 
       poorSinceRef.current = null
       setShowAlignmentGuidance(false)
-      setCalibrationBanner(
-        orientationNeedsCalibration
-          ? 'Relative motion is active. Center the suggested target and align before trusting labels.'
-          : poseCalibration.calibrated
-            ? 'Calibration is active.'
-            : null,
-      )
     }
 
     const flushOrientationUpdate = () => {
@@ -3733,7 +3740,17 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     const controller = subscribeToOrientationPose(
       enqueueOrientationUpdate,
       {
-        initialCalibration: viewerSettings.poseCalibration,
+        initialCalibration: poseCalibrationRef.current,
+        onCalibrationChange: ({ poseCalibration, reason }) => {
+          poseCalibrationRef.current = poseCalibration
+          setViewerSettings((current) => ({ ...current, poseCalibration }))
+          setLastAppliedCalibrationTarget(null)
+          setCalibrationBanner(
+            reason === 'relative-frame-restarted'
+              ? 'Motion tracking restarted. Align again before trusting label placement.'
+              : 'The motion reference changed. Previous alignment was cleared; align again if labels look off.',
+          )
+        },
       },
     )
 
@@ -3764,7 +3781,6 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     commitViewerRouteState,
     manualMode,
     shouldRunOrientationSession,
-    viewerSettings.poseCalibration,
   ])
 
   useEffect(() => {
@@ -3801,10 +3817,6 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     state.entry,
     state.orientation,
   ])
-
-  useEffect(() => {
-    orientationControllerRef.current?.setCalibration?.(viewerSettings.poseCalibration)
-  }, [viewerSettings.poseCalibration])
 
   useEffect(() => {
     if (!showAlignmentGuidance || manualMode) {
@@ -3965,7 +3977,10 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
 
   const updatePoseCalibration = (nextCalibration: PoseCalibration) => {
     setCalibrationBanner(null)
+    setAlignmentFocusNotice(null)
     setShowAlignmentGuidance(false)
+    poseCalibrationRef.current = nextCalibration
+    orientationControllerRef.current?.setCalibration(nextCalibration)
     setViewerSettings((current) => ({
       ...current,
       poseCalibration: nextCalibration,
@@ -3997,7 +4012,15 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
   }
 
   const alignCalibrationTarget = () => {
-    if (manualMode || !latestOrientationSample) {
+    if (manualMode) {
+      return
+    }
+
+    const sample = orientationControllerRef.current?.getLatestState()?.sample
+    if (!sample) {
+      const notice = 'Wait for a fresh motion sample, then try Align again.'
+      setCalibrationBanner(notice)
+      setAlignmentFocusNotice(notice)
       return
     }
 
@@ -4008,7 +4031,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       return
     }
 
-    const rawBasis = getCameraBasisVectors(latestOrientationSample.rawQuaternion)
+    const rawBasis = getCameraBasisVectors(sample.rawQuaternion)
     const targetForwardWorld = normalizeVec3(
       horizontalToWorldVector(target.azimuthDeg, target.elevationDeg),
     )
@@ -4023,10 +4046,10 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
     const up = normalizeVec3(crossVec3(right, targetForwardWorld))
     const targetQuaternion = createQuaternionFromBasis(right, [-up[0], -up[1], -up[2]], targetForwardWorld)
     const nextCalibration = createPoseCalibrationFromReferencePose(
-      latestOrientationSample.rawQuaternion,
+      sample.rawQuaternion,
       {
         targetQuaternion,
-        source: latestOrientationSample.source,
+        source: sample.source,
         timestampMs: getCurrentTimestampMs(),
       },
     )
@@ -4052,20 +4075,26 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
       return
     }
 
+    const orientationState = orientationControllerRef.current?.getLatestState()
+    if (!orientationState) {
+      setCalibrationBanner('Wait for a fresh motion sample, then try adjusting again.')
+      return
+    }
+
     const axis =
       adjustment.axis === 'yaw'
         ? WORLD_UP
-        : getCameraBasisVectors(sensorCameraPose.quaternion).right
+        : getCameraBasisVectors(orientationState.pose.quaternion).right
     const deltaQuaternion = createAxisAngleQuaternion(axis, adjustment.deltaDeg)
     const nextCalibration = createPoseCalibration({
-      ...viewerSettings.poseCalibration,
+      ...orientationState.poseCalibration,
       calibrated: true,
       sourceAtCalibration:
-        orientationSource ?? viewerSettings.poseCalibration.sourceAtCalibration,
+        orientationState.orientationSource,
       lastCalibratedAtMs: getCurrentTimestampMs(),
       offsetQuaternion: multiplyQuaternions(
         deltaQuaternion,
-        viewerSettings.poseCalibration.offsetQuaternion,
+        orientationState.poseCalibration.offsetQuaternion,
       ),
     })
 
@@ -4726,6 +4755,7 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
           <div
             className="pointer-events-none absolute inset-x-0 top-24 z-20 flex justify-center px-4"
             data-testid="alignment-focus-instruction"
+            role="status"
           >
             <div className="rounded-full border border-emerald-300/20 bg-slate-950/58 px-4 py-2 text-center text-xs font-medium uppercase tracking-[0.16em] text-emerald-100/80 shadow-[0_16px_36px_rgba(3,7,13,0.24)] backdrop-blur">
               {alignmentFocusPrompt}
@@ -5871,7 +5901,8 @@ export function ViewerShell({ initialState }: ViewerShellProps) {
         )}
         {showMobileArToggle ? (
           <div
-            className="pointer-events-auto relative z-50 flex justify-center pt-3"
+            className="pointer-events-auto relative z-10 flex justify-center pt-3"
+            inert={isMobileOverlayOpen || shouldShowAlignmentInstructions || isMobileSettingsSheetOpen}
             data-testid="mobile-ar-toggle-bar"
           >
             <button

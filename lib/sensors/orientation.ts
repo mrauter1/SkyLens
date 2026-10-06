@@ -56,6 +56,17 @@ export interface PoseCalibration {
   lastCalibratedAtMs: number | null
 }
 
+export type OrientationCalibrationResetReason =
+  | 'source-frame-changed'
+  | 'relative-frame-restarted'
+
+export interface OrientationCalibrationChange {
+  poseCalibration: PoseCalibration
+  reason: OrientationCalibrationResetReason
+  sourceAtCalibration: OrientationSource | null
+  activeSource: Exclude<OrientationSource, 'manual'>
+}
+
 export interface OrientationSample {
   source: OrientationSource
   absolute: boolean
@@ -878,16 +889,21 @@ export function subscribeToOrientationPose(
     runtime,
     initialCalibration = createPoseCalibration(),
     offsets = { headingDeg: 0, pitchDeg: 0 },
+    onCalibrationChange,
   }: {
     runtime?: OrientationRuntime
     initialCalibration?: PoseCalibration
     offsets?: OrientationOffsets
+    onCalibrationChange?: (change: OrientationCalibrationChange) => void
   } = {},
 ) {
   const currentWindow = runtime ?? getOrientationWindow()
 
   if (!currentWindow) {
     return {
+      getLatestState() {
+        return null
+      },
       recenter() {},
       setCalibration() {},
       stop() {},
@@ -901,6 +917,7 @@ export function subscribeToOrientationPose(
   let calibration = createPoseCalibration(initialCalibration)
   let smoothedSample: OrientationSample | null = null
   let latestSample: InternalProviderSample | null = null
+  let latestPoseState: OrientationPoseState | null = null
   let history: OrientationSample[] = []
   let selectedSource: AutomaticOrientationSource | null = null
   let selectedProviderId: InternalProviderId | null = null
@@ -914,6 +931,8 @@ export function subscribeToOrientationPose(
   let stopped = false
   let suspended = false
   let upgradeDeadlineMs: number | null = null
+  let arbitrationGeneration = 0
+  let calibrationGeneration: number | null = null
   let compassValidation = {
     consecutiveValidSamples: 0,
     consecutiveInvalidSamples: 0,
@@ -1045,6 +1064,7 @@ export function subscribeToOrientationPose(
   }
 
   function startArbitration() {
+    arbitrationGeneration += 1
     selectionActive = true
     selectionWindowExpired = false
     selectionCandidates = new Map()
@@ -1140,6 +1160,8 @@ export function subscribeToOrientationPose(
     const previousSource = selectedSource
     const nextSource = rawSample.source as AutomaticOrientationSource
 
+    reconcileCalibrationForSample(nextSource)
+
     if (previousSource !== nextSource || selectedProviderId !== providerId) {
       smoothedSample = null
       history = []
@@ -1148,7 +1170,6 @@ export function subscribeToOrientationPose(
 
     const preserveCompassValidation =
       rawSample.providerKind === 'event' &&
-      rawSample.compassBacked === true &&
       (providerId === 'deviceorientation-relative-event' ||
         providerId === 'deviceorientation-safari-validated-event')
 
@@ -1179,7 +1200,7 @@ export function subscribeToOrientationPose(
 
     resetStallTimeout()
 
-    onPose({
+    latestPoseState = {
       sample: smoothedSample,
       history,
       orientationSource: smoothedSample.source,
@@ -1187,6 +1208,59 @@ export function subscribeToOrientationPose(
       orientationNeedsCalibration: smoothedSample.needsCalibration,
       poseCalibration: calibration,
       pose: buildCameraPose(smoothedSample, alignmentHealth),
+    }
+    onPose(latestPoseState)
+  }
+
+  function reconcileCalibrationForSample(nextSource: AutomaticOrientationSource) {
+    if (!calibration.calibrated && !hasNonIdentityCalibrationOffset(calibration)) {
+      calibrationGeneration = null
+      return
+    }
+
+    const sourceAtCalibration = calibration.sourceAtCalibration
+    if (!calibration.calibrated) {
+      resetCalibrationForRuntimeSource(
+        'source-frame-changed',
+        sourceAtCalibration,
+        nextSource,
+      )
+      return
+    }
+
+    const calibrationIsAbsolute =
+      sourceAtCalibration !== null &&
+      sourceAtCalibration !== 'manual' &&
+      isSourceAbsolute(sourceAtCalibration)
+    const nextSourceIsAbsolute = isSourceAbsolute(nextSource)
+    const sameRelativeFrame =
+      sourceAtCalibration === nextSource &&
+      !nextSourceIsAbsolute &&
+      calibrationGeneration === arbitrationGeneration
+
+    if ((calibrationIsAbsolute && nextSourceIsAbsolute) || sameRelativeFrame) {
+      return
+    }
+
+    const reason: OrientationCalibrationResetReason =
+      sourceAtCalibration === nextSource && !nextSourceIsAbsolute
+        ? 'relative-frame-restarted'
+        : 'source-frame-changed'
+    resetCalibrationForRuntimeSource(reason, sourceAtCalibration, nextSource)
+  }
+
+  function resetCalibrationForRuntimeSource(
+    reason: OrientationCalibrationResetReason,
+    sourceAtCalibration: OrientationSource | null,
+    activeSource: AutomaticOrientationSource,
+  ) {
+    calibration = createIdentityPoseCalibration()
+    calibrationGeneration = null
+    onCalibrationChange?.({
+      poseCalibration: calibration,
+      reason,
+      sourceAtCalibration,
+      activeSource,
     })
   }
 
@@ -1229,7 +1303,7 @@ export function subscribeToOrientationPose(
         return providerSample
       }
 
-      return providerSample
+      return promoteCompassBackedSample(providerSample)
     }
 
     if (!validationPassed || !canAttemptAbsoluteUpgrade()) {
@@ -1294,6 +1368,7 @@ export function subscribeToOrientationPose(
     selectedSource = null
     selectedProviderId = null
     latestSample = null
+    latestPoseState = null
     smoothedSample = null
     history = []
     selectionCandidates = new Map()
@@ -1332,12 +1407,18 @@ export function subscribeToOrientationPose(
   }
 
   return {
+    getLatestState() {
+      return latestPoseState
+    },
     recenter() {
       if (!smoothedSample) {
         return
       }
 
       calibration = createPoseCalibrationFromSample(smoothedSample)
+      calibrationGeneration = isSourceAbsolute(smoothedSample.source)
+        ? null
+        : arbitrationGeneration
       const rawSample = smoothedSample.rawSample
       smoothedSample = null
       history = []
@@ -1348,6 +1429,15 @@ export function subscribeToOrientationPose(
     },
     setCalibration(nextCalibration: PoseCalibration) {
       calibration = createPoseCalibration(nextCalibration)
+      const sourceAtCalibration = calibration.sourceAtCalibration
+      calibrationGeneration =
+        calibration.calibrated &&
+        sourceAtCalibration !== null &&
+        sourceAtCalibration !== 'manual' &&
+        !isSourceAbsolute(sourceAtCalibration) &&
+        sourceAtCalibration === selectedSource
+          ? arbitrationGeneration
+          : null
 
       if (!latestSample) {
         return
@@ -2056,8 +2146,14 @@ function isRuntimeHidden(runtime: OrientationRuntime) {
   return runtimeDocument?.visibilityState === 'hidden'
 }
 
-function isSourceAbsolute(source: AutomaticOrientationSource) {
+function isSourceAbsolute(source: OrientationSource) {
   return source === 'absolute-sensor' || source === 'deviceorientation-absolute'
+}
+
+function hasNonIdentityCalibrationOffset(calibration: PoseCalibration) {
+  const [x, y, z, w] = calibration.offsetQuaternion
+
+  return Math.hypot(x, y, z) > 1e-6 || Math.abs(Math.abs(w) - 1) > 1e-6
 }
 
 function isFiniteNumber(value: unknown): value is number {
